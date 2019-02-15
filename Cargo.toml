@@ -1,0 +1,17 @@
+[package]
+name = "apis"
+version = "0.1.0"
+authors = ["Andrew Jones <ascjones@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+chrono = "0.4.0"
+clap = { version = "~2.32", features = ["yaml"] }
+steel-cent = "0.2.2"
+serde = "1.0"
+serde_derive = "1.0"
+lazy_static = "1.2.0"
+csv = "1.0.5"
+prettytable-rs = "^0.8"
+binance = { git = "https://github.com/wisespace-io/binance-rs.git" }
+bittrex-api = { git = "https://github.com/geaz/bittrex-api" }
