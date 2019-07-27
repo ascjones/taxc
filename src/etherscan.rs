@@ -1,11 +1,11 @@
 use std::error::Error;
-use std::io::{Read};
+use std::io::Read;
 
-use csv;
 use chrono::NaiveDateTime;
+use csv;
 use serde_derive::Deserialize;
 
-use crate::{Transaction, Account, AccountKind, Network, Entry, amount};
+use crate::{amount, Account, AccountKind, Entry, Network, Transaction};
 
 #[derive(Debug, Deserialize)]
 struct Record {
@@ -38,27 +38,26 @@ struct Record {
 }
 
 fn record_to_transaction(record: &Record) -> Option<Transaction> {
-//    let date_time = Utc.timestamp_millis(record.unix_timestamp).naive_utc();
-    let date_time = NaiveDateTime::parse_from_str(
-        record.date_time.as_ref(), "%m/%d/%Y %-I:%M:%S %p").unwrap();
-//    println!("{} {:?}", record.unix_timestamp, date_time);
-    let amt =
-        if record.value_in == 0. && record.value_out > 0. {
-            record.value_out
-        } else if record.value_in > 0. && record.value_out == 0. {
-            record.value_in
-        } else if record.value_in == 0. && record.value_out == 0. {
-//            println!("Ignoring token tx {}", record.tx_hash);
-            return None
-        } else {
-            panic!("in and out both have no zero values: tx {}", record.tx_hash)
-        };
+    //    let date_time = Utc.timestamp_millis(record.unix_timestamp).naive_utc();
+    let date_time =
+        NaiveDateTime::parse_from_str(record.date_time.as_ref(), "%m/%d/%Y %-I:%M:%S %p").unwrap();
+    //    println!("{} {:?}", record.unix_timestamp, date_time);
+    let amt = if record.value_in == 0. && record.value_out > 0. {
+        record.value_out
+    } else if record.value_in > 0. && record.value_out == 0. {
+        record.value_in
+    } else if record.value_in == 0. && record.value_out == 0. {
+        //            println!("Ignoring token tx {}", record.tx_hash);
+        return None;
+    } else {
+        panic!("in and out both have no zero values: tx {}", record.tx_hash)
+    };
 
     let entry = |address: &str, amt: f64| {
         let amt = amount("ETH", amt); // todo should subtract fees?
         let acct = Account::new(
             "ethereum",
-            AccountKind::Crypto(Network::Ethereum, Some(address.into()))
+            AccountKind::Crypto(Network::Ethereum, Some(address.into())),
         );
         Entry::new(acct, amt)
     };
@@ -72,12 +71,15 @@ fn record_to_transaction(record: &Record) -> Option<Transaction> {
     Some(Transaction::new(source_id, date_time, debit, credit, fee))
 }
 
-pub fn read_csv<R>(reader: R) -> Result<Vec<Transaction>, Box<Error>> where R: Read {
+pub fn read_csv<R>(reader: R) -> Result<Vec<Transaction>, Box<Error>>
+where
+    R: Read,
+{
     let mut rdr = csv::Reader::from_reader(reader);
     let result: Result<Vec<_>, _> = rdr.deserialize::<Record>().collect();
     let mut txs: Vec<_> = result?
         .iter()
-        .filter_map(|record|record_to_transaction(record))
+        .filter_map(|record| record_to_transaction(record))
         .collect();
     txs.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
     Ok(txs)

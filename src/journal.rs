@@ -1,10 +1,10 @@
-use std::io::{Read, Write};
-use std::error::Error;
 use chrono::{DateTime, Utc};
-use steel_cent::{Money, formatting::uk_style};
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
+use std::error::Error;
+use std::io::{Read, Write};
+use steel_cent::{formatting::uk_style, Money};
 
-use crate::transaction::{Transaction, Entry, Account, parse_money};
+use crate::transaction::{parse_money, Account, Entry, Transaction};
 
 pub struct Journal(Vec<Transaction>);
 
@@ -27,10 +27,13 @@ impl Journal {
     }
 
     fn sort_txs(&mut self) {
-        self.0.sort_by(|tx1,tx2| tx1.date_time.cmp(&tx2.date_time));
+        self.0.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
     }
 
-    pub fn read_csv<'a, R>(reader: R) -> Result<Journal, Box<Error>> where R: Read {
+    pub fn read_csv<'a, R>(reader: R) -> Result<Journal, Box<Error>>
+    where
+        R: Read,
+    {
         let mut rdr = csv::Reader::from_reader(reader);
         let mut raw_record = csv::StringRecord::new();
         let headers = rdr.headers()?.clone();
@@ -38,12 +41,15 @@ impl Journal {
 
         while rdr.read_record(&mut raw_record)? {
             let record: CsvTransaction = raw_record.deserialize(Some(&headers))?;
-            let source_id =
-                if record.source_id == "" { None } else { Some(record.source_id.into()) };
-            let date_time =
-                DateTime::parse_from_rfc3339(record.date_time)
-                    // todo: bring back error with detail
-                    .expect(format!("Invalid date_time {}", record.date_time).as_ref()).naive_utc();
+            let source_id = if record.source_id == "" {
+                None
+            } else {
+                Some(record.source_id.into())
+            };
+            let date_time = DateTime::parse_from_rfc3339(record.date_time)
+                // todo: bring back error with detail
+                .expect(format!("Invalid date_time {}", record.date_time).as_ref())
+                .naive_utc();
             let debit = parse_entry(record.debit_acct, record.debit_amt)?;
             let credit = parse_entry(record.credit_acct, record.credit_amt)?;
             let fee = parse_money(record.fee)?;
@@ -53,11 +59,15 @@ impl Journal {
         Ok(Journal::new(txs))
     }
 
-    pub fn write_csv<W>(&self, writer: W) -> Result<(), Box<Error>> where W: Write {
+    pub fn write_csv<W>(&self, writer: W) -> Result<(), Box<Error>>
+    where
+        W: Write,
+    {
         let mut wtr = csv::Writer::from_writer(writer);
         for tx in self.0.iter() {
-            let date_time =
-                DateTime::<Utc>::from_utc(tx.date_time, Utc).to_rfc3339().clone();
+            let date_time = DateTime::<Utc>::from_utc(tx.date_time, Utc)
+                .to_rfc3339()
+                .clone();
             let (debit_amt, debit_acct) = display_entry(&tx.debit);
             let (credit_amt, credit_acct) = display_entry(&tx.credit);
             let fee = display_amount(&tx.fee);
@@ -82,7 +92,8 @@ impl Journal {
 
     pub fn merge(&mut self, other: &Journal) {
         for new_tx in other.transactions() {
-            let existing_tx = self.transactions()
+            let existing_tx = self
+                .transactions()
                 .iter()
                 .cloned()
                 .find(|existing| existing == new_tx);
@@ -105,9 +116,9 @@ fn display_amount(amount: &Money) -> String {
 }
 
 fn parse_entry(acct: &str, amt: &str) -> Result<Entry, Box<Error>> {
-    let acct = Account::parse(acct)
-        .map_err(|err| format!("Error parsing acct '{}':\n\t{}", acct, err))?;
-    let amt = parse_money(amt)
-        .map_err(|err| format!("Error parsing money '{}':\n\t{}", amt, err))?;
+    let acct =
+        Account::parse(acct).map_err(|err| format!("Error parsing acct '{}':\n\t{}", acct, err))?;
+    let amt =
+        parse_money(amt).map_err(|err| format!("Error parsing money '{}':\n\t{}", amt, err))?;
     Ok(Entry::new(acct, amt))
 }

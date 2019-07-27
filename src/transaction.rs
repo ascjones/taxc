@@ -1,7 +1,11 @@
-use std::fmt;
 use chrono::NaiveDateTime;
 use lazy_static::lazy_static;
-use steel_cent::{Money, currency::{self, Currency}, formatting::{self, ParseError, FormatSpec, FormatPart}};
+use std::fmt;
+use steel_cent::{
+    currency::{self, Currency},
+    formatting::{self, FormatPart, FormatSpec, ParseError},
+    Money,
+};
 
 lazy_static! {
     pub static ref BTC: Currency = Currency::new("BTC", 0, 8);
@@ -17,23 +21,26 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref CRYPTO_PARSER: formatting::Parser = 
-        formatting::uk_style().parser()
-            .with_short_symbol(*BTC, "BTC".to_string())
-            .with_short_symbol(*ETH, "ETH".to_string())
-            .with_short_symbol(*ETC, "ETC".to_string())
-            .with_short_symbol(*XRP, "XRP".to_string())
-            .with_short_symbol(*REP, "REP".to_string())
-            .with_short_symbol(*DGD, "DGD".to_string())
-            .with_short_symbol(*UKG, "UKG".to_string())
-            .with_short_symbol(*OMG, "OMG".to_string())
-            .with_short_symbol(*DOT, "DOT".to_string())
-            .with_short_symbol(*ATM, "ATM".to_string());
+    pub static ref CRYPTO_PARSER: formatting::Parser = formatting::uk_style()
+        .parser()
+        .with_short_symbol(*BTC, "BTC".to_string())
+        .with_short_symbol(*ETH, "ETH".to_string())
+        .with_short_symbol(*ETC, "ETC".to_string())
+        .with_short_symbol(*XRP, "XRP".to_string())
+        .with_short_symbol(*REP, "REP".to_string())
+        .with_short_symbol(*DGD, "DGD".to_string())
+        .with_short_symbol(*UKG, "UKG".to_string())
+        .with_short_symbol(*OMG, "OMG".to_string())
+        .with_short_symbol(*DOT, "DOT".to_string())
+        .with_short_symbol(*ATM, "ATM".to_string());
 }
 
 lazy_static! {
     pub static ref STYLE_NO_SYMBOL: FormatSpec = FormatSpec::new(
-        ',', '.', vec![FormatPart::OptionalMinus, FormatPart::Amount]);
+        ',',
+        '.',
+        vec![FormatPart::OptionalMinus, FormatPart::Amount]
+    );
 }
 
 pub type Year = i32;
@@ -46,7 +53,10 @@ pub struct Account {
 
 impl Account {
     pub fn new(name: &str, kind: AccountKind) -> Self {
-        Account { name: name.into(), kind }
+        Account {
+            name: name.into(),
+            kind,
+        }
     }
 }
 
@@ -61,27 +71,25 @@ impl Account {
         let mut parts = s.split(':');
         let name = parts.next().ok_or("expected name")?;
         let kind_str = parts.next().ok_or("expected kind")?;
-        let kind =
-            match kind_str {
-                "Exchange" => Ok(AccountKind::Exchange),
-                "Bank" => Ok(AccountKind::Bank),
-                "Crypto" => {
-                    let network = parts.next()
-                        .ok_or("expected network for Crypto Account".into())
-                        .and_then(|network| {
-                            match network {
-                                "Bitcoin" => Ok(Network::Bitcoin),
-                                "Ethereum" => Ok(Network::Ethereum),
-                                "EthereumClassic" => Ok(Network::EthereumClassic),
-                                "Ripple" => Ok(Network::Ripple),
-                                x => Err(format!("Unknown Crypto network {}", x))
-                            }
-                        })?;
-                    let address = parts.next().map(Into::into);
-                    Ok(AccountKind::Crypto(network, address))
-                },
-                x => Err(format!("Unknown account kind {}", x))
-            }?;
+        let kind = match kind_str {
+            "Exchange" => Ok(AccountKind::Exchange),
+            "Bank" => Ok(AccountKind::Bank),
+            "Crypto" => {
+                let network = parts
+                    .next()
+                    .ok_or("expected network for Crypto Account".into())
+                    .and_then(|network| match network {
+                        "Bitcoin" => Ok(Network::Bitcoin),
+                        "Ethereum" => Ok(Network::Ethereum),
+                        "EthereumClassic" => Ok(Network::EthereumClassic),
+                        "Ripple" => Ok(Network::Ripple),
+                        x => Err(format!("Unknown Crypto network {}", x)),
+                    })?;
+                let address = parts.next().map(Into::into);
+                Ok(AccountKind::Crypto(network, address))
+            }
+            x => Err(format!("Unknown account kind {}", x)),
+        }?;
         Ok(Account::new(name, kind))
     }
 }
@@ -108,7 +116,7 @@ impl fmt::Display for AccountKind {
                 write!(f, "Crypto:{}", network)?;
                 match address {
                     Some(addr) => write!(f, ":{}", addr),
-                    None => Ok(())
+                    None => Ok(()),
                 }
             }
         }
@@ -152,21 +160,25 @@ impl Transaction {
         date_time: NaiveDateTime,
         debit: Entry,
         credit: Entry,
-        fee: Money
+        fee: Money,
     ) -> Self {
-        Transaction { source_id, date_time, debit, credit, fee }
+        Transaction {
+            source_id,
+            date_time,
+            debit,
+            credit,
+            fee,
+        }
     }
 }
 
 pub fn amount(currency: &str, amount: f64) -> Money {
-    let money =
-        if currency == "BTC" || currency == "ETH" {
-            format!("{}{:.8}", currency, amount)
-        } else {
-            format!("{}{:.2}", currency, amount)
-        };
-    parse_money(&money)
-        .expect(&format!("{} is invalid money", money))
+    let money = if currency == "BTC" || currency == "ETH" {
+        format!("{}{:.8}", currency, amount)
+    } else {
+        format!("{}{:.2}", currency, amount)
+    };
+    parse_money(&money).expect(&format!("{} is invalid money", money))
 }
 
 pub fn parse_money(money: &str) -> Result<Money, ParseError> {
@@ -178,7 +190,7 @@ pub fn get_currency(code: &str) -> Option<Currency> {
     match code {
         "BTC" => Some(*BTC),
         "ETH" => Some(*ETH),
-        _ => currency::with_code(code)
+        _ => currency::with_code(code),
     }
 }
 

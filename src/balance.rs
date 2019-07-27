@@ -1,13 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
-use steel_cent::{
-    Money,
-    currency::Currency,
-};
 use prettytable::Table;
+use steel_cent::{currency::Currency, Money};
 
-use crate::{Journal, Account, Entry, display_amount};
+use crate::{display_amount, Account, Entry, Journal};
 
 struct Balance {
     currency: Currency,
@@ -27,26 +24,32 @@ impl Balance {
 
     fn credit(&mut self, entry: &Entry) {
         self.accounts.insert(entry.account.clone());
-        let account_credit_total = self.credits.entry(entry.account.clone())
+        let account_credit_total = self
+            .credits
+            .entry(entry.account.clone())
             .or_insert(Money::zero(self.currency));
         *account_credit_total = *account_credit_total + entry.amount;
     }
 
     fn debit(&mut self, entry: &Entry) {
         self.accounts.insert(entry.account.clone());
-        let account_debit_total = self.debits.entry(entry.account.clone())
+        let account_debit_total = self
+            .debits
+            .entry(entry.account.clone())
             .or_insert(Money::zero(self.currency));
         *account_debit_total = *account_debit_total + entry.amount;
     }
 
     fn total_debits(&self) -> Money {
-        self.debits.iter()
-            .fold(Money::zero(self.currency), |acc, (_, amt)| acc + amt )
+        self.debits
+            .iter()
+            .fold(Money::zero(self.currency), |acc, (_, amt)| acc + amt)
     }
 
     fn total_credits(&self) -> Money {
-        self.credits.iter()
-            .fold(Money::zero(self.currency), |acc, (_, amt)| acc + amt )
+        self.credits
+            .iter()
+            .fold(Money::zero(self.currency), |acc, (_, amt)| acc + amt)
     }
 
     fn balance(&self) -> Money {
@@ -57,10 +60,12 @@ impl Balance {
 pub fn display_balances(journal: &Journal) -> Result<(), Box<Error>> {
     let mut balances = HashMap::new();
     for tx in journal.transactions() {
-        let debit_currency_balance = balances.entry(tx.debit.amount.currency)
+        let debit_currency_balance = balances
+            .entry(tx.debit.amount.currency)
             .or_insert(Balance::new(tx.debit.amount.currency));
         debit_currency_balance.debit(&tx.debit);
-        let credit_currency_balance = balances.entry(tx.credit.amount.currency)
+        let credit_currency_balance = balances
+            .entry(tx.credit.amount.currency)
             .or_insert(Balance::new(tx.credit.amount.currency));
         credit_currency_balance.credit(&tx.credit);
     }

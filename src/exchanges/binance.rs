@@ -1,11 +1,11 @@
 use std::error::Error;
-use std::io::{Read};
+use std::io::Read;
 
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
 
-use crate::{Transaction, Account, AccountKind, Entry, amount};
 use crate::trades::{Trade, TradeKind};
+use crate::{amount, Account, AccountKind, Entry, Transaction};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -31,26 +31,19 @@ struct Record {
 
 impl Into<Option<Trade>> for Record {
     fn into(self) -> Option<Trade> {
-        let date_time = NaiveDateTime::parse_from_str(
-            self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+        let date_time =
+            NaiveDateTime::parse_from_str(self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
 
         let (base_currency, quote_currency) = self.market.split_at(3);
 
         let base_amount = amount(base_currency, self.amount);
         let quote_amount = amount(quote_currency, self.total);
 
-        let (kind, sell, buy) =
-            match self.order_type.as_ref() {
-                "BUY" => {
-                    (TradeKind::Buy, quote_amount, base_amount)
-                },
-                "SELL" => {
-                    (TradeKind::Sell, base_amount, quote_amount)
-                },
-                _ => {
-                    panic!("Invalid order_type {}", self.order_type)
-                }
-            };
+        let (kind, sell, buy) = match self.order_type.as_ref() {
+            "BUY" => (TradeKind::Buy, quote_amount, base_amount),
+            "SELL" => (TradeKind::Sell, base_amount, quote_amount),
+            _ => panic!("Invalid order_type {}", self.order_type),
+        };
         let fee = amount(self.fee_coin.as_ref(), self.fee);
 
         Some(Trade {
@@ -60,33 +53,26 @@ impl Into<Option<Trade>> for Record {
             sell,
             fee,
             rate: self.price,
-            exchange: Some("Binance".into())
+            exchange: Some("Binance".into()),
         })
     }
 }
 
 impl Into<Vec<Transaction>> for Record {
     fn into(self) -> Vec<Transaction> {
-        let date_time = NaiveDateTime::parse_from_str(
-            self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+        let date_time =
+            NaiveDateTime::parse_from_str(self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
 
         let (base_currency, quote_currency) = self.market.split_at(3);
 
         let base_amount = amount(base_currency, self.amount);
         let quote_amount = amount(quote_currency, self.total);
 
-        let (debit_amt, credit_amt) =
-            match self.order_type.as_ref() {
-                "BUY" => {
-                    (quote_amount, base_amount)
-                },
-                "SELL" => {
-                    (base_amount, quote_amount)
-                },
-                _ => {
-                    panic!("Invalid order_type {}", self.order_type)
-                }
-            };
+        let (debit_amt, credit_amt) = match self.order_type.as_ref() {
+            "BUY" => (quote_amount, base_amount),
+            "SELL" => (base_amount, quote_amount),
+            _ => panic!("Invalid order_type {}", self.order_type),
+        };
 
         let fee = amount(&self.fee_coin, self.fee);
 
@@ -97,12 +83,16 @@ impl Into<Vec<Transaction>> for Record {
             date_time,
             Entry::new(acct.clone(), debit_amt),
             Entry::new(acct.clone(), credit_amt),
-            fee);
+            fee,
+        );
 
         vec![tx]
     }
 }
 
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<Error>> where R: Read {
+pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<Error>>
+where
+    R: Read,
+{
     super::csv_to_trades::<R, Record>(reader)
 }
