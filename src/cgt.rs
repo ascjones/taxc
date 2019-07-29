@@ -1,10 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::error::Error;
-use std::fmt;
+
 use std::io::Write;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
-use prettytable::{Row, Table};
+
 use steel_cent::{
     currency::{Currency, GBP},
     Money,
@@ -16,14 +16,6 @@ use crate::coins::{BTC, ETH};
 
 type Year = i32;
 
-fn get_cgt_rate(_year: Year) -> f64 {
-    0.2 // todo: get by year
-}
-
-fn get_cgt_allowance(_year: Year) -> Money {
-    Money::of_major(GBP, 11_300) // 17/18 // todo: get by year
-}
-
 pub struct TaxYear {
     pub year: Year,
     pub gains: Vec<Gain>,
@@ -34,22 +26,6 @@ impl TaxYear {
             year,
             gains: Vec::new(),
         }
-    }
-
-    fn proceeds(&self) -> Money {
-        self.gains
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.sell_value)
-    }
-
-    fn allowable_costs(&self) -> Money {
-        self.gains
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs)
-    }
-
-    fn gain(&self) -> Money {
-        self.proceeds() - self.allowable_costs() // todo: fees
     }
 }
 
@@ -215,7 +191,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
         .cloned()
         .filter_map(|(trade, price)| {
             if trade.buy.currency != GBP {
-                let zero = Money::zero(trade.buy.currency);
+                let _zero = Money::zero(trade.buy.currency);
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
                 let costs = convert_to_gbp(buy_amount, &price, trade.rate);
                 let buy_pool = pools

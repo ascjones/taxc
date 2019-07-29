@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt;
+
 use std::io::{Read, Write};
 use std::ops::Add;
 
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use steel_cent::{
-    currency::{self, Currency, GBP},
-    formatting::uk_style,
     Money,
 };
 
 use crate::{
-    amount, display_amount, parse_money, CurrencyPair, Price, Prices,
+    display_amount, parse_money
 };
-use crate::coins::{BTC, ETH};
+
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {

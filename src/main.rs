@@ -6,7 +6,6 @@ use std::{fs::File, io};
 use clap::{App, Arg, SubCommand};
 use steel_cent::{
     currency::GBP,
-    formatting::{self, FormatPart, FormatSpec, ParseError},
     Money,
 };
 

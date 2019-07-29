@@ -1,5 +1,5 @@
 use steel_cent::{
-	currency::{self, Currency, GBP},
+	currency::{self, Currency},
 	formatting::{self, FormatPart, FormatSpec, ParseError},
 	Money,
 };

@@ -2,11 +2,11 @@ use std::error::Error;
 use std::io::Read;
 
 use chrono::DateTime;
-use csv;
-use serde_derive::Deserialize;
-use steel_cent::currency::{self, Currency};
 
-use super::*;
+use serde_derive::Deserialize;
+use steel_cent::currency::{self};
+
+
 use crate::trades::{Trade, TradeKind};
 use crate::amount;
 
