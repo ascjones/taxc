@@ -3,7 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::io::{Read, Write};
 
-use crate::{get_currency, BTC, ETH};
+use crate::get_currency;
+use crate::coins::{BTC, ETH};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -13,11 +14,6 @@ use steel_cent::currency::{Currency, GBP, USD};
 pub struct CurrencyPair {
     pub base: Currency,
     pub quote: Currency,
-}
-impl CurrencyPair {
-    pub fn new(base: Currency, quote: Currency) -> Self {
-        CurrencyPair { base, quote }
-    }
 }
 impl fmt::Display for CurrencyPair {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -30,16 +26,6 @@ pub struct Price {
     pub pair: CurrencyPair,
     pub date_time: NaiveDateTime,
     pub rate: f64,
-}
-
-impl Price {
-    pub fn gbp_gbp() -> Self {
-        Price {
-            pair: CurrencyPair::new(GBP, GBP),
-            date_time: NaiveDateTime::from_timestamp(0, 0),
-            rate: 1.,
-        }
-    }
 }
 
 #[derive(Default)]

@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
@@ -12,7 +11,10 @@ use steel_cent::{
 };
 
 use crate::trades::{Trade, TradeKey, TradeKind};
-use crate::{display_amount, CurrencyPair, Entry, Price, Prices, Year, BTC, ETH};
+use crate::{display_amount, CurrencyPair, Price, Prices};
+use crate::coins::{BTC, ETH};
+
+type Year = i32;
 
 fn get_cgt_rate(_year: Year) -> f64 {
     0.2 // todo: get by year

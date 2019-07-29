@@ -13,9 +13,9 @@ use steel_cent::{
 };
 
 use crate::{
-    amount, display_amount, parse_money, Account, AccountKind, CurrencyPair, Entry, Journal, Price,
-    Prices, Transaction, Year, BTC, ETH,
+    amount, display_amount, parse_money, CurrencyPair, Price, Prices,
 };
+use crate::coins::{BTC, ETH};
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {
@@ -29,14 +29,6 @@ impl Add for TradeAmount {
         TradeAmount {
             amount: self.amount + other.amount,
             gbp_value: self.gbp_value + other.gbp_value,
-        }
-    }
-}
-impl TradeAmount {
-    fn zero(currency: Currency) -> Self {
-        TradeAmount {
-            amount: Money::zero(currency),
-            gbp_value: Money::zero(GBP),
         }
     }
 }
@@ -73,11 +65,6 @@ pub struct TradeKey {
     date_time: NaiveDateTime,
     buy: String,
     sell: String,
-}
-
-fn is_crypto(money: &Money) -> bool {
-    // assumes any currency not known is a crypto.
-    currency::with_code(money.currency.code().as_ref()).is_none()
 }
 
 /// groups trades that occur for a currency on the same day/account
@@ -117,7 +104,7 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
                     let (count, total) = day_trades.iter().fold(
                         (Money::zero(*quote_curr), Money::zero(*quote_curr)),
                         |(count, total), trade| {
-                            let (base, quote) = if trade.buy.currency == *base_curr {
+                            let (base, _quote) = if trade.buy.currency == *base_curr {
                                 (trade.sell, trade.buy)
                             } else if trade.sell.currency == *base_curr {
                                 (trade.buy, trade.sell)

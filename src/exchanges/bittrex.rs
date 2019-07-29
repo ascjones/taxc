@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
 
 use crate::trades::{Trade, TradeKind};
-use crate::{amount, Account, AccountKind, Entry, Transaction};
+use crate::amount;
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -58,40 +58,6 @@ impl Into<Option<Trade>> for OrderRecord {
             exchange: Some("Bittrex".into()),
             kind,
         })
-    }
-}
-
-impl Into<Vec<Transaction>> for OrderRecord {
-    fn into(self) -> Vec<Transaction> {
-        let date_time =
-            NaiveDateTime::parse_from_str(self.closed.as_ref(), "%m/%d/%Y %-I:%M:%S %p").unwrap();
-
-        let mut market_parts = self.exchange.split('-');
-        let quote_currency = market_parts.next().expect("quote currency");
-        let base_currency = market_parts.next().expect("base currency");
-
-        let base_amount = amount(base_currency, self.quantity);
-        let quote_amount = amount(quote_currency, self.price);
-
-        let (debit_amt, credit_amt) = match self.order_type.as_ref() {
-            "LIMIT_BUY" => (quote_amount, base_amount),
-            "LIMIT_SELL" => (base_amount, quote_amount),
-            _ => panic!("Invalid order_type {}", self.order_type),
-        };
-
-        let fee = amount("£", 0.); // todo: fee;
-
-        let acct = Account::new("Bittrex", AccountKind::Exchange);
-
-        let tx = Transaction::new(
-            Some(self.order_id),
-            date_time,
-            Entry::new(acct.clone(), debit_amt),
-            Entry::new(acct.clone(), credit_amt),
-            fee,
-        );
-
-        vec![tx]
     }
 }
 
