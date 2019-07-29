@@ -4,11 +4,10 @@ use std::io::Read;
 use chrono::DateTime;
 
 use serde_derive::Deserialize;
-use steel_cent::currency::{self};
+use steel_cent::currency;
 
-
-use crate::trades::{Trade, TradeKind};
 use crate::amount;
+use crate::trades::{Trade, TradeKind};
 
 #[derive(Clone, Debug, Deserialize)]
 #[allow(non_snake_case)]

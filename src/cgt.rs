@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::error::Error;
 
 use std::io::Write;
@@ -10,9 +10,9 @@ use steel_cent::{
     Money,
 };
 
+use crate::coins::{BTC, ETH};
 use crate::trades::{Trade, TradeKey, TradeKind};
 use crate::{display_amount, CurrencyPair, Price, Prices};
-use crate::coins::{BTC, ETH};
 
 type Year = i32;
 

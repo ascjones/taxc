@@ -1,9 +1,9 @@
-use steel_cent::{
-	currency::{self, Currency},
-	formatting::{self, FormatPart, FormatSpec, ParseError},
-	Money,
-};
 use lazy_static::lazy_static;
+use steel_cent::{
+    currency::{self, Currency},
+    formatting::{self, FormatPart, FormatSpec, ParseError},
+    Money,
+};
 
 lazy_static! {
     pub static ref BTC: Currency = Currency::new("BTC", 0, 8);
@@ -42,27 +42,27 @@ lazy_static! {
 }
 
 pub fn amount(currency: &str, amount: f64) -> Money {
-	let money = if currency == "BTC" || currency == "ETH" {
-		format!("{}{:.8}", currency, amount)
-	} else {
-		format!("{}{:.2}", currency, amount)
-	};
-	parse_money(&money).expect(&format!("{} is invalid money", money))
+    let money = if currency == "BTC" || currency == "ETH" {
+        format!("{}{:.8}", currency, amount)
+    } else {
+        format!("{}{:.2}", currency, amount)
+    };
+    parse_money(&money).expect(&format!("{} is invalid money", money))
 }
 
 pub fn parse_money(money: &str) -> Result<Money, ParseError> {
-	let parser = &CRYPTO_PARSER;
-	parser.parse(money)
+    let parser = &CRYPTO_PARSER;
+    parser.parse(money)
 }
 
 pub fn get_currency(code: &str) -> Option<Currency> {
-	match code {
-		"BTC" => Some(*BTC),
-		"ETH" => Some(*ETH),
-		_ => currency::with_code(code),
-	}
+    match code {
+        "BTC" => Some(*BTC),
+        "ETH" => Some(*ETH),
+        _ => currency::with_code(code),
+    }
 }
 
 pub fn display_amount(amt: &Money) -> String {
-	STYLE_NO_SYMBOL.display_for(amt).to_string()
+    STYLE_NO_SYMBOL.display_for(amt).to_string()
 }

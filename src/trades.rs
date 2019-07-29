@@ -6,14 +6,9 @@ use std::ops::Add;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use steel_cent::{
-    Money,
-};
+use steel_cent::Money;
 
-use crate::{
-    display_amount, parse_money
-};
-
+use crate::{display_amount, parse_money};
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {
