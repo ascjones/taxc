@@ -27,6 +27,22 @@ impl TaxYear {
             gains: Vec::new(),
         }
     }
+
+    fn proceeds(&self) -> Money {
+        self.gains
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.sell_value)
+    }
+
+    fn allowable_costs(&self) -> Money {
+        self.gains
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs)
+    }
+
+    fn gain(&self) -> Money {
+        self.proceeds() - self.allowable_costs() // todo: fees
+    }
 }
 
 pub struct TaxReport {
@@ -351,9 +367,7 @@ fn ymd(y: Year, m: u32, d: u32) -> NaiveDate {
 mod tests {
     use super::*;
     use crate::trades::Trade;
-    use crate::transaction::*;
     use chrono::NaiveDate;
-    use lazy_static::lazy_static;
     use steel_cent::{currency::GBP, Money};
 
     fn trade(dt: &str, kind: TradeKind, sell: Money, buy: Money, rate: f64) -> Trade {
@@ -367,6 +381,7 @@ mod tests {
             sell,
             buy,
             rate,
+            fee: gbp(0),
             exchange: None,
         }
     }
