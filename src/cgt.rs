@@ -227,8 +227,6 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     .cloned()
                     .collect::<Vec<_>>();
 
-                //                special_rules_buy.sort_by(|(t1, _), (t2, _)| t1.date_time.cmp(&t2.date_time));
-
                 let (main_pool_sell, special_allowable_costs) = special_rules_buy.iter().fold(
                     (trade.sell, Money::zero(GBP)),
                     |(main_pool_sell, acc), (future_buy, buy_price)| {
@@ -321,8 +319,6 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
         TradeKind::Sell => (trade.buy.currency, trade.sell.currency),
     };
 
-    //    println!("quote {},s base {}", quote.code(), base.code());
-
     if quote == GBP {
         return Some(Price {
             pair: CurrencyPair { base, quote: GBP },
@@ -411,8 +407,6 @@ mod tests {
 
         let trades = vec![acq1, acq2, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
-
-        //        println!("{}", report);
 
         let ty_2018 = report
             .years
@@ -563,8 +557,6 @@ mod tests {
         let trades = vec![acq1, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        //        println!("{}", report);
-
         let ty_2018 = report
             .years
             .get(&2018)
@@ -574,11 +566,6 @@ mod tests {
         assert_money_eq!(ty_2018.allowable_costs(), gbp(1000));
         assert_money_eq!(ty_2018.gain(), gbp(1000));
     }
-
-    // #[test]
-    // fn same_day() {
-    //     unimplemented!();
-    // }
 
     // todo: test crypto -> crypto trade, should be both a sale and a purchase and require a price
 
