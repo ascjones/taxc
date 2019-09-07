@@ -1,5 +1,6 @@
 pub mod binance;
 pub mod bittrex;
+pub mod coinbase;
 pub mod poloniex;
 pub mod uphold;
 

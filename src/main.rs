@@ -6,12 +6,8 @@ use std::{fs::File, io};
 use clap::{App, Arg, SubCommand};
 use steel_cent::{currency::GBP, Money};
 
-use crate::exchanges::binance;
-use crate::exchanges::bittrex;
-use crate::exchanges::poloniex;
-use crate::exchanges::uphold;
-
 use crate::coins::*;
+use crate::exchanges::*;
 use crate::prices::*;
 
 mod cgt;
