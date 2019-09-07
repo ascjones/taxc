@@ -196,7 +196,7 @@ impl Into<Trade> for &TradeRecord {
     }
 }
 
-pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> Result<(), Box<Error>>
+pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> Result<(), Box<dyn Error>>
 where
     W: Write,
 {
@@ -209,7 +209,7 @@ where
     Ok(())
 }
 
-pub fn read_csv<R>(reader: R) -> Result<Vec<Trade>, Box<Error>>
+pub fn read_csv<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
 where
     R: Read,
 {

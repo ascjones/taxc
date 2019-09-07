@@ -16,7 +16,7 @@ mod exchanges;
 mod prices;
 mod trades;
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("cgt")
         .version("0.1")
         .author("Andrew Jones <ascjones@gmail.com>")
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<Error>> {
     }
 }
 
-fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<Error>> {
+fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
     let csv_file = File::open(file)?;
     let trades = match source {
         "uphold" => uphold::import_trades(csv_file),
@@ -139,7 +139,7 @@ fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<Er
     trades::write_csv(trades, io::stdout())
 }
 
-fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<Error>> {
+fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<dyn Error>> {
     let trades = trades::read_csv(File::open(file)?)?;
     let prices = Prices::read_csv(File::open(prices)?)?;
     let report = cgt::calculate(trades, &prices)?;
@@ -174,7 +174,7 @@ fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<Error>
     cgt::Gain::write_csv(&gains, io::stdout())
 }
 
-fn prices(btc: &str, eth: &str, gbp: &str) -> Result<(), Box<Error>> {
+fn prices(btc: &str, eth: &str, gbp: &str) -> Result<(), Box<dyn Error>> {
     let gbp_usd_file = File::open(gbp)?;
     let btc_usd_file = File::open(btc)?;
     let eth_usd_file = File::open(eth)?;

@@ -10,7 +10,7 @@ use std::io::Read;
 
 use crate::trades::Trade;
 
-fn csv_to_trades<R, CsvRecord>(reader: R) -> Result<Vec<Trade>, Box<Error>>
+fn csv_to_trades<R, CsvRecord>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
 where
     R: Read,
     CsvRecord: Into<Option<Trade>>,

@@ -77,7 +77,7 @@ impl Gain {
         self.sell_value - self.allowable_costs - self.fee()
     }
 
-    pub fn write_csv<W>(gains: &[Gain], writer: W) -> Result<(), Box<Error>>
+    pub fn write_csv<W>(gains: &[Gain], writer: W) -> Result<(), Box<dyn Error>>
     where
         W: Write,
     {
@@ -90,7 +90,7 @@ impl Gain {
         Ok(())
     }
 
-    fn write_headers<W>(wtr: &mut csv::Writer<W>) -> Result<(), Box<Error>>
+    fn write_headers<W>(wtr: &mut csv::Writer<W>) -> Result<(), Box<dyn Error>>
     where
         W: Write,
     {
@@ -112,7 +112,7 @@ impl Gain {
         Ok(())
     }
 
-    fn write_csv_record<W>(&self, wtr: &mut csv::Writer<W>) -> Result<(), Box<Error>>
+    fn write_csv_record<W>(&self, wtr: &mut csv::Writer<W>) -> Result<(), Box<dyn Error>>
     where
         W: Write,
     {

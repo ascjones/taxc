@@ -70,7 +70,7 @@ impl Into<Option<Trade>> for TradeHistoryRecord {
     }
 }
 
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<Error>>
+pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
 where
     R: Read,
 {
