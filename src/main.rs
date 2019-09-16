@@ -1,7 +1,6 @@
 #![recursion_limit = "128"]
 
-use std::error::Error;
-use std::{fs::File, io};
+use std::{fs::File, io, error::Error};
 
 use clap::{App, Arg, SubCommand};
 use steel_cent::{currency::GBP, Money};
@@ -16,7 +15,7 @@ mod exchanges;
 mod prices;
 mod trades;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("cgt")
         .version("0.1")
         .author("Andrew Jones <ascjones@gmail.com>")
@@ -122,11 +121,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
     let csv_file = File::open(file)?;
     let trades = match source {
-        "uphold" => uphold::import_trades(csv_file),
-        //            "etherscan" => etherscan::read_csv(csv_file),
-        "poloniex" => poloniex::import_trades(csv_file),
-        "bittrex" => bittrex::import_trades(csv_file),
-        "binance" => binance::import_trades(csv_file),
+        "uphold" => exchanges::csv_to_trades::<uphold::Record, _>(csv_file), //uphold::import_trades(csv_file),
+        "poloniex" => exchanges::csv_to_trades::<poloniex::Record, _>(csv_file), // poloniex::import_trades(csv_file),
+        "bittrex" => exchanges::csv_to_trades::<bittrex::Record, _>(csv_file),
+        "binance" => exchanges::csv_to_trades::<binance::Record, _>(csv_file),
         x => panic!("Unknown file source {}", x), // yes I know should be an error
     }?;
     let mut trades = if group_by_day {

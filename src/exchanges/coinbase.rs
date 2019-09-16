@@ -1,8 +1,8 @@
-use std::error::Error;
 use std::io::Read;
 
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
+use std::convert::TryFrom;
 
 use crate::amount;
 use crate::trades::{Trade, TradeKind};
@@ -29,41 +29,36 @@ struct Record {
     unit: String,
 }
 
-impl Into<Option<Trade>> for Record {
-    fn into(self) -> Option<Trade> {
+impl TryFrom<Record> for Trade {
+    type Error = super::ExchangeError;
+
+    fn try_from(value: Record) -> Result<Trade, Self::Error> {
         // 2018-11-20T21:39:45.667Z
         let date_time =
-            NaiveDateTime::parse_from_str(self.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%z").unwrap();
+            NaiveDateTime::parse_from_str(value.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%z").unwrap();
 
-        let mut market_parts = self.product.split('-');
+        let mut market_parts = value.product.split('-');
         let quote_currency = market_parts.next().expect("quote currency");
         let base_currency = market_parts.next().expect("base currency");
 
-        let base_amount = amount(base_currency, self.size);
-        let quote_amount = amount(quote_currency, self.total);
+        let base_amount = amount(base_currency, value.size);
+        let quote_amount = amount(quote_currency, value.total);
 
-        let (kind, sell, buy) = match self.side.as_ref() {
+        let (kind, sell, buy) = match value.side.as_ref() {
             "BUY" => (TradeKind::Buy, quote_amount, base_amount),
             "SELL" => (TradeKind::Sell, base_amount, quote_amount),
-            _ => panic!("Invalid order_type {}", self.side),
+            _ => panic!("Invalid order_type {}", value.side),
         };
-        let fee = amount(self.unit.as_ref(), self.fee);
+        let fee = amount(value.unit.as_ref(), value.fee);
 
-        Some(Trade {
+        Ok(Trade {
             date_time,
             kind,
             buy,
             sell,
             fee,
-            rate: self.price,
+            rate: value.price,
             exchange: Some("Coinbase Pro".into()),
         })
     }
-}
-
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
-where
-    R: Read,
-{
-    super::csv_to_trades::<R, Record>(reader)
 }

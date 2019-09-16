@@ -1,15 +1,16 @@
-use std::error::Error;
 use std::io::Read;
 
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
+use std::convert::TryFrom;
 
 use crate::amount;
 use crate::trades::{Trade, TradeKind};
+use crate::exchanges::ExchangeError;
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
-struct Record {
+pub struct Record {
     // Date(UTC),Market,Type,Price,Amount,Total,Fee,Fee Coin
     #[serde(rename = "Date(UTC)")]
     date: String,
@@ -29,38 +30,33 @@ struct Record {
     fee_coin: String,
 }
 
-impl Into<Option<Trade>> for Record {
-    fn into(self) -> Option<Trade> {
+impl TryFrom<Record> for Trade {
+    type Error = super::ExchangeError;
+
+    fn try_from(value: Record) -> Result<Trade, Self::Error> {
         let date_time =
-            NaiveDateTime::parse_from_str(self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+            NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")?;
 
-        let (base_currency, quote_currency) = self.market.split_at(3);
+        let (base_currency, quote_currency) = value.market.split_at(3);
 
-        let base_amount = amount(base_currency, self.amount);
-        let quote_amount = amount(quote_currency, self.total);
+        let base_amount = amount(base_currency, value.amount);
+        let quote_amount = amount(quote_currency, value.total);
 
-        let (kind, sell, buy) = match self.order_type.as_ref() {
+        let (kind, sell, buy) = match value.order_type.as_ref() {
             "BUY" => (TradeKind::Buy, quote_amount, base_amount),
             "SELL" => (TradeKind::Sell, base_amount, quote_amount),
-            _ => panic!("Invalid order_type {}", self.order_type),
+            _ => panic!("Invalid order_type {}", value.order_type),
         };
-        let fee = amount(self.fee_coin.as_ref(), self.fee);
+        let fee = amount(value.fee_coin.as_ref(), value.fee);
 
-        Some(Trade {
+        Ok(Trade {
             date_time,
             kind,
             buy,
             sell,
             fee,
-            rate: self.price,
+            rate: value.price,
             exchange: Some("Binance".into()),
         })
     }
-}
-
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
-where
-    R: Read,
-{
-    super::csv_to_trades::<R, Record>(reader)
 }

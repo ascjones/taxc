@@ -1,17 +1,18 @@
-use std::error::Error;
 use std::io::Read;
 
 use chrono::DateTime;
 
 use serde_derive::Deserialize;
+use std::convert::TryFrom;
 use steel_cent::currency;
 
 use crate::amount;
 use crate::trades::{Trade, TradeKind};
+use super::ExchangeError;
 
 #[derive(Clone, Debug, Deserialize)]
 #[allow(non_snake_case)]
-struct Record {
+pub struct Record {
     date: String,
     id: String,
     #[serde(rename = "type")]
@@ -28,50 +29,45 @@ struct Record {
     destination_commission: String,
 }
 
-impl Into<Option<Trade>> for Record {
-    fn into(self) -> Option<Trade> {
+impl TryFrom<Record> for Trade {
+    type Error = ExchangeError;
+
+    fn try_from(value: Record) -> Result<Trade, Self::Error> {
         // check to see if this is a crypto trade - either are unknown currencies
-        if currency::with_code(&self.origin_currency).is_some()
-            && currency::with_code(&self.destination_currency).is_some()
+        if currency::with_code(&value.origin_currency).is_some()
+            && currency::with_code(&value.destination_currency).is_some()
         {
-            return None;
+            return Err("Either origin or destination currency should be a cryptocurrency".into());
         }
-        if self.origin_currency == self.destination_currency {
-            return None;
+        if value.origin_currency == value.destination_currency {
+            return Err("Origin and destination cannot be the same currency".into());
         }
 
-        let date_time = DateTime::parse_from_rfc3339(&self.date)
+        let date_time = DateTime::parse_from_rfc3339(&value.date)
             .expect("invalid rcf3339 date")
             .naive_utc();
 
-        let sell = amount(&self.origin_currency, self.origin_amount);
-        let buy = amount(&self.destination_currency, self.destination_amount);
+        let sell = amount(&value.origin_currency, value.origin_amount);
+        let buy = amount(&value.destination_currency, value.destination_amount);
 
-        let (base_currency, _quote_currency) = self.pair.split_at(3);
-        let kind = if self.origin_currency == base_currency {
+        let (base_currency, _quote_currency) = value.pair.split_at(3);
+        let kind = if value.origin_currency == base_currency {
             TradeKind::Sell
-        } else if self.destination_currency == base_currency {
+        } else if value.destination_currency == base_currency {
             TradeKind::Buy
         } else {
             panic!("Either source or destination should be the base currency")
         };
-        let fee = amount("£", self.commission_in_GBP);
+        let fee = amount("£", value.commission_in_GBP);
 
-        Some(Trade {
+        Ok(Trade {
             date_time,
             buy,
             sell,
             fee,
-            rate: self.rate,
+            rate: value.rate,
             exchange: Some("Uphold".into()),
             kind,
         })
     }
-}
-
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
-where
-    R: Read,
-{
-    super::csv_to_trades::<R, Record>(reader)
 }
