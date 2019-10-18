@@ -1,11 +1,11 @@
-use std::io::Read;
+
 
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
 use std::convert::TryFrom;
 
 use crate::amount;
-use crate::exchanges::ExchangeError;
+
 use crate::trades::{Trade, TradeKind};
 
 #[derive(Debug, Deserialize, Clone)]
