@@ -6,9 +6,9 @@ use serde_derive::Deserialize;
 use std::convert::TryFrom;
 use steel_cent::currency;
 
+use super::ExchangeError;
 use crate::amount;
 use crate::trades::{Trade, TradeKind};
-use super::ExchangeError;
 
 #[derive(Clone, Debug, Deserialize)]
 #[allow(non_snake_case)]

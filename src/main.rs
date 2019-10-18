@@ -1,6 +1,6 @@
 #![recursion_limit = "128"]
 
-use std::{fs::File, io, error::Error};
+use std::{error::Error, fs::File, io};
 
 use clap::{App, Arg, SubCommand};
 use steel_cent::{currency::GBP, Money};

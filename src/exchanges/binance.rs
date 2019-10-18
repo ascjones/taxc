@@ -5,8 +5,8 @@ use serde_derive::Deserialize;
 use std::convert::TryFrom;
 
 use crate::amount;
-use crate::trades::{Trade, TradeKind};
 use crate::exchanges::ExchangeError;
+use crate::trades::{Trade, TradeKind};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -34,8 +34,7 @@ impl TryFrom<Record> for Trade {
     type Error = super::ExchangeError;
 
     fn try_from(value: Record) -> Result<Trade, Self::Error> {
-        let date_time =
-            NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")?;
+        let date_time = NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")?;
 
         let (base_currency, quote_currency) = value.market.split_at(3);
 
