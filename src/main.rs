@@ -125,6 +125,7 @@ fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dy
         "poloniex" => exchanges::csv_to_trades::<poloniex::Record, _>(csv_file), // poloniex::import_trades(csv_file),
         "bittrex" => exchanges::csv_to_trades::<bittrex::Record, _>(csv_file),
         "binance" => exchanges::csv_to_trades::<binance::Record, _>(csv_file),
+        "coinbase" => exchanges::csv_to_trades::<coinbase::Record, _>(csv_file),
         x => panic!("Unknown file source {}", x), // yes I know should be an error
     }?;
     let mut trades = if group_by_day {
