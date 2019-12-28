@@ -35,7 +35,7 @@ impl TryFrom<Record> for Trade {
     fn try_from(value: Record) -> Result<Trade, Self::Error> {
         // 2018-11-20T21:39:45.667Z
         let date_time =
-            NaiveDateTime::parse_from_str(value.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%z")?;
+            NaiveDateTime::parse_from_str(value.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%.fZ")?;
 
         let mut market_parts = value.product.split('-');
         let quote_currency = market_parts.next().expect("quote currency");
