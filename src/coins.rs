@@ -19,7 +19,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref CRYPTO_PARSER: formatting::Parser = formatting::uk_style()
+    pub static ref CRYPTO_PARSER: formatting::Parser = formatting::generic_style()
         .parser()
         .with_short_symbol(*BTC, "BTC".to_string())
         .with_short_symbol(*ETH, "ETH".to_string())
@@ -43,9 +43,9 @@ lazy_static! {
 
 pub fn amount(currency: &str, amount: f64) -> Money {
     let money = if currency == "BTC" || currency == "ETH" {
-        format!("{}{:.8}", currency, amount)
+        format!("{:.8} {}", amount, currency)
     } else {
-        format!("{}{:.2}", currency, amount)
+        format!("{:.2} {}", amount, currency)
     };
     parse_money(&money).expect(&format!("{} is invalid money", money))
 }

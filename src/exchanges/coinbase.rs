@@ -41,8 +41,8 @@ impl TryFrom<Record> for Trade {
         let quote_currency = market_parts.next().expect("quote currency");
         let base_currency = market_parts.next().expect("base currency");
 
-        let base_amount = amount(base_currency, value.size);
-        let quote_amount = amount(quote_currency, value.total);
+        let base_amount = amount(base_currency, value.total);
+        let quote_amount = amount(quote_currency, value.size);
 
         let (kind, sell, buy) = match value.side.as_ref() {
             "BUY" => (TradeKind::Buy, quote_amount, base_amount),
