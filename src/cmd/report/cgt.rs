@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-
+use std::fmt;
 use std::io::Write;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
@@ -12,7 +12,7 @@ use steel_cent::{
 
 use crate::cmd::prices::{CurrencyPair, Price, Prices};
 use crate::coins::{display_amount, BTC, ETH};
-use crate::trades::{Trade, TradeKey, TradeKind};
+use crate::trades::{Trade, TradeKey, TradeKind, TradeRecord};
 
 type Year = i32;
 
@@ -59,6 +59,7 @@ pub struct Gain {
     fee_value: Money,
     price: Price,
     allowable_costs: Money,
+    tax_year: Year,
 }
 impl Gain {
     pub fn proceeds(&self) -> Money {
@@ -96,6 +97,7 @@ impl Gain {
     {
         wtr.write_record(&[
             "Date",
+            "Tax Year",
             "Exchange",
             "Buy Asset",
             "Buy Amount",
@@ -118,6 +120,7 @@ impl Gain {
     {
         wtr.write_record(&[
             self.trade.date_time.date().to_string(),
+            self.tax_year.to_string(),
             self.trade.exchange.clone().unwrap_or(String::new()),
             self.trade.buy.currency.code(),
             display_amount(&self.trade.buy),
@@ -152,6 +155,8 @@ impl Pool {
     fn buy(&mut self, buy: &Money, costs: Money) {
         self.total = self.total + buy;
         self.costs = self.costs + costs;
+        log::debug!("Pool BUY {}, costs: {}", display_amount(buy), display_amount(&costs));
+        log::debug!("Pool: {:?}", self);
     }
 
     fn sell(&mut self, sell: Money) -> Money {
@@ -167,7 +172,14 @@ impl Pool {
         };
         self.total = new_total;
         self.costs = new_costs;
+        log::debug!("Pool SELL {}, costs: {}", display_amount(&sell), display_amount(&costs));
+        log::debug!("Pool: {:?}", self);
         costs
+    }
+}
+impl fmt::Debug for Pool {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "currency: {}, total: {}, costs: {}", self.currency.code(), display_amount(&self.total), display_amount(&self.costs))
     }
 }
 
@@ -190,11 +202,10 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
         .iter()
         .map(|trade| {
             let price = get_price(trade, prices).expect(
-                format!(
+                &format!(
                     "Should have price for buy: {} sell: {} at {}",
                     trade.buy, trade.sell, trade.date_time
                 )
-                .as_ref(),
             );
             (trade, price)
         })
@@ -206,6 +217,9 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
         .iter()
         .cloned()
         .filter_map(|(trade, price)| {
+            let trade_record: TradeRecord = trade.into();
+            log::debug!("Trade: {:?}", trade_record);
+
             if trade.buy.currency != GBP {
                 let _zero = Money::zero(trade.buy.currency);
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
@@ -217,6 +231,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
             }
 
             if trade.sell.currency != GBP {
+                // find any buys of this asset within the next 30 days
                 let special_rules_buy = trades_with_prices
                     .iter()
                     .filter(|(t, _)| {
@@ -278,6 +293,8 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     convert_to_gbp(&trade.fee, &price, trade.rate)
                 };
 
+                let tax_year = uk_tax_year(trade.date_time);
+
                 Some(Gain {
                     trade: trade.clone(),
                     buy_value,
@@ -285,6 +302,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     fee_value,
                     price: price.clone(),
                     allowable_costs,
+                    tax_year,
                 })
             } else {
                 None
@@ -301,7 +319,7 @@ fn create_report(
 ) -> TaxReport {
     let mut tax_years = HashMap::new();
     for gain in gains.iter() {
-        let year = uk_tax_year(gain.trade.date_time);
+        let year = gain.tax_year;
         let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
         ty.gains.push(gain.clone())
     }

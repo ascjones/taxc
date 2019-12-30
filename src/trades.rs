@@ -127,7 +127,7 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
         .collect()
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeRecord {
     pub date_time: String,
     pub kind: String,
