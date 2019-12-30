@@ -1,5 +1,3 @@
-
-
 use chrono::DateTime;
 
 use serde_derive::Deserialize;

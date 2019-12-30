@@ -1,5 +1,3 @@
-
-
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
 use std::convert::TryFrom;
