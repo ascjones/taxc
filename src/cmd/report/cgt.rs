@@ -155,7 +155,11 @@ impl Pool {
     fn buy(&mut self, buy: &Money, costs: Money) {
         self.total = self.total + buy;
         self.costs = self.costs + costs;
-        log::debug!("Pool BUY {}, costs: {}", display_amount(buy), display_amount(&costs));
+        log::debug!(
+            "Pool BUY {}, costs: {}",
+            display_amount(buy),
+            display_amount(&costs)
+        );
         log::debug!("Pool: {:?}", self);
     }
 
@@ -172,14 +176,24 @@ impl Pool {
         };
         self.total = new_total;
         self.costs = new_costs;
-        log::debug!("Pool SELL {}, costs: {}", display_amount(&sell), display_amount(&costs));
+        log::debug!(
+            "Pool SELL {}, costs: {}",
+            display_amount(&sell),
+            display_amount(&costs)
+        );
         log::debug!("Pool: {:?}", self);
         costs
     }
 }
 impl fmt::Debug for Pool {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "currency: {}, total: {}, costs: {}", self.currency.code(), display_amount(&self.total), display_amount(&self.costs))
+        write!(
+            f,
+            "currency: {}, total: {}, costs: {}",
+            self.currency.code(),
+            display_amount(&self.total),
+            display_amount(&self.costs)
+        )
     }
 }
 
@@ -201,12 +215,10 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
     let trades_with_prices = trades
         .iter()
         .map(|trade| {
-            let price = get_price(trade, prices).expect(
-                &format!(
-                    "Should have price for buy: {} sell: {} at {}",
-                    trade.buy, trade.sell, trade.date_time
-                )
-            );
+            let price = get_price(trade, prices).expect(&format!(
+                "Should have price for buy: {} sell: {} at {}",
+                trade.buy, trade.sell, trade.date_time
+            ));
             (trade, price)
         })
         .collect::<Vec<_>>();
