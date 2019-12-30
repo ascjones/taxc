@@ -254,32 +254,31 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     .cloned()
                     .collect::<Vec<_>>();
 
-                let (main_pool_sell, special_allowable_costs) = special_rules_buy.iter().fold(
-                    (trade.sell, Money::zero(GBP)),
-                    |(main_pool_sell, acc), (future_buy, buy_price)| {
-                        let remaining_buy_amount = special_buys
-                            .entry(future_buy.key())
-                            .or_insert(future_buy.buy);
+                let mut main_pool_sell = trade.sell;
+                let mut special_allowable_costs = Money::zero(GBP);
 
-                        if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency) {
-                            let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell
-                            {
-                                (
-                                    main_pool_sell - *remaining_buy_amount,
-                                    *remaining_buy_amount,
-                                )
-                            } else {
-                                (Money::zero(trade.sell.currency), main_pool_sell)
-                            };
-                            *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
-                            let costs =
-                                convert_to_gbp(&special_buy_amt, buy_price, future_buy.rate);
-                            (sell, acc + costs)
+                for (future_buy, buy_price) in special_rules_buy {
+                    let remaining_buy_amount = special_buys
+                        .entry(future_buy.key())
+                        .or_insert(future_buy.buy);
+
+                    if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency) {
+                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell
+                        {
+                            (
+                                main_pool_sell - *remaining_buy_amount,
+                                *remaining_buy_amount,
+                            )
                         } else {
-                            (main_pool_sell, acc)
-                        }
-                    },
-                );
+                            (Money::zero(trade.sell.currency), main_pool_sell)
+                        };
+                        *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
+                        let costs =
+                            convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
+                        main_pool_sell = sell;
+                        special_allowable_costs = special_allowable_costs + costs;
+                    }
+                }
 
                 let sell_pool = pools
                     .entry(trade.sell.currency)
