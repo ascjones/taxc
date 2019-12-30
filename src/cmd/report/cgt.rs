@@ -10,9 +10,9 @@ use steel_cent::{
     Money,
 };
 
-use crate::coins::{BTC, ETH};
+use crate::cmd::prices::{CurrencyPair, Price, Prices};
+use crate::coins::{display_amount, BTC, ETH};
 use crate::trades::{Trade, TradeKey, TradeKind};
-use crate::{display_amount, CurrencyPair, Price, Prices};
 
 type Year = i32;
 
