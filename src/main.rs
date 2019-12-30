@@ -3,16 +3,9 @@
 use std::{error::Error, fs::File, io};
 
 use clap::{App, Arg, SubCommand};
-use steel_cent::{currency::GBP, Money};
 
-use crate::coins::*;
-use crate::exchanges::*;
-use crate::prices::*;
-
-mod cgt;
+mod cmd;
 mod coins;
-mod exchanges;
-mod prices;
 mod trades;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -100,13 +93,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let file = m.value_of("file").unwrap();
             let source = m.value_of("source").unwrap(); // todo: handle args not present
             let group_by_day = m.is_present("group-by-day");
-            import_csv(file, source, group_by_day)
+            cmd::import::import_csv(file, source, group_by_day)
         }
         ("report", Some(m)) => {
             let file = m.value_of("file").unwrap();
             let prices = m.value_of("prices").expect("expected prices");
             let year = m.value_of("year");
-            report(file, prices, year)
+            cmd::report::generate_report(file, prices, year)
         }
         ("prices", Some(m)) => {
             let btc = m.value_of("btc").expect("btc");
@@ -119,65 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
-    let csv_file = File::open(file)?;
-    let trades = match source {
-        "uphold" => exchanges::csv_to_trades::<uphold::Record, _, _>(csv_file), //uphold::import_trades(csv_file),
-        "poloniex" => exchanges::csv_to_trades::<poloniex::Record, _, _>(csv_file), // poloniex::import_trades(csv_file),
-        "bittrex" => exchanges::csv_to_trades::<bittrex::Record, _, _>(csv_file),
-        "binance" => exchanges::csv_to_trades::<binance::Record, _, _>(csv_file),
-        "coinbase" => exchanges::csv_to_trades::<coinbase::Record, _, _>(csv_file),
-        x => panic!("Unknown file source {}", x), // yes I know should be an error
-    }?;
-    let mut trades = if group_by_day {
-        trades::group_trades_by_day(&trades)
-    } else {
-        trades
-    };
-
-    trades.sort_by(|t1, t2| t1.date_time.cmp(&t2.date_time));
-    trades::write_csv(trades, io::stdout())
-}
-
-fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<dyn Error>> {
-    let trades = trades::read_csv(File::open(file)?)?;
-    let prices = Prices::read_csv(File::open(prices)?)?;
-    let report = cgt::calculate(trades, &prices)?;
-    let year = year.map(|y| y.parse::<i32>().expect("valid year"));
-    let mut gains = year
-        .and_then(|y| report.years.get(&y).map(|ty| ty.gains.clone()))
-        .unwrap_or(
-            report
-                .years
-                .iter()
-                .flat_map(|(_, y)| y.gains.clone())
-                .collect::<Vec<_>>(),
-        );
-    gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
-
-    let (total_proceeds, total_allowable_costs, total_gains) = gains.iter().fold(
-        (Money::zero(GBP), Money::zero(GBP), Money::zero(GBP)),
-        |(p, ac, gain), g| (p + g.proceeds(), ac + g.allowable_costs(), gain + g.gain()),
-    );
-
-    let estimated_liability = (total_gains - Money::of_major(GBP, 11_300)) * 0.2;
-
-    println!(
-        "Disposals: {} Proceeds {}, Allowable Costs {}, Gains {}, Estimated Liability {}",
-        gains.len(),
-        total_proceeds,
-        total_allowable_costs,
-        total_gains,
-        estimated_liability
-    );
-
-    cgt::Gain::write_csv(&gains, io::stdout())
-}
-
 fn prices(btc: &str, eth: &str, gbp: &str) -> Result<(), Box<dyn Error>> {
     let gbp_usd_file = File::open(gbp)?;
     let btc_usd_file = File::open(btc)?;
     let eth_usd_file = File::open(eth)?;
-    let prices = prices::import_prices(gbp_usd_file, btc_usd_file, eth_usd_file)?;
+    let prices = cmd::prices::import_prices(gbp_usd_file, btc_usd_file, eth_usd_file)?;
     prices.write_csv(io::stdout())
 }

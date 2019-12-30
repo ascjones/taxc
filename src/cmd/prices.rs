@@ -3,8 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{Read, Write};
 
-use crate::coins::{BTC, ETH};
-use crate::get_currency;
+use crate::coins::{get_currency, BTC, ETH};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};

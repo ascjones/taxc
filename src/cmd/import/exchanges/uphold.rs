@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use steel_cent::currency;
 
 use super::ExchangeError;
-use crate::amount;
+use crate::coins::amount;
 use crate::trades::{Trade, TradeKind};
 
 #[derive(Clone, Debug, Deserialize)]

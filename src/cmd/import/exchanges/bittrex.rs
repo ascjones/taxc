@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
 use std::convert::TryFrom;
 
-use crate::amount;
+use crate::coins::amount;
 use crate::trades::{Trade, TradeKind};
 
 #[derive(Debug, Deserialize, Clone)]

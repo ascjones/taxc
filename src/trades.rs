@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use steel_cent::Money;
 
-use crate::{display_amount, parse_money_parts};
+use crate::coins::{display_amount, parse_money_parts};
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {
