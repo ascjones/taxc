@@ -36,14 +36,14 @@ impl TryFrom<Record> for Trade {
             NaiveDateTime::parse_from_str(value.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%.fZ")?;
 
         let mut market_parts = value.product.split('-');
-        let quote_currency = market_parts.next().expect("quote currency");
         let base_currency = market_parts.next().expect("base currency");
+        let quote_currency = market_parts.next().expect("quote currency");
 
-        let base_amount = amount(base_currency, value.total);
-        let quote_amount = amount(quote_currency, value.size);
+        let base_amount = amount(base_currency, value.size);
+        let quote_amount = amount(quote_currency, value.total);
 
         let (kind, sell, buy) = match value.side.as_ref() {
-            "BUY" => (TradeKind::Buy, quote_amount, base_amount),
+            "BUY" => (TradeKind::Buy, quote_amount * -1.0, base_amount),
             "SELL" => (TradeKind::Sell, base_amount, quote_amount),
             _ => panic!("Invalid order_type {}", value.side),
         };

@@ -47,7 +47,7 @@ impl Trade {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TradeKind {
     Buy,
     Sell,
