@@ -16,7 +16,7 @@ pub struct CurrencyPair {
     pub quote: Currency,
 }
 impl fmt::Display for CurrencyPair {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.base.code(), self.quote.code())
     }
 }
@@ -52,7 +52,7 @@ impl Prices {
         })
     }
 
-    pub fn read_csv<'a, R>(reader: R) -> Result<Prices, Box<Error>>
+    pub fn read_csv<'a, R>(reader: R) -> Result<Prices, Box<dyn Error>>
     where
         R: Read,
     {
@@ -78,7 +78,7 @@ impl Prices {
         Ok(Prices { prices })
     }
 
-    pub fn write_csv<W>(&self, writer: W) -> Result<(), Box<Error>>
+    pub fn write_csv<W>(&self, writer: W) -> Result<(), Box<dyn Error>>
     where
         W: Write,
     {
@@ -180,7 +180,7 @@ pub fn import_prices<R>(
     gbp_usd_file: R,
     btc_usd_file: R,
     eth_usd_file: R,
-) -> Result<Prices, Box<Error>>
+) -> Result<Prices, Box<dyn Error>>
 where
     R: Read,
 {

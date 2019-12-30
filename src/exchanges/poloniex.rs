@@ -1,15 +1,15 @@
-use std::error::Error;
-use std::io::Read;
+
 
 use chrono::NaiveDateTime;
 use serde_derive::Deserialize;
+use std::convert::TryFrom;
 
 use crate::amount;
 use crate::trades::{Trade, TradeKind};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
-struct TradeHistoryRecord {
+pub struct Record {
     #[serde(rename = "Date")]
     date: String,
     #[serde(rename = "Market")]
@@ -30,49 +30,44 @@ struct TradeHistoryRecord {
     quote_total_less_fee: f64,
 }
 
-impl Into<Option<Trade>> for TradeHistoryRecord {
-    fn into(self) -> Option<Trade> {
-        let date_time =
-            NaiveDateTime::parse_from_str(self.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+impl TryFrom<Record> for Trade {
+    type Error = super::ExchangeError;
 
-        let mut market_parts = self.market.split('/');
+    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+        let date_time =
+            NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+
+        let mut market_parts = value.market.split('/');
         let base_currency = market_parts.next().expect("base currency");
         let quote_currency = market_parts.next().expect("quote currency");
 
         // note that the poloniex data seems to have base and quote the wrong way around
 
-        let (kind, sell, buy, fee) = match self.order_type.as_ref() {
+        let (kind, sell, buy, fee) = match value.order_type.as_ref() {
             "Buy" => {
-                let buy = amount(base_currency, self.amount);
-                let sell = amount(quote_currency, self.total);
-                let fee_base = self.amount - self.quote_total_less_fee;
-                let fee = amount(quote_currency, fee_base * self.price);
+                let buy = amount(base_currency, value.amount);
+                let sell = amount(quote_currency, value.total);
+                let fee_base = value.amount - value.quote_total_less_fee;
+                let fee = amount(quote_currency, fee_base * value.price);
                 (TradeKind::Buy, sell, buy, fee)
             }
             "Sell" => {
-                let buy = amount(quote_currency, self.base_total_less_fee);
-                let sell = amount(base_currency, self.amount);
-                let fee = amount(quote_currency, self.total - self.base_total_less_fee);
+                let buy = amount(quote_currency, value.base_total_less_fee);
+                let sell = amount(base_currency, value.amount);
+                let fee = amount(quote_currency, value.total - value.base_total_less_fee);
                 (TradeKind::Sell, sell, buy, fee)
             }
-            _ => panic!("Invalid order_type {}", self.order_type),
+            _ => panic!("Invalid order_type {}", value.order_type),
         };
 
-        Some(Trade {
+        Ok(Trade {
             date_time,
             kind,
             buy,
             sell,
             fee,
-            rate: self.price,
+            rate: value.price,
             exchange: Some("Poloniex".into()),
         })
     }
-}
-
-pub fn import_trades<R>(reader: R) -> Result<Vec<Trade>, Box<Error>>
-where
-    R: Read,
-{
-    super::csv_to_trades::<R, TradeHistoryRecord>(reader)
 }

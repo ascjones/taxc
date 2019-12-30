@@ -1,17 +1,12 @@
 #![recursion_limit = "128"]
 
-use std::error::Error;
-use std::{fs::File, io};
+use std::{error::Error, fs::File, io};
 
 use clap::{App, Arg, SubCommand};
 use steel_cent::{currency::GBP, Money};
 
-use crate::exchanges::binance;
-use crate::exchanges::bittrex;
-use crate::exchanges::poloniex;
-use crate::exchanges::uphold;
-
 use crate::coins::*;
+use crate::exchanges::*;
 use crate::prices::*;
 
 mod cgt;
@@ -20,7 +15,8 @@ mod exchanges;
 mod prices;
 mod trades;
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    pretty_env_logger::init();
     let matches = App::new("cgt")
         .version("0.1")
         .author("Andrew Jones <ascjones@gmail.com>")
@@ -123,14 +119,14 @@ fn main() -> Result<(), Box<Error>> {
     }
 }
 
-fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<Error>> {
+fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
     let csv_file = File::open(file)?;
     let trades = match source {
-        "uphold" => uphold::import_trades(csv_file),
-        //            "etherscan" => etherscan::read_csv(csv_file),
-        "poloniex" => poloniex::import_trades(csv_file),
-        "bittrex" => bittrex::import_trades(csv_file),
-        "binance" => binance::import_trades(csv_file),
+        "uphold" => exchanges::csv_to_trades::<uphold::Record, _, _>(csv_file), //uphold::import_trades(csv_file),
+        "poloniex" => exchanges::csv_to_trades::<poloniex::Record, _, _>(csv_file), // poloniex::import_trades(csv_file),
+        "bittrex" => exchanges::csv_to_trades::<bittrex::Record, _, _>(csv_file),
+        "binance" => exchanges::csv_to_trades::<binance::Record, _, _>(csv_file),
+        "coinbase" => exchanges::csv_to_trades::<coinbase::Record, _, _>(csv_file),
         x => panic!("Unknown file source {}", x), // yes I know should be an error
     }?;
     let mut trades = if group_by_day {
@@ -143,7 +139,7 @@ fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<Er
     trades::write_csv(trades, io::stdout())
 }
 
-fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<Error>> {
+fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<dyn Error>> {
     let trades = trades::read_csv(File::open(file)?)?;
     let prices = Prices::read_csv(File::open(prices)?)?;
     let report = cgt::calculate(trades, &prices)?;
@@ -178,7 +174,7 @@ fn report(file: &str, prices: &str, year: Option<&str>) -> Result<(), Box<Error>
     cgt::Gain::write_csv(&gains, io::stdout())
 }
 
-fn prices(btc: &str, eth: &str, gbp: &str) -> Result<(), Box<Error>> {
+fn prices(btc: &str, eth: &str, gbp: &str) -> Result<(), Box<dyn Error>> {
     let gbp_usd_file = File::open(gbp)?;
     let btc_usd_file = File::open(btc)?;
     let eth_usd_file = File::open(eth)?;
