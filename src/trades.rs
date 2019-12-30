@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use steel_cent::Money;
 
-use crate::{display_amount, parse_money};
+use crate::{display_amount, parse_money_parts};
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {
@@ -173,11 +173,11 @@ impl Into<Trade> for &TradeRecord {
         } else {
             Some(self.exchange.clone())
         };
-        let buy = parse_money(format!("{}{}", &self.buy_asset, &self.buy_amount).as_ref())
+        let buy = parse_money_parts(&self.buy_asset, &self.buy_amount)
             .expect(format!("BUY amount: {}", self.buy_amount).as_ref());
-        let sell = parse_money(format!("{}{}", &self.sell_asset, &self.sell_amount).as_ref())
+        let sell = parse_money_parts(&self.sell_asset, &self.sell_amount)
             .expect(format!("SELL amount: {}", self.sell_amount).as_ref());
-        let fee = parse_money(format!("{}{}", &self.fee_asset, &self.fee_amount).as_ref())
+        let fee = parse_money_parts(&self.fee_asset, &self.fee_amount)
             .expect(format!("FEE amount: {}", self.fee_amount).as_ref());
         let kind = match self.kind.as_ref() {
             "Buy" => TradeKind::Buy,

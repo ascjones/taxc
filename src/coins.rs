@@ -41,6 +41,7 @@ lazy_static! {
     );
 }
 
+// todo: make this return Result instead of panicking
 pub fn amount(currency: &str, amount: f64) -> Money {
     let money = if currency == "BTC" || currency == "ETH" {
         format!("{:.8} {}", amount, currency)
@@ -48,6 +49,10 @@ pub fn amount(currency: &str, amount: f64) -> Money {
         format!("{:.2} {}", amount, currency)
     };
     parse_money(&money).expect(&format!("{} is invalid money", money))
+}
+
+pub fn parse_money_parts(currency: &str, amount: &str) -> Result<Money, ParseError> {
+    parse_money(&format!("{} {}", amount, currency))
 }
 
 pub fn parse_money(money: &str) -> Result<Money, ParseError> {
