@@ -5,6 +5,7 @@ use std::io::Write;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
+use serde::{Serialize, Deserialize};
 use steel_cent::{
     currency::{Currency, GBP},
     Money,
@@ -60,6 +61,7 @@ pub struct Gain {
     price: Price,
     allowable_costs: Money,
     tax_year: Year,
+    sell_pool: Pool,
 }
 impl Gain {
     pub fn proceeds(&self) -> Money {
@@ -83,61 +85,54 @@ impl Gain {
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
-        Gain::write_headers(&mut wtr)?;
         for gain in gains.iter() {
-            gain.write_csv_record(&mut wtr)?
+            let record: GainRecord = gain.into();
+            wtr.serialize(record)?;
         }
         wtr.flush()?;
         Ok(())
     }
+}
 
-    fn write_headers<W>(wtr: &mut csv::Writer<W>) -> Result<(), Box<dyn Error>>
-    where
-        W: Write,
-    {
-        wtr.write_record(&[
-            "Date",
-            "Tax Year",
-            "Exchange",
-            "Buy Asset",
-            "Buy Amount",
-            "Sell Asset",
-            "Sell Amount",
-            "Price",
-            "Rate",
-            "Buy GBP",
-            "Sell GBP",
-            "Fee",
-            "Allowable Cost",
-            "Gain",
-        ])?;
-        Ok(())
-    }
-
-    fn write_csv_record<W>(&self, wtr: &mut csv::Writer<W>) -> Result<(), Box<dyn Error>>
-    where
-        W: Write,
-    {
-        wtr.write_record(&[
-            self.trade.date_time.date().to_string(),
-            self.tax_year.to_string(),
-            self.trade.exchange.clone().unwrap_or(String::new()),
-            self.trade.buy.currency.code(),
-            display_amount(&self.trade.buy),
-            self.trade.sell.currency.code(),
-            display_amount(&self.trade.sell),
-            self.price.pair.to_string(),
-            self.price.rate.to_string(),
-            display_amount(&self.buy_value),
-            display_amount(&self.sell_value),
-            display_amount(&self.fee()),
-            display_amount(&self.allowable_costs()),
-            display_amount(&self.gain()),
-        ])?;
-        Ok(())
+#[derive(Serialize, Deserialize)]
+struct GainRecord {
+    date_time: String,
+    tax_year: Year,
+    exchange: String,
+    buy_asset: String,
+    buy_amt: String,
+    sell_asset: String,
+    sell_amt: String,
+    price: String,
+    rate: String,
+    buy_gbp: String,
+    sell_gbp: String,
+    fee: String,
+    allowable_cost: String,
+    gain: String,
+}
+impl From<&Gain> for GainRecord {
+    fn from(gain: &Gain) -> Self {
+        GainRecord {
+            date_time: gain.trade.date_time.date().to_string(),
+            tax_year: gain.tax_year,
+            exchange: gain.trade.exchange.clone().unwrap_or(String::new()),
+            buy_asset: gain.trade.buy.currency.code(),
+            buy_amt: display_amount(&gain.trade.buy),
+            sell_asset: gain.trade.sell.currency.code(),
+            sell_amt: display_amount(&gain.trade.sell),
+            price: gain.price.pair.to_string(),
+            rate: gain.price.rate.to_string(),
+            buy_gbp: display_amount(&gain.buy_value),
+            sell_gbp: display_amount(&gain.sell_value),
+            fee: display_amount(&gain.fee()),
+            allowable_cost: display_amount(&gain.allowable_costs()),
+            gain: display_amount(&gain.gain()),
+        }
     }
 }
 
+#[derive(Clone)]
 pub struct Pool {
     currency: Currency,
     total: Money,
@@ -263,8 +258,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                         .or_insert(future_buy.buy);
 
                     if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency) {
-                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell
-                        {
+                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
                             (
                                 main_pool_sell - *remaining_buy_amount,
                                 *remaining_buy_amount,
@@ -273,8 +267,13 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                             (Money::zero(trade.sell.currency), main_pool_sell)
                         };
                         *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
-                        let costs =
-                            convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
+                        let costs = convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
+                        log::debug!(
+                            "Deducting SELL of {} from future BUY at {}, cost: {}",
+                            display_amount(&special_buy_amt),
+                            future_buy.date_time,
+                            display_amount(&costs)
+                        );
                         main_pool_sell = sell;
                         special_allowable_costs = special_allowable_costs + costs;
                     }
@@ -314,6 +313,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     price: price.clone(),
                     allowable_costs,
                     tax_year,
+                    sell_pool: sell_pool.clone(),
                 })
             } else {
                 None

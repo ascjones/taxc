@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::ops::Add;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use steel_cent::Money;
 
 use crate::coins::{display_amount, parse_money_parts};

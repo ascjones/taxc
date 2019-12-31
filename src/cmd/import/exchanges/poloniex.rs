@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::convert::TryFrom;
 
 use crate::coins::amount;

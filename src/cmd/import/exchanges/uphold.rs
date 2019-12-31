@@ -1,6 +1,6 @@
 use chrono::DateTime;
 
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::convert::TryFrom;
 use steel_cent::currency;
 

@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use crate::coins::{get_currency, BTC, ETH};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use steel_cent::currency::{Currency, GBP, USD};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
