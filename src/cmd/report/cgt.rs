@@ -5,7 +5,7 @@ use std::io::Write;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use steel_cent::{
     currency::{Currency, GBP},
     Money,
@@ -61,6 +61,7 @@ pub struct Gain {
     price: Price,
     allowable_costs: Money,
     tax_year: Year,
+    buy_pool: Option<Pool>,
     sell_pool: Pool,
 }
 impl Gain {
@@ -110,6 +111,10 @@ struct GainRecord {
     fee: String,
     allowable_cost: String,
     gain: String,
+    buy_pool_total: String,
+    buy_pool_cost: String,
+    sell_pool_total: String,
+    sell_pool_cost: String,
 }
 impl From<&Gain> for GainRecord {
     fn from(gain: &Gain) -> Self {
@@ -128,6 +133,16 @@ impl From<&Gain> for GainRecord {
             fee: display_amount(&gain.fee()),
             allowable_cost: display_amount(&gain.allowable_costs()),
             gain: display_amount(&gain.gain()),
+            buy_pool_total: gain
+                .buy_pool
+                .as_ref()
+                .map_or("".to_string(), |p| display_amount(&p.total)),
+            buy_pool_cost: gain
+                .buy_pool
+                .as_ref()
+                .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
+            sell_pool_total: display_amount(&gain.sell_pool.total),
+            sell_pool_cost: format!("{:.2}", gain.sell_pool.cost_basis()),
         }
     }
 }
@@ -179,6 +194,12 @@ impl Pool {
         log::debug!("Pool: {:?}", self);
         costs
     }
+
+    fn cost_basis(&self) -> f64 {
+        // convert to GBP so minor units are equivalent - will lose some precision
+        let total_as_gbp = self.total.convert_to(GBP, 1.0);
+        self.costs.minor_amount() as f64 / total_as_gbp.minor_amount() as f64
+    }
 }
 impl fmt::Debug for Pool {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -226,15 +247,17 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
         .filter_map(|(trade, price)| {
             let trade_record: TradeRecord = trade.into();
             log::debug!("Trade: {:?}", trade_record);
+            let mut buy_pool: Option<Pool> = None;
 
             if trade.buy.currency != GBP {
                 let _zero = Money::zero(trade.buy.currency);
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
                 let costs = convert_to_gbp(buy_amount, &price, trade.rate);
-                let buy_pool = pools
+                let pool = pools
                     .entry(trade.buy.currency)
                     .or_insert(Pool::new(trade.buy.currency));
-                buy_pool.buy(buy_amount, costs);
+                pool.buy(buy_amount, costs);
+                buy_pool = Some(pool.clone());
             }
 
             if trade.sell.currency != GBP {
@@ -314,6 +337,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     allowable_costs,
                     tax_year,
                     sell_pool: sell_pool.clone(),
+                    buy_pool: buy_pool,
                 })
             } else {
                 None
