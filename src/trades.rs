@@ -47,6 +47,38 @@ impl Trade {
     }
 }
 
+impl From<&TradeRecord> for Trade {
+    fn from(tr: &TradeRecord) -> Self {
+        let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
+            .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
+        let exchange = if tr.exchange == "" {
+            None
+        } else {
+            Some(tr.exchange.clone())
+        };
+        let buy = parse_money_parts(&tr.buy_asset, &tr.buy_amount)
+            .expect(format!("BUY amount: {}", tr.buy_amount).as_ref());
+        let sell = parse_money_parts(&tr.sell_asset, &tr.sell_amount)
+            .expect(format!("SELL amount: {}", tr.sell_amount).as_ref());
+        let fee = parse_money_parts(&tr.fee_asset, &tr.fee_amount)
+            .expect(format!("FEE amount: {}", tr.fee_amount).as_ref());
+        let kind = match tr.kind.as_ref() {
+            "Buy" => TradeKind::Buy,
+            "Sell" => TradeKind::Sell,
+            x => panic!("Invalid trade kind {}", x),
+        };
+        Trade {
+            date_time,
+            buy,
+            sell,
+            fee,
+            rate: tr.rate,
+            exchange,
+            kind,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TradeKind {
     Buy,
@@ -161,37 +193,6 @@ impl From<&Trade> for TradeRecord {
                 TradeKind::Sell => "Sell",
             }
             .into(),
-        }
-    }
-}
-impl Into<Trade> for &TradeRecord {
-    fn into(self) -> Trade {
-        let date_time = NaiveDateTime::parse_from_str(self.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
-            .expect(format!("Invalid date_time {}", self.date_time).as_ref());
-        let exchange = if self.exchange == "" {
-            None
-        } else {
-            Some(self.exchange.clone())
-        };
-        let buy = parse_money_parts(&self.buy_asset, &self.buy_amount)
-            .expect(format!("BUY amount: {}", self.buy_amount).as_ref());
-        let sell = parse_money_parts(&self.sell_asset, &self.sell_amount)
-            .expect(format!("SELL amount: {}", self.sell_amount).as_ref());
-        let fee = parse_money_parts(&self.fee_asset, &self.fee_amount)
-            .expect(format!("FEE amount: {}", self.fee_amount).as_ref());
-        let kind = match self.kind.as_ref() {
-            "Buy" => TradeKind::Buy,
-            "Sell" => TradeKind::Sell,
-            x => panic!("Invalid trade kind {}", x),
-        };
-        Trade {
-            date_time,
-            buy,
-            sell,
-            fee,
-            rate: self.rate,
-            exchange,
-            kind,
         }
     }
 }
