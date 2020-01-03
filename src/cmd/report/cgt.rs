@@ -19,7 +19,7 @@ type Year = i32;
 
 pub struct TaxYear {
     pub year: Year,
-    pub gains: Vec<Gain>,
+    pub gains: Vec<TaxEvent>,
 }
 impl TaxYear {
     fn new(year: Year) -> Self {
@@ -27,22 +27,6 @@ impl TaxYear {
             year,
             gains: Vec::new(),
         }
-    }
-
-    fn proceeds(&self) -> Money {
-        self.gains
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.sell_value)
-    }
-
-    fn allowable_costs(&self) -> Money {
-        self.gains
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs)
-    }
-
-    fn gain(&self) -> Money {
-        self.proceeds() - self.allowable_costs() // todo: fees
     }
 }
 
@@ -53,23 +37,27 @@ pub struct TaxReport {
 }
 
 #[derive(Clone)]
-pub struct Gain {
-    pub trade: Trade,
+pub struct TaxEvent {
+    trade: Trade,
+    tax_year: Year,
     buy_value: Money,
     sell_value: Money,
     fee_value: Money,
     price: Price,
-    allowable_costs: Money,
-    tax_year: Year,
+    allowable_costs: Option<Money>,
     buy_pool: Option<Pool>,
-    sell_pool: Pool,
+    sell_pool: Option<Pool>,
 }
-impl Gain {
+impl TaxEvent {
+    pub fn date_time(&self) -> NaiveDateTime {
+        self.trade.date_time
+    }
+
     pub fn proceeds(&self) -> Money {
         self.sell_value // todo: fees
     }
 
-    pub fn allowable_costs(&self) -> Money {
+    pub fn allowable_costs(&self) -> Option<Money> {
         self.allowable_costs
     }
 
@@ -77,17 +65,17 @@ impl Gain {
         self.fee_value
     }
 
-    pub fn gain(&self) -> Money {
-        self.sell_value - self.allowable_costs - self.fee()
+    pub fn gain(&self) -> Option<Money> {
+        self.allowable_costs.map(|costs| self.sell_value - costs - self.fee())
     }
 
-    pub fn write_csv<W>(gains: &[Gain], writer: W) -> Result<(), Box<dyn Error>>
+    pub fn write_csv<W>(gains: &[TaxEvent], writer: W) -> Result<(), Box<dyn Error>>
     where
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
-        for gain in gains.iter() {
-            let record: GainRecord = gain.into();
+        for tax_event in gains.iter() {
+            let record: TaxEventRecord = tax_event.into();
             wtr.serialize(record)?;
         }
         wtr.flush()?;
@@ -96,7 +84,7 @@ impl Gain {
 }
 
 #[derive(Serialize, Deserialize)]
-struct GainRecord {
+struct TaxEventRecord {
     date_time: String,
     tax_year: Year,
     exchange: String,
@@ -116,9 +104,9 @@ struct GainRecord {
     sell_pool_total: String,
     sell_pool_cost: String,
 }
-impl From<&Gain> for GainRecord {
-    fn from(gain: &Gain) -> Self {
-        GainRecord {
+impl From<&TaxEvent> for TaxEventRecord {
+    fn from(gain: &TaxEvent) -> Self {
+        TaxEventRecord {
             date_time: gain.trade.date_time.date().to_string(),
             tax_year: gain.tax_year,
             exchange: gain.trade.exchange.clone().unwrap_or(String::new()),
@@ -131,8 +119,8 @@ impl From<&Gain> for GainRecord {
             buy_gbp: display_amount(&gain.buy_value),
             sell_gbp: display_amount(&gain.sell_value),
             fee: display_amount(&gain.fee()),
-            allowable_cost: display_amount(&gain.allowable_costs()),
-            gain: display_amount(&gain.gain()),
+            allowable_cost: gain.allowable_costs().map_or("".to_string(), |c| display_amount(&c)),
+            gain: gain.gain().map_or("".to_string(), |g| display_amount(&g)),
             buy_pool_total: gain
                 .buy_pool
                 .as_ref()
@@ -141,8 +129,14 @@ impl From<&Gain> for GainRecord {
                 .buy_pool
                 .as_ref()
                 .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
-            sell_pool_total: display_amount(&gain.sell_pool.total),
-            sell_pool_cost: format!("{:.2}", gain.sell_pool.cost_basis()),
+            sell_pool_total: gain
+                .sell_pool
+                .as_ref()
+                .map_or("".to_string(), |p| display_amount(&p.total)),
+            sell_pool_cost: gain
+                .sell_pool
+                .as_ref()
+                .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
         }
     }
 }
@@ -241,13 +235,15 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
 
     let mut special_buys: HashMap<TradeKey, Money> = HashMap::new();
 
-    let gains: Vec<Gain> = trades_with_prices
+    let gains: Vec<TaxEvent> = trades_with_prices
         .iter()
         .cloned()
-        .filter_map(|(trade, price)| {
+        .map(|(trade, price)| {
             let trade_record: TradeRecord = trade.into();
             log::debug!("Trade: {:?}", trade_record);
             let mut buy_pool: Option<Pool> = None;
+            let mut sell_pool: Option<Pool> = None;
+            let mut allowable_costs: Option<Money> = None;
 
             if trade.buy.currency != GBP {
                 let _zero = Money::zero(trade.buy.currency);
@@ -302,45 +298,44 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     }
                 }
 
-                let sell_pool = pools
+                let pool = pools
                     .entry(trade.sell.currency)
                     .or_insert(Pool::new(trade.sell.currency));
-                let main_pool_costs = sell_pool.sell(main_pool_sell);
-                let allowable_costs = main_pool_costs + special_allowable_costs;
+                let main_pool_costs = pool.sell(main_pool_sell);
+                allowable_costs = Some(main_pool_costs + special_allowable_costs);
+                sell_pool = Some(pool.clone());
+            }
 
-                let sell_value = if trade.sell.currency == GBP {
-                    trade.sell
-                } else {
-                    convert_to_gbp(&trade.sell, &price, trade.rate)
-                };
-
-                let buy_value = if trade.buy.currency == GBP {
-                    trade.buy
-                } else {
-                    convert_to_gbp(&trade.buy, &price, trade.rate)
-                };
-
-                let fee_value = if trade.fee.currency == GBP {
-                    trade.fee
-                } else {
-                    convert_to_gbp(&trade.fee, &price, trade.rate)
-                };
-
-                let tax_year = uk_tax_year(trade.date_time);
-
-                Some(Gain {
-                    trade: trade.clone(),
-                    buy_value,
-                    sell_value,
-                    fee_value,
-                    price: price.clone(),
-                    allowable_costs,
-                    tax_year,
-                    sell_pool: sell_pool.clone(),
-                    buy_pool: buy_pool,
-                })
+            let sell_value = if trade.sell.currency == GBP {
+                trade.sell
             } else {
-                None
+                convert_to_gbp(&trade.sell, &price, trade.rate)
+            };
+
+            let buy_value = if trade.buy.currency == GBP {
+                trade.buy
+            } else {
+                convert_to_gbp(&trade.buy, &price, trade.rate)
+            };
+
+            let fee_value = if trade.fee.currency == GBP {
+                trade.fee
+            } else {
+                convert_to_gbp(&trade.fee, &price, trade.rate)
+            };
+
+            let tax_year = uk_tax_year(trade.date_time);
+
+            TaxEvent {
+                trade: trade.clone(),
+                buy_value,
+                sell_value,
+                fee_value,
+                price: price.clone(),
+                allowable_costs,
+                tax_year,
+                sell_pool: sell_pool,
+                buy_pool: buy_pool,
             }
         })
         .collect();
@@ -349,7 +344,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
 
 fn create_report(
     trades: Vec<Trade>,
-    gains: Vec<Gain>,
+    gains: Vec<TaxEvent>,
     pools: HashMap<Currency, Pool>,
 ) -> TaxReport {
     let mut tax_years = HashMap::new();
