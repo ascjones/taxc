@@ -11,15 +11,15 @@ pub fn generate_report(file: &str, prices: &str, year: Option<&str>) -> Result<(
     let report = cgt::calculate(trades, &prices)?;
     let year = year.map(|y| y.parse::<i32>().expect("valid year"));
     let mut gains = year
-        .and_then(|y| report.years.get(&y).map(|ty| ty.gains.clone()))
+        .and_then(|y| report.years.get(&y).map(|ty| ty.events.clone()))
         .unwrap_or(
             report
                 .years
                 .iter()
-                .flat_map(|(_, y)| y.gains.clone())
+                .flat_map(|(_, y)| y.events.clone())
                 .collect::<Vec<_>>(),
         );
-    gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
+    gains.sort_by(|g1, g2| g1.date_time().cmp(&g2.date_time()));
 
     let (total_proceeds, total_allowable_costs, total_gains) = gains.iter().fold(
         (Money::zero(GBP), Money::zero(GBP), Money::zero(GBP)),
@@ -34,5 +34,5 @@ pub fn generate_report(file: &str, prices: &str, year: Option<&str>) -> Result<(
     log::info!("Gains {}", total_gains);
     log::info!("Estimated Liability {}", estimated_liability);
 
-    cgt::Gain::write_csv(&gains, io::stdout())
+    cgt::TaxEvent::write_csv(&gains, io::stdout())
 }

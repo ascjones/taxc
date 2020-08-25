@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::ops::Add;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use steel_cent::Money;
 
 use crate::coins::{display_amount, parse_money_parts};
@@ -43,6 +43,38 @@ impl Trade {
             date_time: self.date_time,
             buy: self.buy.to_string(),
             sell: self.sell.to_string(),
+        }
+    }
+}
+
+impl From<TradeRecord> for Trade {
+    fn from(tr: TradeRecord) -> Self {
+        let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
+            .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
+        let exchange = if tr.exchange == "" {
+            None
+        } else {
+            Some(tr.exchange.clone())
+        };
+        let buy = parse_money_parts(&tr.buy_asset, &tr.buy_amount)
+            .expect(format!("BUY amount: {}", tr.buy_amount).as_ref());
+        let sell = parse_money_parts(&tr.sell_asset, &tr.sell_amount)
+            .expect(format!("SELL amount: {}", tr.sell_amount).as_ref());
+        let fee = parse_money_parts(&tr.fee_asset, &tr.fee_amount)
+            .expect(format!("FEE amount: {}", tr.fee_amount).as_ref());
+        let kind = match tr.kind.as_ref() {
+            "Buy" => TradeKind::Buy,
+            "Sell" => TradeKind::Sell,
+            x => panic!("Invalid trade kind {}", x),
+        };
+        Trade {
+            date_time,
+            buy,
+            sell,
+            fee,
+            rate: tr.rate,
+            exchange,
+            kind,
         }
     }
 }
@@ -127,7 +159,7 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
         .collect()
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeRecord {
     pub date_time: String,
     pub kind: String,
@@ -164,37 +196,6 @@ impl From<&Trade> for TradeRecord {
         }
     }
 }
-impl Into<Trade> for &TradeRecord {
-    fn into(self) -> Trade {
-        let date_time = NaiveDateTime::parse_from_str(self.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
-            .expect(format!("Invalid date_time {}", self.date_time).as_ref());
-        let exchange = if self.exchange == "" {
-            None
-        } else {
-            Some(self.exchange.clone())
-        };
-        let buy = parse_money_parts(&self.buy_asset, &self.buy_amount)
-            .expect(format!("BUY amount: {}", self.buy_amount).as_ref());
-        let sell = parse_money_parts(&self.sell_asset, &self.sell_amount)
-            .expect(format!("SELL amount: {}", self.sell_amount).as_ref());
-        let fee = parse_money_parts(&self.fee_asset, &self.fee_amount)
-            .expect(format!("FEE amount: {}", self.fee_amount).as_ref());
-        let kind = match self.kind.as_ref() {
-            "Buy" => TradeKind::Buy,
-            "Sell" => TradeKind::Sell,
-            x => panic!("Invalid trade kind {}", x),
-        };
-        Trade {
-            date_time,
-            buy,
-            sell,
-            fee,
-            rate: self.rate,
-            exchange,
-            kind,
-        }
-    }
-}
 
 pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> Result<(), Box<dyn Error>>
 where
@@ -215,7 +216,7 @@ where
 {
     let mut rdr = csv::Reader::from_reader(reader);
     let records: Result<Vec<TradeRecord>, _> = rdr.deserialize::<TradeRecord>().collect();
-    let mut trades: Vec<Trade> = records?.iter().map(Into::into).collect();
+    let mut trades: Vec<Trade> = records?.into_iter().map(Into::into).collect();
     trades.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
     Ok(trades)
 }
