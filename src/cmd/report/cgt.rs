@@ -19,14 +19,30 @@ type Year = i32;
 
 pub struct TaxYear {
     pub year: Year,
-    pub gains: Vec<TaxEvent>,
+    pub events: Vec<TaxEvent>,
 }
 impl TaxYear {
     fn new(year: Year) -> Self {
         TaxYear {
             year,
-            gains: Vec::new(),
+            events: Vec::new(),
         }
+    }
+
+    fn proceeds(&self) -> Money {
+        self.events
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.sell_value)
+    }
+
+    fn allowable_costs(&self) -> Money {
+        self.events
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs)
+    }
+
+    fn gain(&self) -> Money {
+        self.proceeds() - self.allowable_costs() // todo: fees
     }
 }
 
@@ -44,7 +60,7 @@ pub struct TaxEvent {
     sell_value: Money,
     fee_value: Money,
     price: Price,
-    allowable_costs: Option<Money>,
+    allowable_costs: Money,
     buy_pool: Option<Pool>,
     sell_pool: Option<Pool>,
 }
@@ -57,7 +73,7 @@ impl TaxEvent {
         self.sell_value // todo: fees
     }
 
-    pub fn allowable_costs(&self) -> Option<Money> {
+    pub fn allowable_costs(&self) -> Money {
         self.allowable_costs
     }
 
@@ -65,8 +81,8 @@ impl TaxEvent {
         self.fee_value
     }
 
-    pub fn gain(&self) -> Option<Money> {
-        self.allowable_costs.map(|costs| self.sell_value - costs - self.fee())
+    pub fn gain(&self) -> Money {
+        self.sell_value - self.allowable_costs - self.fee()
     }
 
     pub fn write_csv<W>(gains: &[TaxEvent], writer: W) -> Result<(), Box<dyn Error>>
@@ -105,35 +121,35 @@ struct TaxEventRecord {
     sell_pool_cost: String,
 }
 impl From<&TaxEvent> for TaxEventRecord {
-    fn from(gain: &TaxEvent) -> Self {
+    fn from(tax_event: &TaxEvent) -> Self {
         TaxEventRecord {
-            date_time: gain.trade.date_time.date().to_string(),
-            tax_year: gain.tax_year,
-            exchange: gain.trade.exchange.clone().unwrap_or(String::new()),
-            buy_asset: gain.trade.buy.currency.code(),
-            buy_amt: display_amount(&gain.trade.buy),
-            sell_asset: gain.trade.sell.currency.code(),
-            sell_amt: display_amount(&gain.trade.sell),
-            price: gain.price.pair.to_string(),
-            rate: gain.price.rate.to_string(),
-            buy_gbp: display_amount(&gain.buy_value),
-            sell_gbp: display_amount(&gain.sell_value),
-            fee: display_amount(&gain.fee()),
-            allowable_cost: gain.allowable_costs().map_or("".to_string(), |c| display_amount(&c)),
-            gain: gain.gain().map_or("".to_string(), |g| display_amount(&g)),
-            buy_pool_total: gain
+            date_time: tax_event.trade.date_time.date().to_string(),
+            tax_year: tax_event.tax_year,
+            exchange: tax_event.trade.exchange.clone().unwrap_or(String::new()),
+            buy_asset: tax_event.trade.buy.currency.code(),
+            buy_amt: display_amount(&tax_event.trade.buy),
+            sell_asset: tax_event.trade.sell.currency.code(),
+            sell_amt: display_amount(&tax_event.trade.sell),
+            price: tax_event.price.pair.to_string(),
+            rate: tax_event.price.rate.to_string(),
+            buy_gbp: display_amount(&tax_event.buy_value),
+            sell_gbp: display_amount(&tax_event.sell_value),
+            fee: display_amount(&tax_event.fee()),
+            allowable_cost: display_amount(&tax_event.allowable_costs()),
+            gain: display_amount(&tax_event.gain()),
+            buy_pool_total: tax_event
                 .buy_pool
                 .as_ref()
                 .map_or("".to_string(), |p| display_amount(&p.total)),
-            buy_pool_cost: gain
+            buy_pool_cost: tax_event
                 .buy_pool
                 .as_ref()
                 .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
-            sell_pool_total: gain
+            sell_pool_total: tax_event
                 .sell_pool
                 .as_ref()
                 .map_or("".to_string(), |p| display_amount(&p.total)),
-            sell_pool_cost: gain
+            sell_pool_cost: tax_event
                 .sell_pool
                 .as_ref()
                 .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
@@ -243,7 +259,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
             log::debug!("Trade: {:?}", trade_record);
             let mut buy_pool: Option<Pool> = None;
             let mut sell_pool: Option<Pool> = None;
-            let mut allowable_costs: Option<Money> = None;
+            let mut allowable_costs = Money::zero(GBP);
 
             if trade.buy.currency != GBP {
                 let _zero = Money::zero(trade.buy.currency);
@@ -302,7 +318,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, Strin
                     .entry(trade.sell.currency)
                     .or_insert(Pool::new(trade.sell.currency));
                 let main_pool_costs = pool.sell(main_pool_sell);
-                allowable_costs = Some(main_pool_costs + special_allowable_costs);
+                allowable_costs = main_pool_costs + special_allowable_costs;
                 sell_pool = Some(pool.clone());
             }
 
@@ -351,7 +367,7 @@ fn create_report(
     for gain in gains.iter() {
         let year = gain.tax_year;
         let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
-        ty.gains.push(gain.clone())
+        ty.events.push(gain.clone())
     }
     TaxReport {
         trades: trades.to_vec(),
@@ -485,7 +501,7 @@ mod tests {
             .years
             .get(&2019)
             .expect("Tax year 2019 should be calculated");
-        let gain = ty.gains.get(0).unwrap();
+        let gain = ty.events.get(0).unwrap();
 
         //        println!("1: {}", disposal.trade);
 
@@ -519,7 +535,7 @@ mod tests {
             .years
             .get(&2019)
             .expect("Tax year 2019 should be calculated");
-        let gain = ty.gains.get(0).unwrap();
+        let gain = ty.events.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
         assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
@@ -545,7 +561,7 @@ mod tests {
             .years
             .get(&2019)
             .expect("Tax year 2019 should be calculated");
-        let gain1 = ty.gains.get(0).unwrap();
+        let gain1 = ty.events.get(0).unwrap();
 
         assert_money_eq!(gain1.proceeds(), gbp(40_000), "Consideration");
         assert_money_eq!(gain1.allowable_costs, gbp(25_000), "Allowable costs");
@@ -576,20 +592,11 @@ mod tests {
             .years
             .get(&2019)
             .expect("Tax year 2019 should be calculated");
-        println!(
-            "GAINS {}",
-            ty.gains
-                .iter()
-                .map(|g| g.gain().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        assert_eq!(ty.gains.len(), 1, "Should have only a single gain");
-        let gain = ty.gains.get(0).unwrap();
+        let tax_event = ty.events.get(0).unwrap();
 
-        assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp(140_000), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp(20_000), "Gain 30 days");
+        assert_money_eq!(tax_event.proceeds(), gbp(160_000), "Consideration");
+        assert_money_eq!(tax_event.allowable_costs, gbp(140_000), "Allowable costs");
+        assert_money_eq!(tax_event.gain(), gbp(20_000), "Gain 30 days");
 
         let btc_pool = report.pools.get(&BTC).expect("BTC should have a Pool");
 
