@@ -28,28 +28,69 @@ impl TaxYear {
             events: Vec::new(),
         }
     }
-
-    fn proceeds(&self) -> Money {
-        self.events
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.sell_value)
-    }
-
-    fn allowable_costs(&self) -> Money {
-        self.events
-            .iter()
-            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs)
-    }
-
-    fn gain(&self) -> Money {
-        self.proceeds() - self.allowable_costs() // todo: fees
-    }
 }
 
 pub struct TaxReport {
     pub trades: Vec<Trade>,
     pub years: HashMap<Year, TaxYear>,
     pub pools: HashMap<Currency, Pool>,
+}
+
+impl TaxReport {
+    pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
+        let mut gains = year
+            .and_then(|y| self.years.get(&y).map(|ty| ty.gains.clone()))
+            .unwrap_or(
+                self
+                    .years
+                    .iter()
+                    .flat_map(|(_, y)| y.gains.clone())
+                    .collect::<Vec<_>>(),
+            );
+        gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
+        Gains {
+            year,
+            gains
+        }
+    }
+}
+
+pub struct Gains {
+    pub year: Option<Year>,
+    pub gains: Vec<Gain>,
+}
+
+impl IntoIterator for Gains {
+    type Item = Gain;
+    type IntoIter = std::vec::IntoIter<Gain>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.gains.into_iter()
+    }
+}
+
+impl Gains {
+    pub(crate) fn len(&self) -> usize {
+        self.gains.len()
+    }
+
+    pub(crate) fn total_proceeds(&self) -> Money {
+        self.gains
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.proceeds())
+    }
+
+    pub(crate) fn total_allowable_costs(&self) -> Money {
+        self.gains
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.allowable_costs())
+    }
+
+    pub(crate) fn total_gain(&self) -> Money {
+        self.gains
+            .iter()
+            .fold(Money::zero(GBP), |acc, g| acc + g.gain())
+    }
 }
 
 #[derive(Clone)]
@@ -85,14 +126,15 @@ impl TaxEvent {
         self.sell_value - self.allowable_costs - self.fee()
     }
 
-    pub fn write_csv<W>(gains: &[TaxEvent], writer: W) -> Result<(), Box<dyn Error>>
+    pub fn write_csv<G, W>(gains: G, writer: W) -> Result<(), Box<dyn Error>>
     where
+        G: IntoIterator<Item = Gain>,
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
-        for tax_event in gains.iter() {
-            let record: TaxEventRecord = tax_event.into();
-            wtr.serialize(record)?;
+        Gain::write_headers(&mut wtr)?;
+        for gain in gains.into_iter() {
+            gain.write_csv_record(&mut wtr)?
         }
         wtr.flush()?;
         Ok(())
@@ -472,14 +514,11 @@ mod tests {
         let trades = vec![acq1, acq2, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty_2018 = report
-            .years
-            .get(&2018)
-            .expect("Tax year 2018 should be calculated");
+        let gains_2018 = report.gains(Some(2018));
 
-        assert_money_eq!(ty_2018.proceeds(), gbp(300_000));
-        assert_money_eq!(ty_2018.allowable_costs(), gbp(42_000));
-        assert_money_eq!(ty_2018.gain(), gbp(258_000));
+        assert_money_eq!(gains_2018.total_proceeds(), gbp(300_000));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp(42_000));
+        assert_money_eq!(gains_2018.total_gain(), gbp(258_000));
     }
 
     #[test]
@@ -497,13 +536,8 @@ mod tests {
         let trades = vec![buy1, sell, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty = report
-            .years
-            .get(&2019)
-            .expect("Tax year 2019 should be calculated");
-        let gain = ty.events.get(0).unwrap();
-
-        //        println!("1: {}", disposal.trade);
+        let gains_2019 = report.gains(Some(2019));
+        let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
         assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
@@ -531,11 +565,8 @@ mod tests {
         let trades = vec![buy1, sell, buy2, buy3];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty = report
-            .years
-            .get(&2019)
-            .expect("Tax year 2019 should be calculated");
-        let gain = ty.events.get(0).unwrap();
+        let gains_2019 = report.gains(Some(2019));
+        let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
         assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
@@ -557,11 +588,8 @@ mod tests {
         let trades = vec![buy1, sell1, sell2, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty = report
-            .years
-            .get(&2019)
-            .expect("Tax year 2019 should be calculated");
-        let gain1 = ty.events.get(0).unwrap();
+        let gains_2019 = report.gains(Some(2019));
+        let gain1 = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain1.proceeds(), gbp(40_000), "Consideration");
         assert_money_eq!(gain1.allowable_costs, gbp(25_000), "Allowable costs");
@@ -588,11 +616,17 @@ mod tests {
         let trades = vec![buy1, sell, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty = report
-            .years
-            .get(&2019)
-            .expect("Tax year 2019 should be calculated");
-        let tax_event = ty.events.get(0).unwrap();
+        let gains_2019 = report.gains(Some(2019));
+        println!(
+            "GAINS {}",
+            gains_2019.gains
+                .iter()
+                .map(|g| g.gain().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert_eq!(gains_2019.gains.len(), 1, "Should have only a single gain");
+        let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(tax_event.proceeds(), gbp(160_000), "Consideration");
         assert_money_eq!(tax_event.allowable_costs, gbp(140_000), "Allowable costs");
@@ -612,14 +646,11 @@ mod tests {
         let trades = vec![acq1, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let ty_2018 = report
-            .years
-            .get(&2018)
-            .expect("Tax year 2018 should be calculated");
+        let gains_2018 = report.gains(Some(2019));
 
-        assert_money_eq!(ty_2018.proceeds(), gbp(2000));
-        assert_money_eq!(ty_2018.allowable_costs(), gbp(1000));
-        assert_money_eq!(ty_2018.gain(), gbp(1000));
+        assert_money_eq!(gains_2018.total_proceeds(), gbp(2000));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp(1000));
+        assert_money_eq!(gains_2018.total_gain(), gbp(1000));
     }
 
     // todo: test crypto -> crypto trade, should be both a sale and a purchase and require a price
