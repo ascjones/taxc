@@ -47,8 +47,8 @@ impl Trade {
     }
 }
 
-impl From<&TradeRecord> for Trade {
-    fn from(tr: &TradeRecord) -> Self {
+impl From<TradeRecord> for Trade {
+    fn from(tr: TradeRecord) -> Self {
         let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
             .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
         let exchange = if tr.exchange == "" {
@@ -216,7 +216,7 @@ where
 {
     let mut rdr = csv::Reader::from_reader(reader);
     let records: Result<Vec<TradeRecord>, _> = rdr.deserialize::<TradeRecord>().collect();
-    let mut trades: Vec<Trade> = records?.iter().map(Into::into).collect();
+    let mut trades: Vec<Trade> = records?.into_iter().map(Into::into).collect();
     trades.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
     Ok(trades)
 }
