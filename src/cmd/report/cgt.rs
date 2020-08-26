@@ -621,7 +621,6 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        assert_eq!(gains_2019.gains.len(), 1, "Should have only a single gain");
         let tax_event = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(tax_event.proceeds(), gbp(160_000), "Consideration");
@@ -642,7 +641,7 @@ mod tests {
         let trades = vec![acq1, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
 
-        let gains_2018 = report.gains(Some(2019));
+        let gains_2018 = report.gains(Some(2018));
 
         assert_money_eq!(gains_2018.total_proceeds(), gbp(2000));
         assert_money_eq!(gains_2018.total_allowable_costs(), gbp(1000));
