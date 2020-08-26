@@ -39,12 +39,12 @@ pub struct TaxReport {
 impl TaxReport {
     pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
         let mut gains = year
-            .and_then(|y| self.years.get(&y).map(|ty| ty.gains.clone()))
+            .and_then(|y| self.years.get(&y).map(|ty| ty.events.clone()))
             .unwrap_or(
                 self
                     .years
                     .iter()
-                    .flat_map(|(_, y)| y.gains.clone())
+                    .flat_map(|(_, y)| y.events.clone())
                     .collect::<Vec<_>>(),
             );
         gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
@@ -57,12 +57,12 @@ impl TaxReport {
 
 pub struct Gains {
     pub year: Option<Year>,
-    pub gains: Vec<Gain>,
+    pub gains: Vec<TaxEvent>,
 }
 
 impl IntoIterator for Gains {
-    type Item = Gain;
-    type IntoIter = std::vec::IntoIter<Gain>;
+    type Item = TaxEvent;
+    type IntoIter = std::vec::IntoIter<TaxEvent>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.gains.into_iter()
@@ -106,10 +106,6 @@ pub struct TaxEvent {
     sell_pool: Option<Pool>,
 }
 impl TaxEvent {
-    pub fn date_time(&self) -> NaiveDateTime {
-        self.trade.date_time
-    }
-
     pub fn proceeds(&self) -> Money {
         self.sell_value // todo: fees
     }
@@ -126,15 +122,15 @@ impl TaxEvent {
         self.sell_value - self.allowable_costs - self.fee()
     }
 
-    pub fn write_csv<G, W>(gains: G, writer: W) -> Result<(), Box<dyn Error>>
+    pub fn write_csv<E, W>(tax_events: E, writer: W) -> Result<(), Box<dyn Error>>
     where
-        G: IntoIterator<Item = Gain>,
+        E: IntoIterator<Item = TaxEvent>,
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
-        Gain::write_headers(&mut wtr)?;
-        for gain in gains.into_iter() {
-            gain.write_csv_record(&mut wtr)?
+        for tax_event in tax_events.into_iter() {
+            let record: TaxEventRecord = tax_event.into();
+            wtr.serialize(record)?;
         }
         wtr.flush()?;
         Ok(())
@@ -162,8 +158,8 @@ struct TaxEventRecord {
     sell_pool_total: String,
     sell_pool_cost: String,
 }
-impl From<&TaxEvent> for TaxEventRecord {
-    fn from(tax_event: &TaxEvent) -> Self {
+impl From<TaxEvent> for TaxEventRecord {
+    fn from(tax_event: TaxEvent) -> Self {
         TaxEventRecord {
             date_time: tax_event.trade.date_time.date().to_string(),
             tax_year: tax_event.tax_year,
@@ -626,7 +622,7 @@ mod tests {
                 .join(", ")
         );
         assert_eq!(gains_2019.gains.len(), 1, "Should have only a single gain");
-        let gain = gains_2019.gains.get(0).unwrap();
+        let tax_event = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(tax_event.proceeds(), gbp(160_000), "Consideration");
         assert_money_eq!(tax_event.allowable_costs, gbp(140_000), "Allowable costs");
