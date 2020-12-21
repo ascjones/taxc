@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::fs::File;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use crate::coins::{get_currency, BTC, ETH};
+use argh::FromArgs;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -175,35 +178,49 @@ impl Into<Price> for EtherscanPriceRecord {
     }
 }
 
-pub fn import_prices<R>(
-    gbp_usd_file: R,
-    btc_usd_file: R,
-    eth_usd_file: R,
-) -> Result<Prices, Box<dyn Error>>
-where
-    R: Read,
-{
-    let gbp_usd_prices = read_records::<FiatPriceRecord, R>(gbp_usd_file)?;
-    let btc_usd_prices = read_records::<CoindeskPriceRecord, R>(btc_usd_file)?;
-    let eth_usd_prices = read_records::<EtherscanPriceRecord, R>(eth_usd_file)?;
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "prices")]
+/// Import prices from a csv file
+pub struct ImportPricesCommand {
+    /// the csv file containing GBP/USD prices
+    #[argh(option)]
+    gbp: PathBuf,
+    /// the csv file containing ETH/USD prices
+    #[argh(option)]
+    eth: PathBuf,
+    /// the csv file containing BTC/USD prices
+    #[argh(option)]
+    btc: PathBuf,
+}
 
-    let mut prices = HashMap::new();
+impl ImportPricesCommand {
+    pub fn exec(&self) -> Result<Prices, Box<dyn Error>> {
+        let gbp_usd_file = File::open(&self.gbp)?;
+        let btc_usd_file = File::open(&self.btc)?;
+        let eth_usd_file = File::open(&self.eth)?;
 
-    let btc_gbp = CurrencyPair {
-        base: *BTC,
-        quote: GBP,
-    };
-    let btc_gbp_prices = usd_to_gbp(&btc_gbp, &gbp_usd_prices, btc_usd_prices);
-    prices.insert(btc_gbp, btc_gbp_prices);
+        let gbp_usd_prices = read_records::<FiatPriceRecord, _>(gbp_usd_file)?;
+        let btc_usd_prices = read_records::<CoindeskPriceRecord, _>(btc_usd_file)?;
+        let eth_usd_prices = read_records::<EtherscanPriceRecord, _>(eth_usd_file)?;
 
-    let eth_gbp = CurrencyPair {
-        base: *ETH,
-        quote: GBP,
-    };
-    let eth_gbp_prices = usd_to_gbp(&eth_gbp, &gbp_usd_prices, eth_usd_prices);
-    prices.insert(eth_gbp, eth_gbp_prices);
+        let mut prices = HashMap::new();
 
-    Ok(Prices { prices })
+        let btc_gbp = CurrencyPair {
+            base: *BTC,
+            quote: GBP,
+        };
+        let btc_gbp_prices = usd_to_gbp(&btc_gbp, &gbp_usd_prices, btc_usd_prices);
+        prices.insert(btc_gbp, btc_gbp_prices);
+
+        let eth_gbp = CurrencyPair {
+            base: *ETH,
+            quote: GBP,
+        };
+        let eth_gbp_prices = usd_to_gbp(&eth_gbp, &gbp_usd_prices, eth_usd_prices);
+        prices.insert(eth_gbp, eth_gbp_prices);
+
+        Ok(Prices { prices })
+    }
 }
 
 fn usd_to_gbp(

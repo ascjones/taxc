@@ -15,7 +15,7 @@ use crate::cmd::prices::{CurrencyPair, Price, Prices};
 use crate::coins::{display_amount, BTC, ETH};
 use crate::trades::{Trade, TradeKey, TradeKind, TradeRecord};
 
-type Year = i32;
+pub type Year = i32;
 
 pub struct TaxYear {
     pub year: Year,

@@ -5,13 +5,13 @@ authors = ["Andrew Jones <ascjones@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4.0"
-clap = { version = "~2.32", features = ["yaml"] }
-steel-cent = "0.2.2"
-serde = { version = "1.0", features = ["derive"] }
-lazy_static = "1.2.0"
-csv = "1.0.5"
-prettytable-rs = "^0.8"
-derive_more = "0.15.0"
-log = "0.4.8"
-pretty_env_logger = "0.3.1"
+chrono = "0.4.19"
+steel-cent = "0.2.3"
+serde = { version = "1.0.118", features = ["derive"] }
+lazy_static = "1.4.0"
+csv = "1.1.5"
+prettytable-rs = "0.8.0"
+derive_more = "0.99.11"
+log = "0.4.11"
+pretty_env_logger = "0.4.0"
+argh = "0.1.4"

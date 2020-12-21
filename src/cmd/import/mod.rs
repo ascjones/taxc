@@ -5,11 +5,12 @@ use std::{
     error::Error,
     fs::File,
     io::{self, Read},
+    path::PathBuf,
 };
 
 mod exchanges;
 
-pub fn import_csv(file: &str, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
+pub fn import_csv(file: PathBuf, source: &str, group_by_day: bool) -> Result<(), Box<dyn Error>> {
     let csv_file = File::open(file)?;
     let trades = match source {
         "uphold" => csv_to_trades::<exchanges::uphold::Record, _, _>(csv_file),
