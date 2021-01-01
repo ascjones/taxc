@@ -11,7 +11,7 @@ use std::{
 mod exchanges;
 
 #[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "trades")]
+#[argh(subcommand, name = "import")]
 /// Import trades from a csv file
 pub struct ImportTradesCommand {
     /// the csv file containing trades to import
