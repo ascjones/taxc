@@ -2,8 +2,13 @@ use chrono::NaiveDateTime;
 use serde::Deserialize;
 use std::convert::TryFrom;
 
-use crate::coins::amount;
-use crate::trades::{Trade, TradeKind};
+use crate::{
+    coins::amount,
+    trades::{
+        Trade,
+        TradeKind,
+    },
+};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -33,7 +38,8 @@ impl TryFrom<Record> for Trade {
 
     fn try_from(value: Record) -> Result<Trade, Self::Error> {
         let date_time =
-            NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S").unwrap();
+            NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")
+                .unwrap();
 
         let mut market_parts = value.market.split('/');
         let base_currency = market_parts.next().expect("base currency");

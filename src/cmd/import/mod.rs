@@ -4,7 +4,10 @@ use serde::de::DeserializeOwned;
 use std::{
     convert::TryInto,
     fs::File,
-    io::{self, Read},
+    io::{
+        self,
+        Read,
+    },
     path::PathBuf,
 };
 
@@ -30,10 +33,18 @@ impl ImportTradesCommand {
         let csv_file = File::open(&self.file)?;
         let trades = match self.source.as_str() {
             "uphold" => Self::csv_to_trades::<exchanges::uphold::Record, _, _>(csv_file),
-            "poloniex" => Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(csv_file),
-            "bittrex" => Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(csv_file),
-            "binance" => Self::csv_to_trades::<exchanges::binance::Record, _, _>(csv_file),
-            "coinbase" => Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(csv_file),
+            "poloniex" => {
+                Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(csv_file)
+            }
+            "bittrex" => {
+                Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(csv_file)
+            }
+            "binance" => {
+                Self::csv_to_trades::<exchanges::binance::Record, _, _>(csv_file)
+            }
+            "coinbase" => {
+                Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(csv_file)
+            }
             x => panic!("Unknown file source {}", x), // yes I know should be an error
         }?;
         let mut trades = if self.group_by_day {

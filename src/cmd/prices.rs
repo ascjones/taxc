@@ -1,12 +1,28 @@
-use std::collections::HashMap;
-use std::fmt;
-use std::io::Read;
+use std::{
+    collections::HashMap,
+    fmt,
+    io::Read,
+};
 
-use crate::coins::{get_currency, BTC, ETH};
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use crate::coins::{
+    get_currency,
+    BTC,
+    ETH,
+};
+use chrono::{
+    DateTime,
+    NaiveDate,
+    NaiveDateTime,
+};
 use color_eyre::eyre;
-use serde::{Deserialize, Serialize};
-use steel_cent::currency::{Currency, GBP};
+use serde::{
+    Deserialize,
+    Serialize,
+};
+use steel_cent::currency::{
+    Currency,
+    GBP,
+};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub struct CurrencyPair {
@@ -41,7 +57,7 @@ struct Record {
 
 #[derive(Debug, Deserialize)]
 pub struct CoingeckoPrices {
-    prices: Vec<CoingeckoPrice>
+    prices: Vec<CoingeckoPrice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,7 +72,10 @@ impl Prices {
         let mut prices = HashMap::new();
 
         let mut fetch_prices = |coin, base| {
-            let url = format!("https://api.coingecko.com/api/v3/coins/{}/market_chart", coin);
+            let url = format!(
+                "https://api.coingecko.com/api/v3/coins/{}/market_chart",
+                coin
+            );
             let response = ureq::get(&url)
                 .query("vs_currency", "gbp")
                 .query("interval", "daily")
@@ -64,16 +83,19 @@ impl Prices {
                 .call();
 
             if response.ok() {
-                let coingecko_prices: CoingeckoPrices = response.into_json_deserialize()?;
+                let coingecko_prices: CoingeckoPrices =
+                    response.into_json_deserialize()?;
                 log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
                 let pair = CurrencyPair { base, quote: GBP };
-                let pair_prices = coingecko_prices.prices
+                let pair_prices = coingecko_prices
+                    .prices
                     .iter()
                     .map(|price| {
                         let unix_time_secs = price.timestamp / 1000;
                         Price {
                             pair: pair.clone(),
-                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
+                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0)
+                                .into(),
                             rate: price.price,
                         }
                     })
@@ -100,10 +122,12 @@ impl Prices {
         let result: Result<Vec<_>, _> = rdr.deserialize::<Record>().collect();
         let mut prices = HashMap::new();
         for record in result? {
-            let base = get_currency(&record.base_currency)
-                .expect(format!("invalid base currency {}", record.base_currency).as_ref());
-            let quote = get_currency(&record.quote_currency)
-                .expect(format!("invalid quote currency {}", record.quote_currency).as_ref());
+            let base = get_currency(&record.base_currency).expect(
+                format!("invalid base currency {}", record.base_currency).as_ref(),
+            );
+            let quote = get_currency(&record.quote_currency).expect(
+                format!("invalid quote currency {}", record.quote_currency).as_ref(),
+            );
             let date_time = parse_date(&record.date_time);
             let pair = CurrencyPair { base, quote };
             let price = Price {

@@ -1,7 +1,15 @@
 use lazy_static::lazy_static;
 use steel_cent::{
-    currency::{self, Currency},
-    formatting::{self, FormatPart, FormatSpec, ParseError},
+    currency::{
+        self,
+        Currency,
+    },
+    formatting::{
+        self,
+        FormatPart,
+        FormatSpec,
+        ParseError,
+    },
     Money,
 };
 

@@ -1,13 +1,28 @@
 use std::collections::HashMap;
 
-use std::io::{Read, Write};
-use std::ops::Add;
+use std::{
+    io::{
+        Read,
+        Write,
+    },
+    ops::Add,
+};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::{
+    DateTime,
+    NaiveDateTime,
+    Utc,
+};
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use steel_cent::Money;
 
-use crate::coins::{display_amount, parse_money_parts};
+use crate::coins::{
+    display_amount,
+    parse_money_parts,
+};
 
 #[derive(Clone, Copy)]
 pub struct TradeAmount {
@@ -48,8 +63,9 @@ impl Trade {
 
 impl From<TradeRecord> for Trade {
     fn from(tr: TradeRecord) -> Self {
-        let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
-            .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
+        let date_time =
+            NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
+                .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
         let exchange = if tr.exchange == "" {
             None
         } else {
@@ -143,7 +159,9 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
                 let latest_trade = day_trades
                     .iter()
                     .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
-                    .expect(format!("Should have at least one event for {}", day).as_ref());
+                    .expect(
+                        format!("Should have at least one event for {}", day).as_ref(),
+                    );
                 Trade {
                     date_time: latest_trade.date_time,
                     exchange: exchange.clone(),

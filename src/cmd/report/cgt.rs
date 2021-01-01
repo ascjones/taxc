@@ -1,18 +1,46 @@
-use std::collections::HashMap;
-use std::fmt;
-use std::io::Write;
+use std::{
+    collections::HashMap,
+    fmt,
+    io::Write,
+};
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
+use chrono::{
+    Datelike,
+    Duration,
+    NaiveDate,
+    NaiveDateTime,
+};
 
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use steel_cent::{
-    currency::{Currency, GBP},
+    currency::{
+        Currency,
+        GBP,
+    },
     Money,
 };
 
-use crate::cmd::prices::{CurrencyPair, Price, Prices};
-use crate::coins::{display_amount, BTC, ETH};
-use crate::trades::{Trade, TradeKey, TradeKind, TradeRecord};
+use crate::{
+    cmd::prices::{
+        CurrencyPair,
+        Price,
+        Prices,
+    },
+    coins::{
+        display_amount,
+        BTC,
+        ETH,
+    },
+    trades::{
+        Trade,
+        TradeKey,
+        TradeKind,
+        TradeRecord,
+    },
+};
 
 pub type Year = i32;
 
@@ -40,17 +68,13 @@ impl TaxReport {
         let mut gains = year
             .and_then(|y| self.years.get(&y).map(|ty| ty.events.clone()))
             .unwrap_or(
-                self
-                    .years
+                self.years
                     .iter()
                     .flat_map(|(_, y)| y.events.clone())
                     .collect::<Vec<_>>(),
             );
         gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
-        Gains {
-            year,
-            gains
-        }
+        Gains { year, gains }
     }
 }
 
@@ -329,17 +353,20 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                         .entry(future_buy.key())
                         .or_insert(future_buy.buy);
 
-                    if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency) {
-                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
-                            (
-                                main_pool_sell - *remaining_buy_amount,
-                                *remaining_buy_amount,
-                            )
-                        } else {
-                            (Money::zero(trade.sell.currency), main_pool_sell)
-                        };
+                    if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency)
+                    {
+                        let (sell, special_buy_amt) =
+                            if *remaining_buy_amount <= main_pool_sell {
+                                (
+                                    main_pool_sell - *remaining_buy_amount,
+                                    *remaining_buy_amount,
+                                )
+                            } else {
+                                (Money::zero(trade.sell.currency), main_pool_sell)
+                            };
                         *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
-                        let costs = convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
+                        let costs =
+                            convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
                         log::debug!(
                             "Deducting SELL of {} from future BUY at {}, cost: {}",
                             display_amount(&special_buy_amt),
@@ -387,8 +414,8 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                 price: price.clone(),
                 allowable_costs,
                 tax_year,
-                sell_pool: sell_pool,
-                buy_pool: buy_pool,
+                sell_pool,
+                buy_pool,
             }
         })
         .collect();
@@ -425,7 +452,7 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
             pair: CurrencyPair { base, quote: GBP },
             date_time: trade.date_time,
             rate: trade.rate,
-        });
+        })
     }
 
     // prefer BTC price, then ETH price
@@ -465,7 +492,10 @@ mod tests {
     use super::*;
     use crate::trades::Trade;
     use chrono::NaiveDate;
-    use steel_cent::{currency::GBP, Money};
+    use steel_cent::{
+        currency::GBP,
+        Money,
+    };
 
     fn trade(dt: &str, kind: TradeKind, sell: Money, buy: Money, rate: f64) -> Trade {
         let date_time = NaiveDate::parse_from_str(dt, "%Y-%m-%d")
@@ -614,7 +644,8 @@ mod tests {
         let gains_2019 = report.gains(Some(2019));
         println!(
             "GAINS {}",
-            gains_2019.gains
+            gains_2019
+                .gains
                 .iter()
                 .map(|g| g.gain().to_string())
                 .collect::<Vec<_>>()

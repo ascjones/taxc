@@ -2,8 +2,13 @@ use chrono::NaiveDateTime;
 use serde::Deserialize;
 use std::convert::TryFrom;
 
-use crate::coins::amount;
-use crate::trades::{Trade, TradeKind};
+use crate::{
+    coins::amount,
+    trades::{
+        Trade,
+        TradeKind,
+    },
+};
 
 // trade id,product,side,created at,size,size unit,price,fee,total,price/fee/total unit
 // 155157,ETH-GBP,SELL,2018-11-20T21:39:45.667Z,5.41307455,ETH,101.86,1.654127320989,549.721646342011,GBP
@@ -32,8 +37,10 @@ impl TryFrom<Record> for Trade {
 
     fn try_from(value: Record) -> Result<Trade, Self::Error> {
         // 2018-11-20T21:39:45.667Z
-        let date_time =
-            NaiveDateTime::parse_from_str(value.created_at.as_ref(), "%Y-%m-%dT%H:%M:%S%.fZ")?;
+        let date_time = NaiveDateTime::parse_from_str(
+            value.created_at.as_ref(),
+            "%Y-%m-%dT%H:%M:%S%.fZ",
+        )?;
 
         let mut market_parts = value.product.split('-');
         let base_currency = market_parts.next().expect("base currency");

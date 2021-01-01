@@ -1,8 +1,17 @@
-use crate::cmd::prices::Prices;
-use crate::trades;
+use crate::{
+    cmd::prices::Prices,
+    trades,
+};
 use argh::FromArgs;
-use std::{fs::File, io, path::PathBuf};
-use steel_cent::{currency::GBP, Money};
+use std::{
+    fs::File,
+    io,
+    path::PathBuf,
+};
+use steel_cent::{
+    currency::GBP,
+    Money,
+};
 
 mod cgt;
 
@@ -24,17 +33,15 @@ pub struct ReportCommand {
 impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let trades = trades::read_csv(File::open(&self.txs)?)?;
-        let prices =
-            match self.prices {
-                None => Prices::from_coingecko_api()?,
-                Some(ref path) => {
-                    Prices::read_csv(File::open(path)?)?
-                }
-            };
+        let prices = match self.prices {
+            None => Prices::from_coingecko_api()?,
+            Some(ref path) => Prices::read_csv(File::open(path)?)?,
+        };
         let report = cgt::calculate(trades, &prices)?;
         let gains = report.gains(self.year);
 
-        let estimated_liability = (gains.total_gain() - Money::of_major(GBP, 11_300)) * 0.2;
+        let estimated_liability =
+            (gains.total_gain() - Money::of_major(GBP, 11_300)) * 0.2;
 
         log::info!("Disposals {}", gains.len());
         log::info!("Proceeds {}", gains.total_proceeds());
