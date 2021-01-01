@@ -1,7 +1,7 @@
 use crate::cmd::prices::Prices;
 use crate::trades;
 use argh::FromArgs;
-use std::{error::Error, fs::File, io, path::PathBuf};
+use std::{fs::File, io, path::PathBuf};
 use steel_cent::{currency::GBP, Money};
 
 mod cgt;
@@ -22,7 +22,7 @@ pub struct ReportCommand {
 }
 
 impl ReportCommand {
-    pub fn exec(&self) -> Result<(), Box<dyn Error>> {
+    pub fn exec(&self) -> color_eyre::Result<()> {
         let trades = trades::read_csv(File::open(&self.txs)?)?;
         let prices =
             match self.prices {

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt;
 use std::io::Write;
 
@@ -122,7 +121,7 @@ impl TaxEvent {
         self.sell_value - self.allowable_costs - self.fee()
     }
 
-    pub fn write_csv<E, W>(tax_events: E, writer: W) -> Result<(), Box<dyn Error>>
+    pub fn write_csv<E, W>(tax_events: E, writer: W) -> color_eyre::Result<()>
     where
         E: IntoIterator<Item = TaxEvent>,
         W: Write,
@@ -261,7 +260,7 @@ impl fmt::Debug for Pool {
     }
 }
 
-pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> Result<TaxReport, String> {
+pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxReport> {
     let mut pools = HashMap::new();
 
     let convert_to_gbp = |money: &Money, price: &Price, trade_rate: f64| {

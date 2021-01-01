@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
 
 use std::io::{Read, Write};
 use std::ops::Add;
@@ -197,7 +196,7 @@ impl From<&Trade> for TradeRecord {
     }
 }
 
-pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> Result<(), Box<dyn Error>>
+pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> color_eyre::Result<()>
 where
     W: Write,
 {
@@ -210,7 +209,7 @@ where
     Ok(())
 }
 
-pub fn read_csv<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
+pub fn read_csv<R>(reader: R) -> color_eyre::Result<Vec<Trade>>
 where
     R: Read,
 {

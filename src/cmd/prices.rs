@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt;
 use std::io::Read;
 
@@ -93,7 +92,7 @@ impl Prices {
     }
 
     /// Initialize the prices database from the supplied CSV file
-    pub fn read_csv<'a, R>(reader: R) -> Result<Prices, Box<dyn Error>>
+    pub fn read_csv<'a, R>(reader: R) -> color_eyre::Result<Prices>
     where
         R: Read,
     {
