@@ -4,12 +4,9 @@ mod cmd;
 mod coins;
 mod trades;
 
-use std::{io, path::PathBuf};
+use std::{path::PathBuf};
 use argh::FromArgs;
-use cmd::{
-    prices::ImportPricesCommand,
-    report::ReportCommand,
-};
+use cmd::report::ReportCommand;
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.
@@ -28,7 +25,7 @@ enum Command {
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "import")]
-/// Import trades or prices
+/// Import trades
 pub struct ImportCommand {
     #[argh(subcommand)]
     sub: ImportSubcommand
@@ -38,7 +35,6 @@ pub struct ImportCommand {
 #[argh(subcommand)]
 pub enum ImportSubcommand {
     Trades(ImportTradesCommand),
-    Prices(ImportPricesCommand),
 }
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -63,10 +59,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cccgt.cmd {
         Command::Import(import) => {
             match import.sub {
-                ImportSubcommand::Prices(import_prices) => {
-                    let prices = import_prices.exec()?;
-                    prices.write_csv(io::stdout())
-                },
                 ImportSubcommand::Trades(trades) => {
                     cmd::import::import_csv(trades.file, &trades.source, trades.group_by_day)
                 }

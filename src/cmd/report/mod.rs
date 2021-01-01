@@ -13,9 +13,9 @@ pub struct ReportCommand {
     /// the csv file containing the transactions
     #[argh(option)]
     txs: PathBuf,
-    /// the csv file containing imported prices
+    /// optional csv file with prices in GBP for ETH and BTC, instead of fetching from Coingecko.
     #[argh(option)]
-    prices: PathBuf,
+    prices: Option<PathBuf>,
     /// the tax year for which to produce the report
     #[argh(option)]
     year: Option<i32>,
@@ -24,7 +24,13 @@ pub struct ReportCommand {
 impl ReportCommand {
     pub fn exec(&self) -> Result<(), Box<dyn Error>> {
         let trades = trades::read_csv(File::open(&self.txs)?)?;
-        let prices = Prices::read_csv(File::open(&self.prices)?)?;
+        let prices =
+            match self.prices {
+                None => Prices::from_coingecko_api()?,
+                Some(ref path) => {
+                    Prices::read_csv(File::open(path)?)?
+                }
+            };
         let report = cgt::calculate(trades, &prices)?;
         let gains = report.gains(self.year);
 

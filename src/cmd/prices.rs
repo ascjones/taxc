@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::io::Read;
 
 use crate::coins::{get_currency, BTC, ETH};
-use argh::FromArgs;
-use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
-use serde::de::DeserializeOwned;
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use color_eyre::eyre;
 use serde::{Deserialize, Serialize};
-use steel_cent::currency::{Currency, GBP, USD};
+use steel_cent::currency::{Currency, GBP};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub struct CurrencyPair {
@@ -43,17 +40,59 @@ struct Record {
     rate: f64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CoingeckoPrices {
+    prices: Vec<CoingeckoPrice>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoingeckoPrice {
+    timestamp: i64,
+    price: f64,
+}
+
 impl Prices {
-    /// gets daily price if exists
-    pub fn get(&self, pair: CurrencyPair, at: NaiveDate) -> Option<Price> {
-        self.prices.get(&pair).and_then(|prices| {
-            prices
-                .iter()
-                .find(|price| price.date_time.date() == at)
-                .cloned()
-        })
+    /// Initializes the prices database from the coingecko api
+    pub fn from_coingecko_api() -> eyre::Result<Prices> {
+        let mut prices = HashMap::new();
+
+        let mut fetch_prices = |coin, base| {
+            let url = format!("https://api.coingecko.com/api/v3/coins/{}/market_chart", coin);
+            let response = ureq::get(&url)
+                .query("vs_currency", "gbp")
+                .query("interval", "daily")
+                .query("days", "max")
+                .call();
+
+            if response.ok() {
+                let coingecko_prices: CoingeckoPrices = response.into_json_deserialize()?;
+                log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
+                let pair = CurrencyPair { base, quote: GBP };
+                let pair_prices = coingecko_prices.prices
+                    .iter()
+                    .map(|price| {
+                        let unix_time_secs = price.timestamp / 1000;
+                        Price {
+                            pair: pair.clone(),
+                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
+                            rate: price.price,
+                        }
+                    })
+                    .collect();
+                prices.insert(pair, pair_prices);
+                Ok(())
+            } else {
+                Err(eyre::eyre!("Error fetching prices"))
+            }
+        };
+
+        fetch_prices("bitcoin", *BTC)?;
+        fetch_prices("ethereum", *ETH)?;
+
+        Ok(Prices { prices })
     }
 
+    /// Initialize the prices database from the supplied CSV file
     pub fn read_csv<'a, R>(reader: R) -> Result<Prices, Box<dyn Error>>
     where
         R: Read,
@@ -80,198 +119,15 @@ impl Prices {
         Ok(Prices { prices })
     }
 
-    pub fn write_csv<W>(&self, writer: W) -> Result<(), Box<dyn Error>>
-    where
-        W: Write,
-    {
-        let mut wtr = csv::Writer::from_writer(writer);
-        for (_pair, prices) in self.prices.iter() {
-            for price in prices.iter() {
-                let date_time = DateTime::<Utc>::from_utc(price.date_time, Utc)
-                    .to_rfc3339()
-                    .clone();
-                let record = Record {
-                    base_currency: price.pair.base.code(),
-                    quote_currency: price.pair.quote.code(),
-                    date_time,
-                    rate: price.rate,
-                };
-                wtr.serialize(record)?;
-            }
-        }
-        wtr.flush()?;
-        Ok(())
+    /// gets daily price if exists
+    pub fn get(&self, pair: CurrencyPair, at: NaiveDate) -> Option<Price> {
+        self.prices.get(&pair).and_then(|prices| {
+            prices
+                .iter()
+                .find(|price| price.date_time.date() == at)
+                .cloned()
+        })
     }
-}
-
-#[derive(Deserialize, Clone)]
-struct FiatPriceRecord {
-    #[serde(rename = "Date")]
-    date: String,
-    #[serde(rename = "Price")]
-    price: f64,
-}
-
-#[derive(Deserialize, Clone)]
-struct CoindeskPriceRecord {
-    #[serde(rename = "Date")]
-    date: String,
-    #[serde(rename = "Closing Price (USD)")]
-    closing_price: f64,
-}
-
-#[derive(Deserialize, Clone)]
-struct EtherscanPriceRecord {
-    #[serde(rename = "Date(UTC)")]
-    date: String,
-    #[serde(rename = "Value")]
-    value: f64,
-}
-
-impl Into<Price> for FiatPriceRecord {
-    fn into(self) -> Price {
-        let pair = CurrencyPair {
-            base: GBP,
-            quote: USD,
-        };
-        // e.g. Jan 31, 2019
-        let date_time = NaiveDate::parse_from_str(&self.date, "%b %d, %Y")
-            .expect(format!("Invalid gbp/usd date {}", self.date).as_ref())
-            .and_hms(23, 59, 59);
-        Price {
-            pair,
-            date_time,
-            rate: self.price,
-        }
-    }
-}
-
-impl Into<Price> for CoindeskPriceRecord {
-    fn into(self) -> Price {
-        let pair = CurrencyPair {
-            base: *BTC,
-            quote: USD,
-        };
-        let date_time = parse_date(&self.date);
-        Price {
-            pair,
-            date_time,
-            rate: self.closing_price,
-        }
-    }
-}
-
-impl Into<Price> for EtherscanPriceRecord {
-    fn into(self) -> Price {
-        let pair = CurrencyPair {
-            base: *ETH,
-            quote: USD,
-        };
-        let date_time = NaiveDate::parse_from_str(&self.date, "%m/%d/%Y")
-            .expect(format!("Invalid etherscan date {}", self.date).as_ref())
-            .and_hms(23, 59, 59);
-        Price {
-            pair,
-            date_time,
-            rate: self.value,
-        }
-    }
-}
-
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "prices")]
-/// Import prices from a csv file
-pub struct ImportPricesCommand {
-    /// the csv file containing GBP/USD prices
-    #[argh(option)]
-    gbp: PathBuf,
-    /// the csv file containing ETH/USD prices
-    #[argh(option)]
-    eth: PathBuf,
-    /// the csv file containing BTC/USD prices
-    #[argh(option)]
-    btc: PathBuf,
-}
-
-impl ImportPricesCommand {
-    pub fn exec(&self) -> Result<Prices, Box<dyn Error>> {
-        let gbp_usd_file = File::open(&self.gbp)?;
-        let btc_usd_file = File::open(&self.btc)?;
-        let eth_usd_file = File::open(&self.eth)?;
-
-        let gbp_usd_prices = read_records::<FiatPriceRecord, _>(gbp_usd_file)?;
-        let btc_usd_prices = read_records::<CoindeskPriceRecord, _>(btc_usd_file)?;
-        let eth_usd_prices = read_records::<EtherscanPriceRecord, _>(eth_usd_file)?;
-
-        let mut prices = HashMap::new();
-
-        let btc_gbp = CurrencyPair {
-            base: *BTC,
-            quote: GBP,
-        };
-        let btc_gbp_prices = usd_to_gbp(&btc_gbp, &gbp_usd_prices, btc_usd_prices);
-        prices.insert(btc_gbp, btc_gbp_prices);
-
-        let eth_gbp = CurrencyPair {
-            base: *ETH,
-            quote: GBP,
-        };
-        let eth_gbp_prices = usd_to_gbp(&eth_gbp, &gbp_usd_prices, eth_usd_prices);
-        prices.insert(eth_gbp, eth_gbp_prices);
-
-        Ok(Prices { prices })
-    }
-}
-
-fn usd_to_gbp(
-    pair: &CurrencyPair,
-    gbp_usd_prices: &Vec<Price>,
-    crypto_usd_prices: Vec<Price>,
-) -> Vec<Price> {
-    let mut gbp_prices = Vec::new();
-    let mut last_price = None;
-    for price in crypto_usd_prices.iter() {
-        let price_date = price.date_time.date();
-        let gbp_usd = gbp_usd_prices.iter().find(|gbp_usd_price| {
-            //                println!("Searching {}", gbp_usd_price.date_time.date());
-            price_date == gbp_usd_price.date_time.date()
-        });
-        let gbp_usd_rate = if let Some(gbp_usd) = gbp_usd {
-            last_price = Some(gbp_usd.clone());
-            gbp_usd.rate
-        } else {
-            if let Some(last_price) = last_price.clone() {
-                // handle missing currency prices over weekends/holidays
-                if price_date - last_price.date_time.date() > Duration::days(4) {
-                    panic!("No GBP/USD price in the last 4 days since {}", price_date)
-                } else {
-                    last_price.rate
-                }
-            } else {
-                panic!("No GBP/USD price found for {}", price_date)
-            }
-        };
-        let gbp_crypto_rate = price.rate / gbp_usd_rate;
-        let gbp_price = Price {
-            pair: pair.clone(),
-            date_time: price.date_time,
-            rate: gbp_crypto_rate,
-        };
-        gbp_prices.push(gbp_price);
-    }
-    gbp_prices
-}
-
-fn read_records<'de, T, R>(reader: R) -> Result<Vec<Price>, csv::Error>
-where
-    R: Read,
-    T: DeserializeOwned,
-    T: Into<Price>,
-    T: Clone,
-{
-    let mut rdr = csv::Reader::from_reader(reader);
-    let result: Result<Vec<_>, _> = rdr.deserialize::<T>().collect();
-    result.map(|records| records.iter().cloned().map(Into::into).collect())
 }
 
 fn parse_date(s: &str) -> NaiveDateTime {
