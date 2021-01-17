@@ -3,12 +3,13 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 
 use crate::{
-    coins::amount,
+    assets::amount,
     trades::{
         Trade,
         TradeKind,
     },
 };
+use rust_decimal::Decimal;
 
 // trade id,product,side,created at,size,size unit,price,fee,total,price/fee/total unit
 // 155157,ETH-GBP,SELL,2018-11-20T21:39:45.667Z,5.41307455,ETH,101.86,1.654127320989,549.721646342011,GBP
@@ -22,12 +23,12 @@ pub struct Record {
     side: String,
     #[serde(rename = "created at")]
     created_at: String,
-    size: f64,
+    size: Decimal,
     #[serde(rename = "size unit")]
     size_unit: String,
-    price: f64,
-    fee: f64,
-    total: f64,
+    price: Decimal,
+    fee: Decimal,
+    total: Decimal,
     #[serde(rename = "price/fee/total unit")]
     unit: String,
 }
@@ -50,7 +51,7 @@ impl TryFrom<Record> for Trade {
         let quote_amount = amount(quote_currency, value.total);
 
         let (kind, sell, buy) = match value.side.as_ref() {
-            "BUY" => (TradeKind::Buy, quote_amount * -1.0, base_amount),
+            "BUY" => (TradeKind::Buy, quote_amount * -1, base_amount),
             "SELL" => (TradeKind::Sell, base_amount, quote_amount),
             _ => panic!("Invalid order_type {}", value.side),
         };

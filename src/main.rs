@@ -1,14 +1,17 @@
 #![recursion_limit = "128"]
 
 mod cmd;
-mod coins;
+mod assets;
 mod trades;
 
+use assets::currencies;
 use argh::FromArgs;
 use cmd::{
     import::ImportTradesCommand,
     report::ReportCommand,
 };
+
+type Money = rusty_money::Money<'static, currencies::Currency>;
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.

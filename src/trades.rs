@@ -17,14 +17,17 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use steel_cent::Money;
 
-use crate::coins::{
-    display_amount,
-    parse_money_parts,
+use crate::{
+    assets::{
+        display_amount,
+        parse_money_parts
+    },
+    Money
 };
+use rust_decimal::Decimal;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct TradeAmount {
     amount: Money,
     gbp_value: Money,
@@ -47,7 +50,7 @@ pub struct Trade {
     pub buy: Money,
     pub sell: Money,
     pub fee: Money,
-    pub rate: f64,
+    pub rate: Decimal,
     pub exchange: Option<String>,
 }
 impl Trade {

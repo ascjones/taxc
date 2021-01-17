@@ -1,6 +1,8 @@
 use crate::{
     cmd::prices::Prices,
+    currencies::{GBP},
     trades,
+    Money,
 };
 use argh::FromArgs;
 use std::{
@@ -8,10 +10,7 @@ use std::{
     io,
     path::PathBuf,
 };
-use steel_cent::{
-    currency::GBP,
-    Money,
-};
+use rust_decimal::Decimal;
 
 mod cgt;
 
@@ -41,7 +40,7 @@ impl ReportCommand {
         let gains = report.gains(self.year);
 
         let estimated_liability =
-            (gains.total_gain() - Money::of_major(GBP, 11_300)) * 0.2;
+            (gains.total_gain() - Money::from_major(11_300, GBP)) * Decimal::new(20, 2);
 
         log::info!("Disposals {}", gains.len());
         log::info!("Proceeds {}", gains.total_proceeds());

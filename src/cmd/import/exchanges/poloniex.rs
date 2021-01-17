@@ -3,12 +3,13 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 
 use crate::{
-    coins::amount,
+    assets::amount,
     trades::{
         Trade,
         TradeKind,
     },
 };
+use rust_decimal::Decimal;
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -20,17 +21,17 @@ pub struct Record {
     #[serde(rename = "Type")]
     order_type: String,
     #[serde(rename = "Price")]
-    price: f64,
+    price: Decimal,
     #[serde(rename = "Amount")]
-    amount: f64,
+    amount: Decimal,
     #[serde(rename = "Total")]
-    total: f64,
+    total: Decimal,
     #[serde(rename = "Order Number")]
     order_number: String,
     #[serde(rename = "Base Total Less Fee")]
-    base_total_less_fee: f64,
+    base_total_less_fee: Decimal,
     #[serde(rename = "Quote Total Less Fee")]
-    quote_total_less_fee: f64,
+    quote_total_less_fee: Decimal,
 }
 
 impl TryFrom<Record> for Trade {

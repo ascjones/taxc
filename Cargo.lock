@@ -21,7 +21,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58fb5e95d83b38284460a5fda7d6470aa0b8844d283a0b614b8535e880800d2d"
 dependencies = [
- "memchr 2.2.1",
+ "memchr",
 ]
 
 [[package]]
@@ -143,7 +143,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0a692f1c740e7e821ca71a22cf99b9b2322dfa94d10f71443befb1797b3946a"
 dependencies = [
  "lazy_static",
- "memchr 2.2.1",
+ "memchr",
  "regex-automata",
  "serde",
 ]
@@ -173,14 +173,15 @@ dependencies = [
  "argh",
  "chrono",
  "color-eyre",
- "csv 1.1.5",
+ "csv",
  "derive_more",
  "lazy_static",
  "log",
  "pretty_env_logger",
  "prettytable-rs",
+ "rust_decimal",
+ "rusty-money",
  "serde",
- "steel-cent",
  "ureq",
 ]
 
@@ -292,17 +293,6 @@ dependencies = [
 
 [[package]]
 name = "csv"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef22b37c7a51c564a365892c012dc0271221fdcc64c69b19ba4d6fa8bd96d9c"
-dependencies = [
- "byteorder",
- "memchr 1.0.2",
- "rustc-serialize",
-]
-
-[[package]]
-name = "csv"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9d58633299b24b515ac72a3f869f8b91306a3cec616a602843a383acd6f9e97"
@@ -320,7 +310,7 @@ version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b5cadb6b25c77aeff80ba701712494213f4a8418fcda2ee11b6560c3ad0bf4c"
 dependencies = [
- "memchr 2.2.1",
+ "memchr",
 ]
 
 [[package]]
@@ -538,15 +528,6 @@ checksum = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
 
 [[package]]
 name = "memchr"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "148fab2e51b4f1cfc66da2a7c32981d1d3c083a803978268bb11fe4b86925e7a"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "memchr"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"
@@ -636,7 +617,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fd04b170004fa2daccf418a7f8253aaf033c27760b5f225889024cf66d7ac2e"
 dependencies = [
  "atty",
- "csv 1.1.5",
+ "csv",
  "encode_unicode",
  "lazy_static",
  "term",
@@ -776,7 +757,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc220bd33bdce8f093101afe22a037b8eb0e5af33592e6a9caafff0d4cb81cbd"
 dependencies = [
  "aho-corasick",
- "memchr 2.2.1",
+ "memchr",
  "regex-syntax",
  "thread_local 0.3.6",
 ]
@@ -812,16 +793,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust_decimal"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5c739ba050709eae138f053356d27ff818d71fe54ce5a8d9f4c7a660bfb6684"
+dependencies = [
+ "num-traits",
+ "serde",
+]
+
+[[package]]
+name = "rust_decimal_macros"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0df1b05015b9da4be40f1ac8b6755b9fdb48814c70184018b4f7923891e0845f"
+dependencies = [
+ "quote 1.0.7",
+ "rust_decimal",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7f4dccf6f4891ebcc0c39f9b6eb1a83b9bf5d747cb439ec6fba4f3b977038af"
-
-[[package]]
-name = "rustc-serialize"
-version = "0.3.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -843,6 +838,15 @@ dependencies = [
  "ring",
  "sct",
  "webpki",
+]
+
+[[package]]
+name = "rusty-money"
+version = "0.3.6"
+source = "git+https://github.com/varunsrin/rusty_money#3d6bdb44c363d3d6154928f622ff0cc12c97af09"
+dependencies = [
+ "rust_decimal",
+ "rust_decimal_macros",
 ]
 
 [[package]]
@@ -998,16 +1002,6 @@ name = "stdweb-internal-runtime"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
-
-[[package]]
-name = "steel-cent"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8835ce3377f7c77f2ea528e889ae1fef4f2b42c33cd95b47e7702a0cf2ebae77"
-dependencies = [
- "csv 0.15.0",
- "lazy_static",
-]
 
 [[package]]
 name = "syn"

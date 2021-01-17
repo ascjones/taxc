@@ -4,10 +4,12 @@ use std::{
     io::Read,
 };
 
-use crate::coins::{
-    get_currency,
+use crate::currencies::{
+    self,
+    Currency,
     BTC,
     ETH,
+    GBP,
 };
 use chrono::{
     DateTime,
@@ -19,19 +21,24 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use steel_cent::currency::{
-    Currency,
-    GBP,
-};
+use std::hash::{Hash, Hasher};
 
-#[derive(Eq, PartialEq, Hash, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub struct CurrencyPair {
     pub base: Currency,
     pub quote: Currency,
 }
+
+impl Hash for CurrencyPair {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.base.code.hash(state);
+        self.base.code.hash(state);
+    }
+}
+
 impl fmt::Display for CurrencyPair {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.base.code(), self.quote.code())
+        write!(f, "{}/{}", self.base.code, self.quote.code)
     }
 }
 
@@ -86,7 +93,7 @@ impl Prices {
                 let coingecko_prices: CoingeckoPrices =
                     response.into_json_deserialize()?;
                 log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
-                let pair = CurrencyPair { base, quote: GBP };
+                let pair = CurrencyPair { base, quote: *GBP };
                 let pair_prices = coingecko_prices
                     .prices
                     .iter()
@@ -122,14 +129,14 @@ impl Prices {
         let result: Result<Vec<_>, _> = rdr.deserialize::<Record>().collect();
         let mut prices = HashMap::new();
         for record in result? {
-            let base = get_currency(&record.base_currency).expect(
+            let base = currencies::find(&record.base_currency).expect(
                 format!("invalid base currency {}", record.base_currency).as_ref(),
             );
-            let quote = get_currency(&record.quote_currency).expect(
+            let quote = currencies::find(&record.quote_currency).expect(
                 format!("invalid quote currency {}", record.quote_currency).as_ref(),
             );
             let date_time = parse_date(&record.date_time);
-            let pair = CurrencyPair { base, quote };
+            let pair = CurrencyPair { base: *base, quote: *quote };
             let price = Price {
                 pair: pair.clone(),
                 date_time,
