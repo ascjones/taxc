@@ -57,7 +57,7 @@ impl TaxYear {
 pub struct TaxReport {
     pub trades: Vec<Trade>,
     pub years: HashMap<Year, TaxYear>,
-    pub pools: HashMap<Currency, Pool>,
+    pub pools: HashMap<String, Pool>,
 }
 
 impl TaxReport {
@@ -282,13 +282,16 @@ impl fmt::Debug for Pool {
 pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxReport> {
     let mut pools = HashMap::new();
 
-    let convert_to_gbp = |money: &Money, price: &Price, trade_rate: f64| {
+    let convert_to_gbp = |money: Money, price: &Price, trade_rate: Decimal| -> color_eyre::Result<Money> {
+        let quote_rate = rusty_money::ExchangeRate::new(&price.pair.quote, &GBP, price.rate)?;
+        let base_rate = rusty_money::ExchangeRate::new(&price.pair.base, &GBP, trade_rate)?;
         if money.currency() == &price.pair.base {
-            money.convert_to(price.pair.quote, price.rate)
+            let gbp = quote_rate.convert(money)?;
+            Ok(gbp)
         } else {
-            money
-                .convert_to(price.pair.base, trade_rate)
-                .convert_to(price.pair.quote, price.rate)
+            let base = base_rate.convert(money)?;
+            let quote = quote_rate.convert(base)?;
+            Ok(quote)
         }
     };
 
@@ -307,7 +310,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
 
     let mut special_buys: HashMap<TradeKey, Money> = HashMap::new();
 
-    let gains: Vec<TaxEvent> = trades_with_prices
+    let gains = trades_with_prices
         .iter()
         .cloned()
         .map(|(trade, price)| {
@@ -318,13 +321,13 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
             let mut allowable_costs = Money::from_major(0, GBP);
 
             if trade.buy.currency() != GBP {
-                let _zero = Money::zero(trade.buy.currency());
+                let _zero = Money::from_major(0, trade.buy.currency());
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
-                let costs = convert_to_gbp(buy_amount, &price, trade.rate);
+                let costs = convert_to_gbp(*buy_amount, &price, trade.rate)?;
                 let pool = pools
-                    .entry(trade.buy.currency())
+                    .entry(trade.buy.currency().code)
                     .or_insert(Pool::new(trade.buy.currency()));
-                pool.buy(buy_amount, costs);
+                pool.buy(*buy_amount, costs);
                 buy_pool = Some(pool.clone());
             }
 
@@ -348,7 +351,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                         .entry(future_buy.key())
                         .or_insert(future_buy.buy);
 
-                    if *remaining_buy_amount > Money::zero(remaining_buy_amount.currency())
+                    if *remaining_buy_amount > Money::from_major(0, remaining_buy_amount.currency())
                     {
                         let (sell, special_buy_amt) =
                             if *remaining_buy_amount <= main_pool_sell {
@@ -357,16 +360,16 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                                     *remaining_buy_amount,
                                 )
                             } else {
-                                (Money::zero(trade.sell.currency), main_pool_sell)
+                                (Money::from_major(0, trade.sell.currency()), main_pool_sell)
                             };
                         *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
                         let costs =
-                            convert_to_gbp(&special_buy_amt, &buy_price, future_buy.rate);
+                            convert_to_gbp(special_buy_amt, &buy_price, future_buy.rate)?;
                         log::debug!(
                             "Deducting SELL of {} from future BUY at {}, cost: {}",
-                            display_amount(&special_buy_amt),
+                            display_amount(special_buy_amt),
                             future_buy.date_time,
-                            display_amount(&costs)
+                            display_amount(costs)
                         );
                         main_pool_sell = sell;
                         special_allowable_costs = special_allowable_costs + costs;
@@ -374,7 +377,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                 }
 
                 let pool = pools
-                    .entry(trade.sell.currency())
+                    .entry(trade.sell.currency().code)
                     .or_insert(Pool::new(trade.sell.currency()));
                 let main_pool_costs = pool.sell(main_pool_sell);
                 allowable_costs = main_pool_costs + special_allowable_costs;
@@ -384,24 +387,24 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
             let sell_value = if trade.sell.currency() == GBP {
                 trade.sell
             } else {
-                convert_to_gbp(&trade.sell, &price, trade.rate)
+                convert_to_gbp(trade.sell, &price, trade.rate)?
             };
 
             let buy_value = if trade.buy.currency() == GBP {
                 trade.buy
             } else {
-                convert_to_gbp(&trade.buy, &price, trade.rate)
+                convert_to_gbp(trade.buy, &price, trade.rate)?
             };
 
             let fee_value = if trade.fee.currency() == GBP {
                 trade.fee
             } else {
-                convert_to_gbp(&trade.fee, &price, trade.rate)
+                convert_to_gbp(trade.fee, &price, trade.rate)?
             };
 
             let tax_year = uk_tax_year(trade.date_time);
 
-            TaxEvent {
+            Ok(TaxEvent {
                 trade: trade.clone(),
                 buy_value,
                 sell_value,
@@ -411,16 +414,16 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                 tax_year,
                 sell_pool,
                 buy_pool,
-            }
+            })
         })
-        .collect();
+        .collect::<color_eyre::Result<Vec<_>>>()?;
     Ok(create_report(trades, gains, pools))
 }
 
 fn create_report(
     trades: Vec<Trade>,
     gains: Vec<TaxEvent>,
-    pools: HashMap<Currency, Pool>,
+    pools: HashMap<&str, Pool>,
 ) -> TaxReport {
     let mut tax_years = HashMap::new();
     for gain in gains.iter() {
@@ -444,16 +447,16 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
 
     if quote == GBP {
         return Some(Price {
-            pair: CurrencyPair { base, quote: GBP },
+            pair: CurrencyPair { base: *base, quote: GBP },
             date_time: trade.date_time,
             rate: trade.rate,
         })
     }
 
     // prefer BTC price, then ETH price
-    let base = if quote == *BTC {
+    let base = if quote == BTC {
         *BTC
-    } else if quote == *ETH {
+    } else if quote == ETH {
         *ETH
     } else {
         panic!(
@@ -464,7 +467,7 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
         )
     };
 
-    let pair = CurrencyPair { base, quote: GBP };
+    let pair = CurrencyPair { base, quote: *GBP };
     prices.get(pair, trade.date_time.date())
 }
 
@@ -487,11 +490,16 @@ mod tests {
     use super::*;
     use crate::trades::Trade;
     use chrono::NaiveDate;
+    use std::str::FromStr;
 
-    fn trade(dt: &str, kind: TradeKind, sell: Money, buy: Money, rate: f64) -> Trade {
+    fn trade<D>(dt: &str, kind: TradeKind, sell: Money, buy: Money, rate: D) -> Trade
+    where
+        D: Into<Decimal>
+    {
         let date_time = NaiveDate::parse_from_str(dt, "%Y-%m-%d")
             .expect("DateTime string should match pattern")
             .and_hms(23, 59, 59);
+        let rate = rate.into();
 
         Trade {
             date_time,
@@ -505,11 +513,11 @@ mod tests {
     }
 
     fn gbp(major: i64) -> Money {
-        Money::of_major(GBP, major)
+        Money::from_major(major, GBP)
     }
 
     fn btc(major: i64) -> Money {
-        Money::of_major(*BTC, major)
+        Money::from_major(major, BTC)
     }
 
     macro_rules! assert_money_eq {
@@ -523,9 +531,9 @@ mod tests {
 
     #[test]
     fn hmrc_pooling_example() {
-        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(100), 10.);
-        let acq2 = trade("2017-01-01", TradeKind::Buy, gbp(125000), btc(50), 2500.);
-        let disp = trade("2018-01-01", TradeKind::Sell, btc(50), gbp(300000), 6000.);
+        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(100), 10);
+        let acq2 = trade("2017-01-01", TradeKind::Buy, gbp(125000), btc(50), 2500);
+        let disp = trade("2018-01-01", TradeKind::Sell, btc(50), gbp(300000), 6000);
 
         let trades = vec![acq1, acq2, disp];
         let report = calculate(trades, &Prices::default()).unwrap();
@@ -544,10 +552,10 @@ mod tests {
             TradeKind::Buy,
             gbp(200_000),
             btc(14_000),
-            14.285714286,
+            Decimal::from_str("14.285714286").unwrap(),
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40.);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(17_500), btc(500), 35.);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(17_500), btc(500), 35);
 
         let trades = vec![buy1, sell, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
@@ -572,11 +580,11 @@ mod tests {
             TradeKind::Buy,
             gbp(200_000),
             btc(14_000),
-            14.285714286,
+            Decimal::from_str("14.285714286").unwrap(),
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40.);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(8_750), btc(250), 35.);
-        let buy3 = trade("2018-09-12", TradeKind::Buy, gbp(8_750), btc(250), 35.);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(8_750), btc(250), 35);
+        let buy3 = trade("2018-09-12", TradeKind::Buy, gbp(8_750), btc(250), 35);
 
         let trades = vec![buy1, sell, buy2, buy3];
         let report = calculate(trades, &Prices::default()).unwrap();
@@ -596,10 +604,10 @@ mod tests {
 
     #[test]
     fn multiple_sells_with_same_buy_within_30_days() {
-        let buy1 = trade("2018-01-01", TradeKind::Buy, gbp(100_000), btc(100), 1000.);
-        let sell1 = trade("2018-08-30", TradeKind::Sell, btc(20), gbp(40_000), 2000.);
-        let sell2 = trade("2018-09-01", TradeKind::Sell, btc(20), gbp(40_000), 2000.);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(15_000), btc(10), 1500.);
+        let buy1 = trade("2018-01-01", TradeKind::Buy, gbp(100_000), btc(100), 1000);
+        let sell1 = trade("2018-08-30", TradeKind::Sell, btc(20), gbp(40_000), 2000);
+        let sell2 = trade("2018-09-01", TradeKind::Sell, btc(20), gbp(40_000), 2000);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(15_000), btc(10), 1500);
 
         let trades = vec![buy1, sell1, sell2, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
@@ -624,10 +632,10 @@ mod tests {
             TradeKind::Buy,
             gbp(200_000),
             btc(14_000),
-            14.285714286,
+            Decimal::from_str("14.285714286").unwrap(), // todo use dec!()
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40.);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(175_000), btc(5000), 35.);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(175_000), btc(5000), 35);
 
         let trades = vec![buy1, sell, buy2];
         let report = calculate(trades, &Prices::default()).unwrap();
@@ -656,8 +664,8 @@ mod tests {
 
     #[test]
     fn disposal_with_not_enough_funds_in_pool_should_use_partial_allowable_costs() {
-        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(1), 1000.);
-        let disp = trade("2018-01-01", TradeKind::Sell, btc(2), gbp(2000), 1000.);
+        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(1), 1000);
+        let disp = trade("2018-01-01", TradeKind::Sell, btc(2), gbp(2000), 1000);
 
         let trades = vec![acq1, disp];
         let report = calculate(trades, &Prices::default()).unwrap();

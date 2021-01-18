@@ -118,9 +118,9 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
             trade.date_time.date(),
             trade.kind.clone(),
             trade.exchange.clone(),
-            trade.buy.currency,
-            trade.sell.currency,
-            trade.fee.currency,
+            trade.buy.currency(),
+            trade.sell.currency(),
+            trade.fee.currency(),
         );
         let day = days.entry(key).or_insert(Vec::new());
         day.push(trade);
@@ -130,9 +130,9 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
             |((day, kind, exchange, buy_curr, sell_curr, fee_currency), day_trades)| {
                 let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
                     (
-                        Money::zero(*buy_curr),
-                        Money::zero(*sell_curr),
-                        Money::zero(*fee_currency),
+                        Money::from_major(0, *buy_curr),
+                        Money::from_major(0, *sell_curr),
+                        Money::from_major(0, *fee_currency),
                     ),
                     |(buy, sell, fee), t| (buy + t.buy, sell + t.sell, fee + t.fee),
                 );
@@ -145,7 +145,7 @@ pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
 
                 let average_rate = {
                     let (count, total) = day_trades.iter().fold(
-                        (Money::zero(*quote_curr), Money::zero(*quote_curr)),
+                        (Money::from_major(0, *quote_curr), Money::from_major(0, *quote_curr)),
                         |(count, total), trade| {
                             let (base, _quote) = if trade.buy.currency == *base_curr {
                                 (trade.sell, trade.buy)
@@ -189,7 +189,7 @@ pub struct TradeRecord {
     pub sell_amount: String,
     pub fee_asset: String,
     pub fee_amount: String,
-    pub rate: f64,
+    pub rate: Decimal,
     pub exchange: String,
 }
 impl From<&Trade> for TradeRecord {

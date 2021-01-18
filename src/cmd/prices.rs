@@ -17,6 +17,7 @@ use chrono::{
     NaiveDateTime,
 };
 use color_eyre::eyre;
+use rust_decimal::Decimal;
 use serde::{
     Deserialize,
     Serialize,
@@ -46,7 +47,7 @@ impl fmt::Display for CurrencyPair {
 pub struct Price {
     pub pair: CurrencyPair,
     pub date_time: NaiveDateTime,
-    pub rate: f64,
+    pub rate: Decimal,
 }
 
 #[derive(Default)]
@@ -59,7 +60,7 @@ struct Record {
     base_currency: String,
     quote_currency: String,
     date_time: String,
-    rate: f64,
+    rate: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,7 +71,7 @@ pub struct CoingeckoPrices {
 #[derive(Debug, Deserialize)]
 pub struct CoingeckoPrice {
     timestamp: i64,
-    price: f64,
+    price: Decimal,
 }
 
 impl Prices {
