@@ -34,10 +34,10 @@ pub struct Record {
     quote_total_less_fee: Decimal,
 }
 
-impl TryFrom<Record> for Trade {
+impl<'a> TryFrom<Record> for Trade<'a> {
     type Error = super::ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         let date_time =
             NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")
                 .unwrap();

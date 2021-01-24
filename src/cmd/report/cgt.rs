@@ -41,11 +41,11 @@ use rust_decimal::Decimal;
 
 pub type Year = i32;
 
-pub struct TaxYear {
+pub struct TaxYear<'a> {
     pub year: Year,
-    pub events: Vec<TaxEvent>,
+    pub events: Vec<TaxEvent<'a>>,
 }
-impl TaxYear {
+impl<'a> TaxYear<'a> {
     fn new(year: Year) -> Self {
         TaxYear {
             year,
@@ -54,13 +54,13 @@ impl TaxYear {
     }
 }
 
-pub struct TaxReport {
-    pub trades: Vec<Trade>,
-    pub years: HashMap<Year, TaxYear>,
-    pub pools: HashMap<String, Pool>,
+pub struct TaxReport<'a> {
+    pub trades: Vec<Trade<'a>>,
+    pub years: HashMap<Year, TaxYear<'a>>,
+    pub pools: HashMap<String, Pool<'a>>,
 }
 
-impl TaxReport {
+impl<'a> TaxReport<'a> {
     pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
         let mut gains = year
             .and_then(|y| self.years.get(&y).map(|ty| ty.events.clone()))
@@ -75,38 +75,38 @@ impl TaxReport {
     }
 }
 
-pub struct Gains {
+pub struct Gains<'a> {
     pub year: Option<Year>,
-    pub gains: Vec<TaxEvent>,
+    pub gains: Vec<TaxEvent<'a>>,
 }
 
-impl IntoIterator for Gains {
-    type Item = TaxEvent;
-    type IntoIter = std::vec::IntoIter<TaxEvent>;
+impl<'a> IntoIterator for Gains<'a> {
+    type Item = TaxEvent<'a>;
+    type IntoIter = std::vec::IntoIter<TaxEvent<'a>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.gains.into_iter()
     }
 }
 
-impl Gains {
+impl<'a> Gains<'a> {
     pub(crate) fn len(&self) -> usize {
         self.gains.len()
     }
 
-    pub(crate) fn total_proceeds(&self) -> Money {
+    pub(crate) fn total_proceeds(&self) -> Money<'a> {
         self.gains
             .iter()
-            .fold(Money::from_major(0, GBP), |acc, g| acc + g.proceeds())
+            .fold(Money::from_major(0, GBP), |acc, g| acc + g.proceeds().clone())
     }
 
-    pub(crate) fn total_allowable_costs(&self) -> Money {
+    pub(crate) fn total_allowable_costs(&self) -> Money<'a> {
         self.gains
             .iter()
-            .fold(Money::from_major(0, GBP), |acc, g| acc + g.allowable_costs())
+            .fold(Money::from_major(0, GBP), |acc, g| acc + g.allowable_costs().clone())
     }
 
-    pub(crate) fn total_gain(&self) -> Money {
+    pub(crate) fn total_gain(&self) -> Money<'a> {
         self.gains
             .iter()
             .fold(Money::from_major(0, GBP), |acc, g| acc + g.gain())
@@ -114,37 +114,37 @@ impl Gains {
 }
 
 #[derive(Clone)]
-pub struct TaxEvent {
-    trade: Trade,
+pub struct TaxEvent<'a> {
+    trade: Trade<'a>,
     tax_year: Year,
-    buy_value: Money,
-    sell_value: Money,
-    fee_value: Money,
-    price: Price,
-    allowable_costs: Money,
-    buy_pool: Option<Pool>,
-    sell_pool: Option<Pool>,
+    buy_value: Money<'a>,
+    sell_value: Money<'a>,
+    fee_value: Money<'a>,
+    price: Price<'a>,
+    allowable_costs: Money<'a>,
+    buy_pool: Option<Pool<'a>>,
+    sell_pool: Option<Pool<'a>>,
 }
-impl TaxEvent {
-    pub fn proceeds(&self) -> Money {
-        self.sell_value // todo: fees
+impl<'a> TaxEvent<'a> {
+    pub fn proceeds(&self) -> &Money<'a> {
+        &self.sell_value // todo: fees
     }
 
-    pub fn allowable_costs(&self) -> Money {
-        self.allowable_costs
+    pub fn allowable_costs(&self) -> &Money<'a> {
+        &self.allowable_costs
     }
 
-    pub fn fee(&self) -> Money {
-        self.fee_value
+    pub fn fee(&self) -> &Money<'a> {
+        &self.fee_value
     }
 
-    pub fn gain(&self) -> Money {
-        self.sell_value - self.allowable_costs - self.fee()
+    pub fn gain(&self) -> Money<'a> {
+        self.sell_value.clone() - self.allowable_costs.clone() - self.fee().clone()
     }
 
     pub fn write_csv<E, W>(tax_events: E, writer: W) -> color_eyre::Result<()>
     where
-        E: IntoIterator<Item = TaxEvent>,
+        E: IntoIterator<Item = TaxEvent<'a>>,
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
@@ -178,27 +178,27 @@ struct TaxEventRecord {
     sell_pool_total: String,
     sell_pool_cost: String,
 }
-impl From<TaxEvent> for TaxEventRecord {
+impl<'a> From<TaxEvent<'a>> for TaxEventRecord {
     fn from(tax_event: TaxEvent) -> Self {
         TaxEventRecord {
             date_time: tax_event.trade.date_time.date().to_string(),
             tax_year: tax_event.tax_year,
             exchange: tax_event.trade.exchange.clone().unwrap_or(String::new()),
             buy_asset: tax_event.trade.buy.currency().code.to_string(),
-            buy_amt: display_amount(tax_event.trade.buy),
+            buy_amt: display_amount(&tax_event.trade.buy),
             sell_asset: tax_event.trade.sell.currency().code.to_string(),
-            sell_amt: display_amount(tax_event.trade.sell),
+            sell_amt: display_amount(&tax_event.trade.sell),
             price: tax_event.price.pair.to_string(),
             rate: tax_event.price.rate.to_string(),
-            buy_gbp: display_amount(tax_event.buy_value),
-            sell_gbp: display_amount(tax_event.sell_value),
+            buy_gbp: display_amount(&tax_event.buy_value),
+            sell_gbp: display_amount(&tax_event.sell_value),
             fee: display_amount(tax_event.fee()),
             allowable_cost: display_amount(tax_event.allowable_costs()),
-            gain: display_amount(tax_event.gain()),
+            gain: display_amount(&tax_event.gain()),
             buy_pool_total: tax_event
                 .buy_pool
                 .as_ref()
-                .map_or("".to_string(), |p| display_amount(p.total)),
+                .map_or("".to_string(), |p| display_amount(&p.total)),
             buy_pool_cost: tax_event
                 .buy_pool
                 .as_ref()
@@ -206,7 +206,7 @@ impl From<TaxEvent> for TaxEventRecord {
             sell_pool_total: tax_event
                 .sell_pool
                 .as_ref()
-                .map_or("".to_string(), |p| display_amount(p.total)),
+                .map_or("".to_string(), |p| display_amount(&p.total)),
             sell_pool_cost: tax_event
                 .sell_pool
                 .as_ref()
@@ -216,13 +216,13 @@ impl From<TaxEvent> for TaxEventRecord {
 }
 
 #[derive(Clone)]
-pub struct Pool {
-    currency: &'static Currency,
-    total: Money,
-    costs: Money,
+pub struct Pool<'a> {
+    currency: &'a Currency,
+    total: Money<'a>,
+    costs: Money<'a>,
 }
-impl Pool {
-    fn new(currency: &'static Currency) -> Self {
+impl<'a> Pool<'a> {
+    fn new(currency: &'a Currency) -> Self {
         Pool {
             currency,
             total: Money::from_major(0, currency),
@@ -230,34 +230,34 @@ impl Pool {
         }
     }
 
-    fn buy(&mut self, buy: Money, costs: Money) {
-        self.total = self.total + buy;
-        self.costs = self.costs + costs;
+    fn buy(&mut self, buy: &Money<'a>, costs: &Money<'a>) {
+        self.total = self.total.clone() + buy.clone();
+        self.costs = self.costs.clone() + costs.clone();
         log::debug!(
             "Pool BUY {}, costs: {}",
-            display_amount(buy),
-            display_amount(costs)
+            display_amount(&buy),
+            display_amount(&costs)
         );
         log::debug!("Pool: {:?}", self);
     }
 
-    fn sell(&mut self, sell: Money) -> Money {
+    fn sell(&mut self, sell: Money<'a>) -> Money<'a> {
         let (costs, new_total, new_costs) = if sell > self.total {
             // selling more than is in the pool
-            (self.costs, Money::from_major(0, &self.currency), Money::from_major(0, GBP))
+            (self.costs.clone(), Money::from_major(0, &self.currency), Money::from_major(0, GBP))
         } else {
             let perc = sell.amount() / self.total.amount();
-            let costs = self.costs * perc;
-            let new_total = self.total - sell;
-            let new_costs = self.costs - costs;
+            let costs = self.costs.clone() * perc;
+            let new_total = self.total.clone() - sell.clone();
+            let new_costs = self.costs.clone() - costs.clone();
             (costs, new_total, new_costs)
         };
         self.total = new_total;
         self.costs = new_costs;
         log::debug!(
             "Pool SELL {}, costs: {}",
-            display_amount(sell),
-            display_amount(costs)
+            display_amount(&sell),
+            display_amount(&costs)
         );
         log::debug!("Pool: {:?}", self);
         costs
@@ -267,25 +267,26 @@ impl Pool {
         self.costs.amount() / self.total.amount()
     }
 }
-impl fmt::Debug for Pool {
+
+impl<'a> fmt::Debug for Pool<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "currency: {}, total: {}, costs: {}",
             self.currency.code,
-            display_amount(self.total),
-            display_amount(self.costs)
+            display_amount(&self.total),
+            display_amount(&self.costs)
         )
     }
 }
 
-pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxReport> {
+pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_eyre::Result<TaxReport<'a>> {
     let mut pools = HashMap::new();
 
-    let convert_to_gbp = |money: Money, price: &Price, trade_rate: Decimal| -> color_eyre::Result<Money> {
-        let quote_rate = rusty_money::ExchangeRate::new(&price.pair.quote, &GBP, price.rate)?;
-        let base_rate = rusty_money::ExchangeRate::new(&price.pair.base, &GBP, trade_rate)?;
-        if money.currency() == &price.pair.base {
+    let convert_to_gbp = |money: Money<'a>, price: &Price<'a>, trade_rate: Decimal| -> color_eyre::Result<Money> {
+        let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)?;
+        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)?;
+        if money.currency() == price.pair.base {
             let gbp = quote_rate.convert(money)?;
             Ok(gbp)
         } else {
@@ -300,7 +301,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
     let trades_with_prices = trades
         .iter()
         .map(|trade| {
-            let price = get_price(trade, prices).expect(&format!(
+            let price = get_price(trade, &prices).expect(&format!(
                 "Should have price for buy: {} sell: {} at {}",
                 trade.buy, trade.sell, trade.date_time
             ));
@@ -323,11 +324,11 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
             if trade.buy.currency() != GBP {
                 let _zero = Money::from_major(0, trade.buy.currency());
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
-                let costs = convert_to_gbp(*buy_amount, &price, trade.rate)?;
+                let costs = convert_to_gbp(buy_amount.clone(), &price, trade.rate)?;
                 let pool = pools
-                    .entry(trade.buy.currency().code)
+                    .entry(trade.buy.currency().code.to_string())
                     .or_insert(Pool::new(trade.buy.currency()));
-                pool.buy(*buy_amount, costs);
+                pool.buy(buy_amount, &costs);
                 buy_pool = Some(pool.clone());
             }
 
@@ -343,33 +344,33 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                     .cloned()
                     .collect::<Vec<_>>();
 
-                let mut main_pool_sell = trade.sell;
+                let mut main_pool_sell = trade.sell.clone();
                 let mut special_allowable_costs = Money::from_major(0, GBP);
 
                 for (future_buy, buy_price) in special_rules_buy {
                     let remaining_buy_amount = special_buys
                         .entry(future_buy.key())
-                        .or_insert(future_buy.buy);
+                        .or_insert(future_buy.buy.clone());
 
                     if *remaining_buy_amount > Money::from_major(0, remaining_buy_amount.currency())
                     {
                         let (sell, special_buy_amt) =
                             if *remaining_buy_amount <= main_pool_sell {
                                 (
-                                    main_pool_sell - *remaining_buy_amount,
-                                    *remaining_buy_amount,
+                                    main_pool_sell - remaining_buy_amount.clone(),
+                                    remaining_buy_amount.clone(),
                                 )
                             } else {
                                 (Money::from_major(0, trade.sell.currency()), main_pool_sell)
                             };
-                        *remaining_buy_amount = *remaining_buy_amount - special_buy_amt;
+                        *remaining_buy_amount = remaining_buy_amount.clone() - special_buy_amt.clone();
                         let costs =
-                            convert_to_gbp(special_buy_amt, &buy_price, future_buy.rate)?;
+                            convert_to_gbp(special_buy_amt.clone(), &buy_price, future_buy.rate)?;
                         log::debug!(
                             "Deducting SELL of {} from future BUY at {}, cost: {}",
-                            display_amount(special_buy_amt),
+                            display_amount(&special_buy_amt),
                             future_buy.date_time,
-                            display_amount(costs)
+                            display_amount(&costs)
                         );
                         main_pool_sell = sell;
                         special_allowable_costs = special_allowable_costs + costs;
@@ -377,7 +378,7 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
                 }
 
                 let pool = pools
-                    .entry(trade.sell.currency().code)
+                    .entry(trade.sell.currency().code.to_string())
                     .or_insert(Pool::new(trade.sell.currency()));
                 let main_pool_costs = pool.sell(main_pool_sell);
                 allowable_costs = main_pool_costs + special_allowable_costs;
@@ -385,21 +386,21 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
             }
 
             let sell_value = if trade.sell.currency() == GBP {
-                trade.sell
+                trade.sell.clone()
             } else {
-                convert_to_gbp(trade.sell, &price, trade.rate)?
+                convert_to_gbp(trade.sell.clone(), &price, trade.rate)?
             };
 
             let buy_value = if trade.buy.currency() == GBP {
-                trade.buy
+                trade.buy.clone()
             } else {
-                convert_to_gbp(trade.buy, &price, trade.rate)?
+                convert_to_gbp(trade.buy.clone(), &price, trade.rate)?
             };
 
             let fee_value = if trade.fee.currency() == GBP {
-                trade.fee
+                trade.fee.clone()
             } else {
-                convert_to_gbp(trade.fee, &price, trade.rate)?
+                convert_to_gbp(trade.fee.clone(), &price, trade.rate)?
             };
 
             let tax_year = uk_tax_year(trade.date_time);
@@ -420,11 +421,11 @@ pub fn calculate(trades: Vec<Trade>, prices: &Prices) -> color_eyre::Result<TaxR
     Ok(create_report(trades, gains, pools))
 }
 
-fn create_report(
-    trades: Vec<Trade>,
-    gains: Vec<TaxEvent>,
-    pools: HashMap<&str, Pool>,
-) -> TaxReport {
+fn create_report<'a>(
+    trades: Vec<Trade<'a>>,
+    gains: Vec<TaxEvent<'a>>,
+    pools: HashMap<String, Pool<'a>>,
+) -> TaxReport<'a> {
     let mut tax_years = HashMap::new();
     for gain in gains.iter() {
         let year = gain.tax_year;
@@ -438,7 +439,7 @@ fn create_report(
     }
 }
 
-fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
+fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>> {
     // todo - extract and dedup this logic
     let (quote, base) = match trade.kind {
         TradeKind::Buy => (trade.sell.currency(), trade.buy.currency()),
@@ -447,7 +448,7 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
 
     if quote == GBP {
         return Some(Price {
-            pair: CurrencyPair { base: *base, quote: GBP },
+            pair: CurrencyPair { base, quote: GBP },
             date_time: trade.date_time,
             rate: trade.rate,
         })
@@ -455,9 +456,9 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
 
     // prefer BTC price, then ETH price
     let base = if quote == BTC {
-        *BTC
+        BTC
     } else if quote == ETH {
-        *ETH
+        ETH
     } else {
         panic!(
             "Expected quote price to be BTC or ETH or GBP for trade at {}. quote {}, base {}",
@@ -467,7 +468,7 @@ fn get_price(trade: &Trade, prices: &Prices) -> Option<Price> {
         )
     };
 
-    let pair = CurrencyPair { base, quote: *GBP };
+    let pair = CurrencyPair { base: &base, quote: GBP };
     prices.get(pair, trade.date_time.date())
 }
 
@@ -492,7 +493,7 @@ mod tests {
     use chrono::NaiveDate;
     use std::str::FromStr;
 
-    fn trade<D>(dt: &str, kind: TradeKind, sell: Money, buy: Money, rate: D) -> Trade
+    fn trade<'a, D>(dt: &'a str, kind: TradeKind, sell: Money<'a>, buy: Money<'a>, rate: D) -> Trade<'a>
     where
         D: Into<Decimal>
     {
@@ -512,11 +513,11 @@ mod tests {
         }
     }
 
-    fn gbp(major: i64) -> Money {
+    fn gbp(major: i64) -> Money<'static> {
         Money::from_major(major, GBP)
     }
 
-    fn btc(major: i64) -> Money {
+    fn btc(major: i64) -> Money<'static> {
         Money::from_major(major, BTC)
     }
 
@@ -536,7 +537,8 @@ mod tests {
         let disp = trade("2018-01-01", TradeKind::Sell, btc(50), gbp(300000), 6000);
 
         let trades = vec![acq1, acq2, disp];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2018 = report.gains(Some(2018));
 
@@ -558,7 +560,8 @@ mod tests {
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(17_500), btc(500), 35);
 
         let trades = vec![buy1, sell, buy2];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
         let gain = gains_2019.gains.get(0).unwrap();
@@ -567,7 +570,7 @@ mod tests {
         assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
         assert_money_eq!(gain.gain(), gbp(92_500), "Gain 30 days");
 
-        let btc_pool = report.pools.get(&BTC).expect("BTC should have a Pool");
+        let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc(10_500), "Remaining in pool");
         assert_money_eq!(btc_pool.costs, gbp(150_000), "Remaining allowable costs");
@@ -587,7 +590,8 @@ mod tests {
         let buy3 = trade("2018-09-12", TradeKind::Buy, gbp(8_750), btc(250), 35);
 
         let trades = vec![buy1, sell, buy2, buy3];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
         let gain = gains_2019.gains.get(0).unwrap();
@@ -596,7 +600,7 @@ mod tests {
         assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
         assert_money_eq!(gain.gain(), gbp(92_500), "Gain 30 days");
 
-        let btc_pool = report.pools.get(&BTC).expect("BTC should have a Pool");
+        let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc(10_500), "Remaining in pool");
         assert_money_eq!(btc_pool.costs, gbp(150_000), "Remaining allowable costs");
@@ -610,7 +614,8 @@ mod tests {
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(15_000), btc(10), 1500);
 
         let trades = vec![buy1, sell1, sell2, buy2];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
         let gain1 = gains_2019.gains.get(0).unwrap();
@@ -619,7 +624,7 @@ mod tests {
         assert_money_eq!(gain1.allowable_costs, gbp(25_000), "Allowable costs");
         assert_money_eq!(gain1.gain(), gbp(15_000), "Gain 30 days");
 
-        let btc_pool = report.pools.get(&BTC).expect("BTC should have a Pool");
+        let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc(70), "Remaining in pool");
         assert_money_eq!(btc_pool.costs, gbp(70_000), "Remaining allowable costs");
@@ -638,7 +643,8 @@ mod tests {
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(175_000), btc(5000), 35);
 
         let trades = vec![buy1, sell, buy2];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
         println!(
@@ -656,7 +662,7 @@ mod tests {
         assert_money_eq!(tax_event.allowable_costs, gbp(140_000), "Allowable costs");
         assert_money_eq!(tax_event.gain(), gbp(20_000), "Gain 30 days");
 
-        let btc_pool = report.pools.get(&BTC).expect("BTC should have a Pool");
+        let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc(15_000), "Remaining in pool");
         assert_money_eq!(btc_pool.costs, gbp(235_000), "Remaining allowable costs");
@@ -668,7 +674,8 @@ mod tests {
         let disp = trade("2018-01-01", TradeKind::Sell, btc(2), gbp(2000), 1000);
 
         let trades = vec![acq1, disp];
-        let report = calculate(trades, &Prices::default()).unwrap();
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
 
         let gains_2018 = report.gains(Some(2018));
 

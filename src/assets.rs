@@ -1,4 +1,5 @@
 use rusty_money::define_currency_set;
+use rust_decimal_macros::dec;
 
 define_currency_set!(
     currencies {
@@ -71,12 +72,16 @@ define_currency_set!(
 // }
 
 // todo: make this return Result instead of panicking
-pub fn amount(currency: &str, amount: rust_decimal::Decimal) -> rusty_money::Money<currencies::Currency> {
+pub fn amount<'a>(currency: &str, amount: rust_decimal::Decimal) -> crate::Money<'a> {
     let currency = currencies::find(currency).unwrap();
     rusty_money::Money::from_decimal(amount, currency)
 }
 
-pub fn parse_money_parts(currency: &str, amount: &str) -> Result<crate::Money, rusty_money::MoneyError> {
+pub fn zero(currency: &currencies::Currency) -> rusty_money::Money<currencies::Currency> {
+    rusty_money::Money::from_decimal(dec!(0), currency)
+}
+
+pub fn parse_money_parts<'a>(currency: &str, amount: &str) -> Result<crate::Money<'a>, rusty_money::MoneyError> {
     let currency = currencies::find(currency).unwrap();
     rusty_money::Money::from_str(amount, currency)
 }
@@ -90,7 +95,7 @@ pub fn parse_money_parts(currency: &str, amount: &str) -> Result<crate::Money, r
 //     currencies::find(code)
 // }
 
-pub fn display_amount(amt: crate::Money) -> String {
+pub fn display_amount(amt: &crate::Money) -> String {
     let params = rusty_money::Params {
         ..Default::default()
     };

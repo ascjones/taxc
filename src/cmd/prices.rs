@@ -25,34 +25,34 @@ use serde::{
 use std::hash::{Hash, Hasher};
 
 #[derive(Eq, PartialEq, Clone)]
-pub struct CurrencyPair {
-    pub base: Currency,
-    pub quote: Currency,
+pub struct CurrencyPair<'a> {
+    pub base: &'a Currency,
+    pub quote: &'a Currency,
 }
 
-impl Hash for CurrencyPair {
+impl<'a> Hash for CurrencyPair<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.base.code.hash(state);
         self.base.code.hash(state);
     }
 }
 
-impl fmt::Display for CurrencyPair {
+impl<'a> fmt::Display for CurrencyPair<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.base.code, self.quote.code)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub struct Price {
-    pub pair: CurrencyPair,
+pub struct Price<'a> {
+    pub pair: CurrencyPair<'a>,
     pub date_time: NaiveDateTime,
     pub rate: Decimal,
 }
 
 #[derive(Default)]
-pub struct Prices {
-    prices: HashMap<CurrencyPair, Vec<Price>>,
+pub struct Prices<'a> {
+    prices: HashMap<CurrencyPair<'a>, Vec<Price<'a>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,9 +74,9 @@ pub struct CoingeckoPrice {
     price: Decimal,
 }
 
-impl Prices {
+impl<'a> Prices<'a> {
     /// Initializes the prices database from the coingecko api
-    pub fn from_coingecko_api() -> eyre::Result<Prices> {
+    pub fn from_coingecko_api() -> eyre::Result<Prices<'a>> {
         let mut prices = HashMap::new();
 
         let mut fetch_prices = |coin, base| {
@@ -94,7 +94,7 @@ impl Prices {
                 let coingecko_prices: CoingeckoPrices =
                     response.into_json_deserialize()?;
                 log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
-                let pair = CurrencyPair { base, quote: *GBP };
+                let pair = CurrencyPair { base, quote: GBP };
                 let pair_prices = coingecko_prices
                     .prices
                     .iter()
@@ -115,14 +115,14 @@ impl Prices {
             }
         };
 
-        fetch_prices("bitcoin", *BTC)?;
-        fetch_prices("ethereum", *ETH)?;
+        fetch_prices("bitcoin", BTC)?;
+        fetch_prices("ethereum", ETH)?;
 
         Ok(Prices { prices })
     }
 
     /// Initialize the prices database from the supplied CSV file
-    pub fn read_csv<'a, R>(reader: R) -> color_eyre::Result<Prices>
+    pub fn read_csv<R>(reader: R) -> color_eyre::Result<Prices<'a>>
     where
         R: Read,
     {
@@ -137,7 +137,7 @@ impl Prices {
                 format!("invalid quote currency {}", record.quote_currency).as_ref(),
             );
             let date_time = parse_date(&record.date_time);
-            let pair = CurrencyPair { base: *base, quote: *quote };
+            let pair = CurrencyPair { base, quote };
             let price = Price {
                 pair: pair.clone(),
                 date_time,
@@ -151,7 +151,7 @@ impl Prices {
     }
 
     /// gets daily price if exists
-    pub fn get(&self, pair: CurrencyPair, at: NaiveDate) -> Option<Price> {
+    pub fn get(&self, pair: CurrencyPair<'a>, at: NaiveDate) -> Option<Price<'a>> {
         self.prices.get(&pair).and_then(|prices| {
             prices
                 .iter()

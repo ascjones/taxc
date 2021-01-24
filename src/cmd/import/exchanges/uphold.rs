@@ -34,10 +34,10 @@ pub struct Record {
     destination_commission: String,
 }
 
-impl TryFrom<Record> for Trade {
+impl<'a> TryFrom<Record> for Trade<'a> {
     type Error = ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         // check to see if this is a crypto trade - either are unknown currencies
         if currencies::find(&value.origin_currency).is_some()
             && currencies::find(&value.destination_currency).is_some()

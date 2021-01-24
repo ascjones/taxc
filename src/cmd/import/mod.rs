@@ -57,9 +57,9 @@ impl ImportTradesCommand {
         crate::trades::write_csv(trades, io::stdout())
     }
 
-    fn csv_to_trades<CsvRecord, R, E>(reader: R) -> color_eyre::Result<Vec<Trade>>
+    fn csv_to_trades<'a, CsvRecord, R, E>(reader: R) -> color_eyre::Result<Vec<Trade<'a>>>
     where
-        CsvRecord: Clone + DeserializeOwned + TryInto<Trade, Error = E>,
+        CsvRecord: Clone + DeserializeOwned + TryInto<Trade<'a>, Error = E>,
         R: Read,
         E: std::error::Error + 'static + Send + Sync,
     {

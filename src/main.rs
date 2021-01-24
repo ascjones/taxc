@@ -11,7 +11,9 @@ use cmd::{
     report::ReportCommand,
 };
 
-type Money = rusty_money::Money<'static, currencies::Currency>;
+use rusty_money;
+
+type Money<'a> = rusty_money::Money<'a, currencies::Currency>;
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.

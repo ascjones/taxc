@@ -33,10 +33,10 @@ pub struct Record {
     unit: String,
 }
 
-impl TryFrom<Record> for Trade {
+impl<'a> TryFrom<Record> for Trade<'a> {
     type Error = super::ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         // 2018-11-20T21:39:45.667Z
         let date_time = NaiveDateTime::parse_from_str(
             value.created_at.as_ref(),
