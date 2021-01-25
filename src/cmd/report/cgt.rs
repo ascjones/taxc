@@ -38,6 +38,7 @@ use crate::{
     Money,
 };
 use rust_decimal::Decimal;
+use color_eyre::eyre::WrapErr;
 
 pub type Year = i32;
 
@@ -427,12 +428,17 @@ pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_ey
 }
 
 fn convert_to_gbp<'a>(money: Money<'a>, price: &Price<'a>, trade_rate: Decimal) -> color_eyre::Result<Money<'a>> {
-    let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)?;
+    if money.currency() == GBP {
+        return Ok(money)
+    }
+    let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)
+        .context(format!("Creating quote rate exchange pair {}/GBP", price.pair.quote.code))?;
     if money.currency() == price.pair.base {
         let gbp = quote_rate.convert(money)?;
         Ok(gbp)
     } else {
-        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)?;
+        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)
+            .context(format!("Creating base rate exchange pair {}/GBP", price.pair.base.code))?;
         let base = base_rate.convert(money)?;
         let quote = quote_rate.convert(base)?;
         Ok(quote)
