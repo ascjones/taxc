@@ -1,11 +1,11 @@
 #![recursion_limit = "128"]
 
-mod cmd;
 mod assets;
+mod cmd;
 mod trades;
 
-use assets::currencies;
 use argh::FromArgs;
+use assets::currencies;
 use cmd::{
     import::ImportTradesCommand,
     report::ReportCommand,

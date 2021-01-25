@@ -21,12 +21,12 @@ use serde::{
 
 use crate::{
     assets::{
+        currencies::Currency,
         display_amount,
         parse_money_parts,
         zero,
-        currencies::Currency,
     },
-    Money
+    Money,
 };
 use rust_decimal::Decimal;
 
@@ -156,56 +156,56 @@ pub fn group_trades_by_day<'a>(trades: &'a [Trade<'a>]) -> Vec<Trade<'a>> {
         day.push(trade);
     }
     days.iter()
-        .map(
-            |(key, day_trades)| {
-                let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
+        .map(|(key, day_trades)| {
+            let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
+                (zero(&key.buy), zero(&key.sell), zero(&key.fee)),
+                |(buy, sell, fee), t| {
                     (
-                        zero(&key.buy),
-                        zero(&key.sell),
-                        zero(&key.fee),
-                    ),
-                    |(buy, sell, fee), t| (buy + t.buy.clone(), sell + t.sell.clone(), fee + t.fee.clone()),
+                        buy + t.buy.clone(),
+                        sell + t.sell.clone(),
+                        fee + t.fee.clone(),
+                    )
+                },
+            );
+
+            // todo: check if these are the correct way around
+            let (quote_curr, base_curr) = match key.kind {
+                TradeKind::Buy => (key.buy, key.sell),
+                TradeKind::Sell => (key.sell, key.buy),
+            };
+
+            let average_rate = {
+                let (count, total) = day_trades.iter().fold(
+                    (Money::from_major(0, quote_curr), zero(quote_curr)),
+                    |(count, total), trade| {
+                        let (base, _quote) = if trade.buy.currency() == base_curr {
+                            (trade.sell.clone(), trade.buy.clone())
+                        } else if trade.sell.currency() == base_curr {
+                            (trade.buy.clone(), trade.sell.clone())
+                        } else {
+                            panic!("Either buy or sell should be in quote currency")
+                        };
+                        (count + base.clone(), total + (base * trade.rate))
+                    },
                 );
-
-                // todo: check if these are the correct way around
-                let (quote_curr, base_curr) = match key.kind {
-                    TradeKind::Buy => (key.buy, key.sell),
-                    TradeKind::Sell => (key.sell, key.buy),
-                };
-
-                let average_rate = {
-                    let (count, total) = day_trades.iter().fold(
-                        (Money::from_major(0, quote_curr), zero(quote_curr)),
-                        |(count, total), trade| {
-                            let (base, _quote) = if trade.buy.currency() == base_curr {
-                                (trade.sell.clone(), trade.buy.clone())
-                            } else if trade.sell.currency() == base_curr {
-                                (trade.buy.clone(), trade.sell.clone())
-                            } else {
-                                panic!("Either buy or sell should be in quote currency")
-                            };
-                            (count + base.clone(), total + (base * trade.rate))
-                        },
-                    );
-                    total.amount() / count.amount()
-                };
-                let latest_trade = day_trades
-                    .iter()
-                    .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
-                    .expect(
-                        format!("Should have at least one event for {}", key.date).as_ref(),
-                    );
-                Trade {
-                    date_time: latest_trade.date_time,
-                    exchange: key.exchange.clone(),
-                    buy: total_buy,
-                    sell: total_sell,
-                    fee: total_fee,
-                    rate: average_rate,
-                    kind: key.kind.clone(),
-                }
-            },
-        )
+                total.amount() / count.amount()
+            };
+            let latest_trade = day_trades
+                .iter()
+                .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
+                .expect(
+                    format!("Should have at least one event for {}", key.date).as_ref(),
+                );
+            Trade {
+                date_time: latest_trade.date_time,
+                exchange: key.exchange.clone(),
+                buy: total_buy,
+                sell: total_sell,
+                fee: total_fee,
+                rate: average_rate,
+                kind: key.kind.clone(),
+            }
+        })
         .collect()
 }
 

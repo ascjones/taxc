@@ -22,7 +22,10 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 #[derive(Eq, PartialEq, Clone)]
 pub struct CurrencyPair<'a> {

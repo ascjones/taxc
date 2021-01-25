@@ -37,8 +37,8 @@ use crate::{
     },
     Money,
 };
-use rust_decimal::Decimal;
 use color_eyre::eyre::WrapErr;
+use rust_decimal::Decimal;
 
 pub type Year = i32;
 
@@ -114,15 +114,15 @@ impl<'a> Gains<'a> {
     }
 
     pub(crate) fn total_proceeds(&self) -> Money<'a> {
-        self.gains
-            .iter()
-            .fold(Money::from_major(0, GBP), |acc, g| acc + g.proceeds().clone())
+        self.gains.iter().fold(Money::from_major(0, GBP), |acc, g| {
+            acc + g.proceeds().clone()
+        })
     }
 
     pub(crate) fn total_allowable_costs(&self) -> Money<'a> {
-        self.gains
-            .iter()
-            .fold(Money::from_major(0, GBP), |acc, g| acc + g.allowable_costs().clone())
+        self.gains.iter().fold(Money::from_major(0, GBP), |acc, g| {
+            acc + g.allowable_costs().clone()
+        })
     }
 
     pub(crate) fn total_gain(&self) -> Money<'a> {
@@ -263,7 +263,11 @@ impl<'a> Pool<'a> {
     fn sell(&mut self, sell: Money<'a>) -> Money<'a> {
         let (costs, new_total, new_costs) = if sell > self.total {
             // selling more than is in the pool
-            (self.costs.clone(), Money::from_major(0, &self.currency), Money::from_major(0, GBP))
+            (
+                self.costs.clone(),
+                Money::from_major(0, &self.currency),
+                Money::from_major(0, GBP),
+            )
         } else {
             let perc = sell.amount() / self.total.amount();
             let costs = self.costs.clone() * perc;
@@ -299,7 +303,10 @@ impl<'a> fmt::Debug for Pool<'a> {
     }
 }
 
-pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_eyre::Result<TaxReport<'a>> {
+pub fn calculate<'a>(
+    trades: Vec<Trade<'a>>,
+    prices: &'a Prices<'a>,
+) -> color_eyre::Result<TaxReport<'a>> {
     let mut pools = HashMap::new();
 
     // todo: sort trades (test)
@@ -357,20 +364,26 @@ pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_ey
                         .entry(future_buy.key())
                         .or_insert(future_buy.buy.clone());
 
-                    if *remaining_buy_amount > Money::from_major(0, remaining_buy_amount.currency())
+                    if *remaining_buy_amount
+                        > Money::from_major(0, remaining_buy_amount.currency())
                     {
-                        let (sell, special_buy_amt) =
-                            if *remaining_buy_amount <= main_pool_sell {
-                                (
-                                    main_pool_sell - remaining_buy_amount.clone(),
-                                    remaining_buy_amount.clone(),
-                                )
-                            } else {
-                                (Money::from_major(0, trade.sell.currency()), main_pool_sell)
-                            };
-                        *remaining_buy_amount = remaining_buy_amount.clone() - special_buy_amt.clone();
-                        let costs =
-                            convert_to_gbp(special_buy_amt.clone(), &buy_price, future_buy.rate)?;
+                        let (sell, special_buy_amt) = if *remaining_buy_amount
+                            <= main_pool_sell
+                        {
+                            (
+                                main_pool_sell - remaining_buy_amount.clone(),
+                                remaining_buy_amount.clone(),
+                            )
+                        } else {
+                            (Money::from_major(0, trade.sell.currency()), main_pool_sell)
+                        };
+                        *remaining_buy_amount =
+                            remaining_buy_amount.clone() - special_buy_amt.clone();
+                        let costs = convert_to_gbp(
+                            special_buy_amt.clone(),
+                            &buy_price,
+                            future_buy.rate,
+                        )?;
                         log::debug!(
                             "Deducting SELL of {} from future BUY at {}, cost: {}",
                             display_amount(&special_buy_amt),
@@ -427,18 +440,28 @@ pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_ey
     Ok(report)
 }
 
-fn convert_to_gbp<'a>(money: Money<'a>, price: &Price<'a>, trade_rate: Decimal) -> color_eyre::Result<Money<'a>> {
+fn convert_to_gbp<'a>(
+    money: Money<'a>,
+    price: &Price<'a>,
+    trade_rate: Decimal,
+) -> color_eyre::Result<Money<'a>> {
     if money.currency() == GBP {
         return Ok(money)
     }
     let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)
-        .context(format!("Creating quote rate exchange pair {}/GBP", price.pair.quote.code))?;
+        .context(format!(
+            "Creating quote rate exchange pair {}/GBP",
+            price.pair.quote.code
+        ))?;
     if money.currency() == price.pair.base {
         let gbp = quote_rate.convert(money)?;
         Ok(gbp)
     } else {
         let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)
-            .context(format!("Creating base rate exchange pair {}/GBP", price.pair.base.code))?;
+            .context(format!(
+                "Creating base rate exchange pair {}/GBP",
+                price.pair.base.code
+            ))?;
         let base = base_rate.convert(money)?;
         let quote = quote_rate.convert(base)?;
         Ok(quote)
@@ -474,7 +497,10 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
         )
     };
 
-    let pair = CurrencyPair { base: &base, quote: GBP };
+    let pair = CurrencyPair {
+        base: &base,
+        quote: GBP,
+    };
     prices.get(pair, trade.date_time.date())
 }
 
@@ -499,9 +525,15 @@ mod tests {
     use chrono::NaiveDate;
     use std::str::FromStr;
 
-    fn trade<'a, D>(dt: &'a str, kind: TradeKind, sell: Money<'a>, buy: Money<'a>, rate: D) -> Trade<'a>
+    fn trade<'a, D>(
+        dt: &'a str,
+        kind: TradeKind,
+        sell: Money<'a>,
+        buy: Money<'a>,
+        rate: D,
+    ) -> Trade<'a>
     where
-        D: Into<Decimal>
+        D: Into<Decimal>,
     {
         let date_time = NaiveDate::parse_from_str(dt, "%Y-%m-%d")
             .expect("DateTime string should match pattern")

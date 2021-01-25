@@ -1,5 +1,5 @@
-use rusty_money::define_currency_set;
 use rust_decimal_macros::dec;
+use rusty_money::define_currency_set;
 
 define_currency_set!(
     currencies {
@@ -81,7 +81,10 @@ pub fn zero(currency: &currencies::Currency) -> rusty_money::Money<currencies::C
     rusty_money::Money::from_decimal(dec!(0), currency)
 }
 
-pub fn parse_money_parts<'a>(currency: &str, amount: &str) -> Result<crate::Money<'a>, rusty_money::MoneyError> {
+pub fn parse_money_parts<'a>(
+    currency: &str,
+    amount: &str,
+) -> Result<crate::Money<'a>, rusty_money::MoneyError> {
     let currency = currencies::find(currency).unwrap();
     rusty_money::Money::from_str(amount, currency)
 }

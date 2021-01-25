@@ -1,16 +1,16 @@
 use crate::{
     cmd::prices::Prices,
-    currencies::{GBP},
+    currencies::GBP,
     trades,
     Money,
 };
 use argh::FromArgs;
+use rust_decimal::Decimal;
 use std::{
     fs::File,
     io,
     path::PathBuf,
 };
-use rust_decimal::Decimal;
 
 mod cgt;
 
