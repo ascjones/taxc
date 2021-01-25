@@ -61,6 +61,24 @@ pub struct TaxReport<'a> {
 }
 
 impl<'a> TaxReport<'a> {
+    fn new(
+        trades: Vec<Trade<'a>>,
+        gains: Vec<TaxEvent<'a>>,
+        pools: HashMap<String, Pool<'a>>,
+    ) -> Self {
+        let mut tax_years = HashMap::new();
+        for gain in gains.iter() {
+            let year = gain.tax_year;
+            let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
+            ty.events.push(gain.clone())
+        }
+        Self {
+            trades: trades.to_vec(),
+            years: tax_years,
+            pools,
+        }
+    }
+
     pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
         let mut gains = year
             .and_then(|y| self.years.get(&y).map(|ty| ty.events.clone()))
@@ -283,21 +301,7 @@ impl<'a> fmt::Debug for Pool<'a> {
 pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_eyre::Result<TaxReport<'a>> {
     let mut pools = HashMap::new();
 
-    let convert_to_gbp = |money: Money<'a>, price: &Price<'a>, trade_rate: Decimal| -> color_eyre::Result<Money> {
-        let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)?;
-        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)?;
-        if money.currency() == price.pair.base {
-            let gbp = quote_rate.convert(money)?;
-            Ok(gbp)
-        } else {
-            let base = base_rate.convert(money)?;
-            let quote = quote_rate.convert(base)?;
-            Ok(quote)
-        }
-    };
-
     // todo: sort trades (test)
-
     let trades_with_prices = trades
         .iter()
         .map(|trade| {
@@ -418,24 +422,20 @@ pub fn calculate<'a>(trades: Vec<Trade<'a>>, prices: &'a Prices<'a>) -> color_ey
             })
         })
         .collect::<color_eyre::Result<Vec<_>>>()?;
-    Ok(create_report(trades, gains, pools))
+    let report = TaxReport::new(trades, gains, pools);
+    Ok(report)
 }
 
-fn create_report<'a>(
-    trades: Vec<Trade<'a>>,
-    gains: Vec<TaxEvent<'a>>,
-    pools: HashMap<String, Pool<'a>>,
-) -> TaxReport<'a> {
-    let mut tax_years = HashMap::new();
-    for gain in gains.iter() {
-        let year = gain.tax_year;
-        let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
-        ty.events.push(gain.clone())
-    }
-    TaxReport {
-        trades: trades.to_vec(),
-        years: tax_years,
-        pools,
+fn convert_to_gbp<'a>(money: Money<'a>, price: &Price<'a>, trade_rate: Decimal) -> color_eyre::Result<Money<'a>> {
+    let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)?;
+    if money.currency() == price.pair.base {
+        let gbp = quote_rate.convert(money)?;
+        Ok(gbp)
+    } else {
+        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)?;
+        let base = base_rate.convert(money)?;
+        let quote = quote_rate.convert(base)?;
+        Ok(quote)
     }
 }
 
