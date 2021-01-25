@@ -37,7 +37,6 @@ use crate::{
     },
     Money,
 };
-use color_eyre::eyre::WrapErr;
 use rust_decimal::Decimal;
 
 pub type Year = i32;
@@ -448,23 +447,31 @@ fn convert_to_gbp<'a>(
     if money.currency() == GBP {
         return Ok(money)
     }
-    let quote_rate = rusty_money::ExchangeRate::new(price.pair.quote, GBP, price.rate)
-        .context(format!(
-            "Creating quote rate exchange pair {}/GBP",
-            price.pair.quote.code
-        ))?;
     if money.currency() == price.pair.base {
+        let quote_rate =
+            rusty_money::ExchangeRate::new(money.currency(), GBP, price.rate).expect(
+                &format!(
+                    "Creating quote rate exchange pair from {} price",
+                    price.pair
+                ),
+            );
         let gbp = quote_rate.convert(money)?;
         Ok(gbp)
     } else {
-        let base_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, trade_rate)
-            .context(format!(
-                "Creating base rate exchange pair {}/GBP",
-                price.pair.base.code
-            ))?;
+        let base_rate =
+            rusty_money::ExchangeRate::new(money.currency(), price.pair.base, trade_rate)
+                .expect(&format!(
+                    "Creating base rate exchange pair from {} price",
+                    price.pair
+                ));
+        let gbp_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, price.rate)
+            .expect(&format!(
+                "Creating quote rate exchange pair from {} price",
+                price.pair
+            ));
         let base = base_rate.convert(money)?;
-        let quote = quote_rate.convert(base)?;
-        Ok(quote)
+        let gbp = gbp_rate.convert(base)?;
+        Ok(gbp)
     }
 }
 
@@ -523,7 +530,29 @@ mod tests {
     use super::*;
     use crate::trades::Trade;
     use chrono::NaiveDate;
+    use rust_decimal_macros::dec;
     use std::str::FromStr;
+
+    macro_rules! assert_money_eq {
+        ($left:expr, $right:expr, $($arg:tt)+) => {
+            assert_eq!($left.to_string(), $right.to_string(), $($arg)+);
+        };
+        ($left:expr, $right:expr) => {
+            assert_eq!($left.to_string(), $right.to_string());
+        };
+    }
+
+    macro_rules! gbp {
+        ($amount:literal) => {
+            Money::from_decimal(dec!($amount), GBP);
+        };
+    }
+
+    macro_rules! btc {
+        ($amount:literal) => {
+            Money::from_decimal(dec!($amount), BTC);
+        };
+    }
 
     fn trade<'a, D>(
         dt: &'a str,
@@ -546,33 +575,28 @@ mod tests {
             sell,
             buy,
             rate,
-            fee: gbp(0),
+            fee: gbp!(0),
             exchange: None,
         }
     }
 
-    fn gbp(major: i64) -> Money<'static> {
-        Money::from_major(major, GBP)
-    }
-
-    fn btc(major: i64) -> Money<'static> {
-        Money::from_major(major, BTC)
-    }
-
-    macro_rules! assert_money_eq {
-        ($left:expr, $right:expr, $($arg:tt)+) => {
-            assert_eq!($left.to_string(), $right.to_string(), $($arg)+);
-        };
-        ($left:expr, $right:expr) => {
-            assert_eq!($left.to_string(), $right.to_string());
-        };
-    }
-
     #[test]
     fn hmrc_pooling_example() {
-        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(100), 10);
-        let acq2 = trade("2017-01-01", TradeKind::Buy, gbp(125000), btc(50), 2500);
-        let disp = trade("2018-01-01", TradeKind::Sell, btc(50), gbp(300000), 6000);
+        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp!(1000.00), btc!(100.), 10);
+        let acq2 = trade(
+            "2017-01-01",
+            TradeKind::Buy,
+            gbp!(125_000.00),
+            btc!(50.),
+            2500,
+        );
+        let disp = trade(
+            "2018-01-01",
+            TradeKind::Sell,
+            btc!(50.00),
+            gbp!(300_000.00),
+            6000,
+        );
 
         let trades = vec![acq1, acq2, disp];
         let prices = Prices::default();
@@ -580,9 +604,9 @@ mod tests {
 
         let gains_2018 = report.gains(Some(2018));
 
-        assert_money_eq!(gains_2018.total_proceeds(), gbp(300_000));
-        assert_money_eq!(gains_2018.total_allowable_costs(), gbp(42_000));
-        assert_money_eq!(gains_2018.total_gain(), gbp(258_000));
+        assert_money_eq!(gains_2018.total_proceeds(), gbp!(300_000));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp!(42_000));
+        assert_money_eq!(gains_2018.total_gain(), gbp!(258_000));
     }
 
     #[test]
@@ -590,12 +614,12 @@ mod tests {
         let buy1 = trade(
             "2018-01-01",
             TradeKind::Buy,
-            gbp(200_000),
-            btc(14_000),
+            gbp!(200_000),
+            btc!(14_000),
             Decimal::from_str("14.285714286").unwrap(),
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(17_500), btc(500), 35);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(17_500), btc!(500), 35);
 
         let trades = vec![buy1, sell, buy2];
         let prices = Prices::default();
@@ -604,14 +628,14 @@ mod tests {
         let gains_2019 = report.gains(Some(2019));
         let gain = gains_2019.gains.get(0).unwrap();
 
-        assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp(92_500), "Gain 30 days");
+        assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
+        assert_money_eq!(gain.allowable_costs, gbp!(67_500), "Allowable costs");
+        assert_money_eq!(gain.gain(), gbp!(92_500), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
-        assert_money_eq!(btc_pool.total, btc(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp(150_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
+        assert_money_eq!(btc_pool.costs, gbp!(150_000), "Remaining allowable costs");
     }
 
     #[test]
@@ -619,13 +643,13 @@ mod tests {
         let buy1 = trade(
             "2018-01-01",
             TradeKind::Buy,
-            gbp(200_000),
-            btc(14_000),
+            gbp!(200_000),
+            btc!(14_000),
             Decimal::from_str("14.285714286").unwrap(),
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(8_750), btc(250), 35);
-        let buy3 = trade("2018-09-12", TradeKind::Buy, gbp(8_750), btc(250), 35);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(8_750), btc!(250), 35);
+        let buy3 = trade("2018-09-12", TradeKind::Buy, gbp!(8_750), btc!(250), 35);
 
         let trades = vec![buy1, sell, buy2, buy3];
         let prices = Prices::default();
@@ -634,22 +658,22 @@ mod tests {
         let gains_2019 = report.gains(Some(2019));
         let gain = gains_2019.gains.get(0).unwrap();
 
-        assert_money_eq!(gain.proceeds(), gbp(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp(67_500), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp(92_500), "Gain 30 days");
+        assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
+        assert_money_eq!(gain.allowable_costs, gbp!(67_500), "Allowable costs");
+        assert_money_eq!(gain.gain(), gbp!(92_500), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
-        assert_money_eq!(btc_pool.total, btc(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp(150_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
+        assert_money_eq!(btc_pool.costs, gbp!(150_000), "Remaining allowable costs");
     }
 
     #[test]
     fn multiple_sells_with_same_buy_within_30_days() {
-        let buy1 = trade("2018-01-01", TradeKind::Buy, gbp(100_000), btc(100), 1000);
-        let sell1 = trade("2018-08-30", TradeKind::Sell, btc(20), gbp(40_000), 2000);
-        let sell2 = trade("2018-09-01", TradeKind::Sell, btc(20), gbp(40_000), 2000);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(15_000), btc(10), 1500);
+        let buy1 = trade("2018-01-01", TradeKind::Buy, gbp!(100_000), btc!(100), 1000);
+        let sell1 = trade("2018-08-30", TradeKind::Sell, btc!(20), gbp!(40_000), 2000);
+        let sell2 = trade("2018-09-01", TradeKind::Sell, btc!(20), gbp!(40_000), 2000);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(15_000), btc!(10), 1500);
 
         let trades = vec![buy1, sell1, sell2, buy2];
         let prices = Prices::default();
@@ -658,14 +682,14 @@ mod tests {
         let gains_2019 = report.gains(Some(2019));
         let gain1 = gains_2019.gains.get(0).unwrap();
 
-        assert_money_eq!(gain1.proceeds(), gbp(40_000), "Consideration");
-        assert_money_eq!(gain1.allowable_costs, gbp(25_000), "Allowable costs");
-        assert_money_eq!(gain1.gain(), gbp(15_000), "Gain 30 days");
+        assert_money_eq!(gain1.proceeds(), gbp!(40_000), "Consideration");
+        assert_money_eq!(gain1.allowable_costs, gbp!(25_000), "Allowable costs");
+        assert_money_eq!(gain1.gain(), gbp!(15_000), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
-        assert_money_eq!(btc_pool.total, btc(70), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp(70_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.total, btc!(70), "Remaining in pool");
+        assert_money_eq!(btc_pool.costs, gbp!(70_000), "Remaining allowable costs");
     }
 
     #[test]
@@ -673,12 +697,12 @@ mod tests {
         let buy1 = trade(
             "2018-01-01",
             TradeKind::Buy,
-            gbp(200_000),
-            btc(14_000),
+            gbp!(200_000),
+            btc!(14_000),
             Decimal::from_str("14.285714286").unwrap(), // todo use dec!()
         );
-        let sell = trade("2018-08-30", TradeKind::Sell, btc(4000), gbp(160_000), 40);
-        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp(175_000), btc(5000), 35);
+        let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
+        let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(175_000), btc!(5000), 35);
 
         let trades = vec![buy1, sell, buy2];
         let prices = Prices::default();
@@ -696,20 +720,20 @@ mod tests {
         );
         let tax_event = gains_2019.gains.get(0).unwrap();
 
-        assert_money_eq!(tax_event.proceeds(), gbp(160_000), "Consideration");
-        assert_money_eq!(tax_event.allowable_costs, gbp(140_000), "Allowable costs");
-        assert_money_eq!(tax_event.gain(), gbp(20_000), "Gain 30 days");
+        assert_money_eq!(tax_event.proceeds(), gbp!(160_000), "Consideration");
+        assert_money_eq!(tax_event.allowable_costs, gbp!(140_000), "Allowable costs");
+        assert_money_eq!(tax_event.gain(), gbp!(20_000), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
-        assert_money_eq!(btc_pool.total, btc(15_000), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp(235_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.total, btc!(15_000), "Remaining in pool");
+        assert_money_eq!(btc_pool.costs, gbp!(235_000), "Remaining allowable costs");
     }
 
     #[test]
     fn disposal_with_not_enough_funds_in_pool_should_use_partial_allowable_costs() {
-        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp(1000), btc(1), 1000);
-        let disp = trade("2018-01-01", TradeKind::Sell, btc(2), gbp(2000), 1000);
+        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp!(1000), btc!(1), 1000);
+        let disp = trade("2018-01-01", TradeKind::Sell, btc!(2), gbp!(2000), 1000);
 
         let trades = vec![acq1, disp];
         let prices = Prices::default();
@@ -717,9 +741,9 @@ mod tests {
 
         let gains_2018 = report.gains(Some(2018));
 
-        assert_money_eq!(gains_2018.total_proceeds(), gbp(2000));
-        assert_money_eq!(gains_2018.total_allowable_costs(), gbp(1000));
-        assert_money_eq!(gains_2018.total_gain(), gbp(1000));
+        assert_money_eq!(gains_2018.total_proceeds(), gbp!(2000));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp!(1000));
+        assert_money_eq!(gains_2018.total_gain(), gbp!(1000));
     }
 
     // todo: test crypto -> crypto trade, should be both a sale and a purchase and require a price
