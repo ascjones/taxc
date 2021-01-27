@@ -531,7 +531,6 @@ mod tests {
     use crate::trades::Trade;
     use chrono::NaiveDate;
     use rust_decimal_macros::dec;
-    use std::str::FromStr;
 
     macro_rules! assert_money_eq {
         ($left:expr, $right:expr, $($arg:tt)+) => {
@@ -616,7 +615,7 @@ mod tests {
             TradeKind::Buy,
             gbp!(200_000),
             btc!(14_000),
-            Decimal::from_str("14.285714286").unwrap(),
+            dec!(14.285714286),
         );
         let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(17_500), btc!(500), 35);
@@ -645,7 +644,7 @@ mod tests {
             TradeKind::Buy,
             gbp!(200_000),
             btc!(14_000),
-            Decimal::from_str("14.285714286").unwrap(),
+            dec!(14.285714286),
         );
         let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(8_750), btc!(250), 35);
@@ -699,7 +698,7 @@ mod tests {
             TradeKind::Buy,
             gbp!(200_000),
             btc!(14_000),
-            Decimal::from_str("14.285714286").unwrap(), // todo use dec!()
+            dec!(14.285714286),
         );
         let sell = trade("2018-08-30", TradeKind::Sell, btc!(4000), gbp!(160_000), 40);
         let buy2 = trade("2018-09-11", TradeKind::Buy, gbp!(175_000), btc!(5000), 35);
