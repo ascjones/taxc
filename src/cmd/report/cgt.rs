@@ -535,10 +535,10 @@ mod tests {
 
     macro_rules! assert_money_eq {
         ($left:expr, $right:expr, $($arg:tt)+) => {
-            assert_eq!($left.to_string(), $right.to_string(), $($arg)+);
+            assert_eq!(format!("{}", $left), format!("{}", $right), $($arg)+);
         };
         ($left:expr, $right:expr) => {
-            assert_eq!($left.to_string(), $right.to_string());
+            assert_eq!(format!("{}", $left), format!("{}", $right));
         };
     }
 
@@ -586,7 +586,7 @@ mod tests {
         let acq2 = trade(
             "2017-01-01",
             TradeKind::Buy,
-            gbp!(125_000.00),
+            gbp!(125_000),
             btc!(50.),
             2500,
         );
@@ -594,7 +594,7 @@ mod tests {
             "2018-01-01",
             TradeKind::Sell,
             btc!(50.00),
-            gbp!(300_000.00),
+            gbp!(300_000),
             6000,
         );
 
@@ -604,9 +604,9 @@ mod tests {
 
         let gains_2018 = report.gains(Some(2018));
 
-        assert_money_eq!(gains_2018.total_proceeds(), gbp!(300_000));
-        assert_money_eq!(gains_2018.total_allowable_costs(), gbp!(42_000));
-        assert_money_eq!(gains_2018.total_gain(), gbp!(258_000));
+        assert_money_eq!(gains_2018.total_proceeds(), gbp!(300_000.00));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp!(42_000.00));
+        assert_money_eq!(gains_2018.total_gain(), gbp!(258_000.00));
     }
 
     #[test]
@@ -629,13 +629,13 @@ mod tests {
         let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp!(67_500), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp!(92_500), "Gain 30 days");
+        assert_money_eq!(gain.allowable_costs, gbp!(67_500.00), "Allowable costs");
+        assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(150_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.costs, gbp!(150_000.00), "Remaining allowable costs");
     }
 
     #[test]
@@ -659,13 +659,13 @@ mod tests {
         let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp!(67_500), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp!(92_500), "Gain 30 days");
+        assert_money_eq!(gain.allowable_costs, gbp!(67_500.00), "Allowable costs");
+        assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(150_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.costs, gbp!(150_000.00), "Remaining allowable costs");
     }
 
     #[test]
@@ -683,13 +683,13 @@ mod tests {
         let gain1 = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain1.proceeds(), gbp!(40_000), "Consideration");
-        assert_money_eq!(gain1.allowable_costs, gbp!(25_000), "Allowable costs");
-        assert_money_eq!(gain1.gain(), gbp!(15_000), "Gain 30 days");
+        assert_money_eq!(gain1.allowable_costs, gbp!(25_000.00), "Allowable costs");
+        assert_money_eq!(gain1.gain(), gbp!(15_000.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(70), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(70_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.costs, gbp!(70_000.00), "Remaining allowable costs");
     }
 
     #[test]
@@ -727,7 +727,7 @@ mod tests {
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(15_000), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(235_000), "Remaining allowable costs");
+        assert_money_eq!(btc_pool.costs, gbp!(235_000.00), "Remaining allowable costs");
     }
 
     #[test]
