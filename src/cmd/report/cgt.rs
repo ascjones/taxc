@@ -286,7 +286,8 @@ impl<'a> Pool<'a> {
     }
 
     fn cost_basis(&self) -> Decimal {
-        self.costs.amount() / self.total.amount()
+        use rust_decimal::prelude::Zero;
+        self.costs.amount().checked_div(*self.total.amount()).unwrap_or(Decimal::zero())
     }
 }
 

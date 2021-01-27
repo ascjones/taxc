@@ -32,7 +32,6 @@ define_currency_set!(
             symbol: "$",
             symbol_first: true,
         },
-
         BTC: {
             code: "BTC",
             exponent: 8,
@@ -122,14 +121,25 @@ define_currency_set!(
             name: "Polkadot",
             symbol: "DOT",
             symbol_first: false,
+        },
+        USDC: {
+            code: "USDC",
+            exponent: 6,
+            locale: EnUs,
+            minor_units: 1_000_000,
+            name: "USD Coin",
+            symbol: "USDC",
+            symbol_first: false,
         }
     }
 );
 
 // todo: make this return Result instead of panicking
 pub fn amount<'a>(currency: &str, amount: rust_decimal::Decimal) -> crate::Money<'a> {
-    let currency = currencies::find(currency).unwrap();
-    rusty_money::Money::from_decimal(amount, currency)
+    let currency = currencies::find(currency)
+        .expect(&format!("No currency with code {} found", currency));
+    let rounded = amount.round_dp(currency.exponent);
+    rusty_money::Money::from_decimal(rounded, currency)
 }
 
 pub fn zero(currency: &currencies::Currency) -> rusty_money::Money<currencies::Currency> {
