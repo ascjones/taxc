@@ -5,15 +5,14 @@ mod cmd;
 mod trades;
 
 use argh::FromArgs;
-use assets::currencies;
+use assets::{
+    currencies,
+    Money,
+};
 use cmd::{
     import::ImportTradesCommand,
     report::ReportCommand,
 };
-
-use rusty_money;
-
-type Money<'a> = rusty_money::Money<'a, currencies::Currency>;
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.

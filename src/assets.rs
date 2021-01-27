@@ -1,6 +1,8 @@
 use rust_decimal_macros::dec;
 use rusty_money::define_currency_set;
 
+pub type Money<'a> = rusty_money::Money<'a, currencies::Currency>;
+
 define_currency_set!(
     currencies {
         EUR: {
@@ -88,15 +90,6 @@ pub fn parse_money_parts<'a>(
     let currency = currencies::find(currency).unwrap();
     rusty_money::Money::from_str(amount, currency)
 }
-
-// pub fn parse_money(money: &str) -> Result<rusty_money::Money<currencies::Currency>, ParseError> {
-//     let parser = &CRYPTO_PARSER;
-//     parser.parse(money)
-// }
-//
-// pub fn get_currency(code: &str) -> Option<&currencies::Currency> {
-//     currencies::find(code)
-// }
 
 pub fn display_amount(amt: &crate::Money) -> String {
     let params = rusty_money::Params {
