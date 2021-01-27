@@ -1,40 +1,14 @@
-use std::{
-    collections::HashMap,
-    fmt,
-    io::Write,
-};
+use std::{collections::HashMap, fmt, io::Write};
 
-use chrono::{
-    Datelike,
-    Duration,
-    NaiveDate,
-    NaiveDateTime,
-};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
-use serde::{
-    Deserialize,
-    Serialize,
-};
+use serde::{Deserialize, Serialize};
 
 use crate::{
+    cmd::prices::{CurrencyPair, Price, Prices},
+    currencies::{Currency, BTC, ETH, GBP},
     money::display_amount,
-    cmd::prices::{
-        CurrencyPair,
-        Price,
-        Prices,
-    },
-    currencies::{
-        Currency,
-        BTC,
-        ETH,
-        GBP,
-    },
-    trades::{
-        Trade,
-        TradeKey,
-        TradeKind,
-        TradeRecord,
-    },
+    trades::{Trade, TradeKey, TradeKind, TradeRecord},
     Money,
 };
 use rust_decimal::Decimal;
@@ -287,7 +261,10 @@ impl<'a> Pool<'a> {
 
     fn cost_basis(&self) -> Decimal {
         use rust_decimal::prelude::Zero;
-        self.costs.amount().checked_div(*self.total.amount()).unwrap_or(Decimal::zero())
+        self.costs
+            .amount()
+            .checked_div(*self.total.amount())
+            .unwrap_or(Decimal::zero())
     }
 }
 
@@ -364,12 +341,9 @@ pub fn calculate<'a>(
                         .entry(future_buy.key())
                         .or_insert(future_buy.buy.clone());
 
-                    if *remaining_buy_amount
-                        > Money::from_major(0, remaining_buy_amount.currency())
+                    if *remaining_buy_amount > Money::from_major(0, remaining_buy_amount.currency())
                     {
-                        let (sell, special_buy_amt) = if *remaining_buy_amount
-                            <= main_pool_sell
-                        {
+                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
                             (
                                 main_pool_sell - remaining_buy_amount.clone(),
                                 remaining_buy_amount.clone(),
@@ -379,11 +353,8 @@ pub fn calculate<'a>(
                         };
                         *remaining_buy_amount =
                             remaining_buy_amount.clone() - special_buy_amt.clone();
-                        let costs = convert_to_gbp(
-                            special_buy_amt.clone(),
-                            &buy_price,
-                            future_buy.rate,
-                        )?;
+                        let costs =
+                            convert_to_gbp(special_buy_amt.clone(), &buy_price, future_buy.rate)?;
                         log::debug!(
                             "Deducting SELL of {} from future BUY at {}, cost: {}",
                             display_amount(&special_buy_amt),
@@ -446,27 +417,23 @@ fn convert_to_gbp<'a>(
     trade_rate: Decimal,
 ) -> color_eyre::Result<Money<'a>> {
     if money.currency() == GBP {
-        return Ok(money)
+        return Ok(money);
     }
     if money.currency() == price.pair.base {
         let quote_rate =
-            rusty_money::ExchangeRate::new(money.currency(), GBP, price.rate).expect(
-                &format!(
-                    "Creating quote rate exchange pair from {} price",
-                    price.pair
-                ),
-            );
+            rusty_money::ExchangeRate::new(money.currency(), GBP, price.rate).expect(&format!(
+                "Creating quote rate exchange pair from {} price",
+                price.pair
+            ));
         let gbp = quote_rate.convert(money)?;
         Ok(gbp)
     } else {
         let base_rate =
-            rusty_money::ExchangeRate::new(money.currency(), price.pair.base, trade_rate)
-                .expect(&format!(
-                    "Creating base rate exchange pair from {} price",
-                    price.pair
-                ));
-        let gbp_rate = rusty_money::ExchangeRate::new(price.pair.base, GBP, price.rate)
-            .expect(&format!(
+            rusty_money::ExchangeRate::new(money.currency(), price.pair.base, trade_rate).expect(
+                &format!("Creating base rate exchange pair from {} price", price.pair),
+            );
+        let gbp_rate =
+            rusty_money::ExchangeRate::new(price.pair.base, GBP, price.rate).expect(&format!(
                 "Creating quote rate exchange pair from {} price",
                 price.pair
             ));
@@ -488,7 +455,7 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
             pair: CurrencyPair { base, quote: GBP },
             date_time: trade.date_time,
             rate: trade.rate,
-        })
+        });
     }
 
     // prefer BTC price, then ETH price
@@ -499,9 +466,7 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
     } else {
         panic!(
             "Expected quote price to be BTC or ETH or GBP for trade at {}. quote {}, base {}",
-            trade.date_time,
-            quote.code,
-            base.code
+            trade.date_time, quote.code, base.code
         )
     };
 
@@ -583,13 +548,7 @@ mod tests {
     #[test]
     fn hmrc_pooling_example() {
         let acq1 = trade("2016-01-01", TradeKind::Buy, gbp!(1000.00), btc!(100.), 10);
-        let acq2 = trade(
-            "2017-01-01",
-            TradeKind::Buy,
-            gbp!(125_000),
-            btc!(50.),
-            2500,
-        );
+        let acq2 = trade("2017-01-01", TradeKind::Buy, gbp!(125_000), btc!(50.), 2500);
         let disp = trade(
             "2018-01-01",
             TradeKind::Sell,
@@ -635,7 +594,11 @@ mod tests {
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(150_000.00), "Remaining allowable costs");
+        assert_money_eq!(
+            btc_pool.costs,
+            gbp!(150_000.00),
+            "Remaining allowable costs"
+        );
     }
 
     #[test]
@@ -665,7 +628,11 @@ mod tests {
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(10_500), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(150_000.00), "Remaining allowable costs");
+        assert_money_eq!(
+            btc_pool.costs,
+            gbp!(150_000.00),
+            "Remaining allowable costs"
+        );
     }
 
     #[test]
@@ -727,7 +694,11 @@ mod tests {
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
         assert_money_eq!(btc_pool.total, btc!(15_000), "Remaining in pool");
-        assert_money_eq!(btc_pool.costs, gbp!(235_000.00), "Remaining allowable costs");
+        assert_money_eq!(
+            btc_pool.costs,
+            gbp!(235_000.00),
+            "Remaining allowable costs"
+        );
     }
 
     #[test]

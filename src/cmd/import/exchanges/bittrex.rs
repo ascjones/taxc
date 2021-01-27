@@ -4,10 +4,7 @@ use std::convert::TryFrom;
 
 use crate::{
     money::amount,
-    trades::{
-        Trade,
-        TradeKind,
-    },
+    trades::{Trade, TradeKind},
 };
 use rust_decimal::Decimal;
 
@@ -39,8 +36,7 @@ impl<'a> TryFrom<Record> for Trade<'a> {
 
     fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         let date_time =
-            NaiveDateTime::parse_from_str(value.closed.as_ref(), "%m/%d/%Y %-I:%M:%S %p")
-                .unwrap();
+            NaiveDateTime::parse_from_str(value.closed.as_ref(), "%m/%d/%Y %-I:%M:%S %p").unwrap();
 
         let mut market_parts = value.exchange.split('-');
         let quote_currency = market_parts.next().expect("quote currency");

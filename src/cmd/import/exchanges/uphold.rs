@@ -5,14 +5,8 @@ use std::convert::TryFrom;
 
 use super::ExchangeError;
 use crate::{
-    money::{
-        amount,
-        currencies,
-    },
-    trades::{
-        Trade,
-        TradeKind,
-    },
+    money::{amount, currencies},
+    trades::{Trade, TradeKind},
 };
 
 #[derive(Clone, Debug, Deserialize)]
@@ -42,12 +36,10 @@ impl<'a> TryFrom<Record> for Trade<'a> {
         if currencies::find(&value.origin_currency).is_some()
             && currencies::find(&value.destination_currency).is_some()
         {
-            return Err(
-                "Either origin or destination currency should be a cryptocurrency".into(),
-            )
+            return Err("Either origin or destination currency should be a cryptocurrency".into());
         }
         if value.origin_currency == value.destination_currency {
-            return Err("Origin and destination cannot be the same currency".into())
+            return Err("Origin and destination cannot be the same currency".into());
         }
 
         let date_time = DateTime::parse_from_rfc3339(&value.date)

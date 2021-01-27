@@ -136,8 +136,8 @@ define_currency_set!(
 
 // todo: make this return Result instead of panicking
 pub fn amount<'a>(currency: &str, amount: rust_decimal::Decimal) -> crate::Money<'a> {
-    let currency = currencies::find(currency)
-        .expect(&format!("No currency with code {} found", currency));
+    let currency =
+        currencies::find(currency).expect(&format!("No currency with code {} found", currency));
     let rounded = amount.round_dp(currency.exponent);
     rusty_money::Money::from_decimal(rounded, currency)
 }

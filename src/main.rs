@@ -1,18 +1,12 @@
 #![recursion_limit = "128"]
 
-mod money;
 mod cmd;
+mod money;
 mod trades;
 
 use argh::FromArgs;
-use money::{
-    currencies,
-    Money,
-};
-use cmd::{
-    import::ImportTradesCommand,
-    report::ReportCommand,
-};
+use cmd::{import::ImportTradesCommand, report::ReportCommand};
+use money::{currencies, Money};
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.

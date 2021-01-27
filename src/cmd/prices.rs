@@ -1,31 +1,11 @@
-use std::{
-    collections::HashMap,
-    fmt,
-    io::Read,
-};
+use std::{collections::HashMap, fmt, io::Read};
 
-use crate::currencies::{
-    self,
-    Currency,
-    BTC,
-    ETH,
-    GBP,
-};
-use chrono::{
-    DateTime,
-    NaiveDate,
-    NaiveDateTime,
-};
+use crate::currencies::{self, Currency, BTC, ETH, GBP};
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
-use serde::{
-    Deserialize,
-    Serialize,
-};
-use std::hash::{
-    Hash,
-    Hasher,
-};
+use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Eq, PartialEq, Clone)]
 pub struct CurrencyPair<'a> {
@@ -94,8 +74,7 @@ impl<'a> Prices<'a> {
                 .call();
 
             if response.ok() {
-                let coingecko_prices: CoingeckoPrices =
-                    response.into_json_deserialize()?;
+                let coingecko_prices: CoingeckoPrices = response.into_json_deserialize()?;
                 log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
                 let pair = CurrencyPair { base, quote: GBP };
                 let pair_prices = coingecko_prices
@@ -105,8 +84,7 @@ impl<'a> Prices<'a> {
                         let unix_time_secs = price.timestamp / 1000;
                         Price {
                             pair: pair.clone(),
-                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0)
-                                .into(),
+                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
                             rate: price.price,
                         }
                     })
@@ -133,12 +111,10 @@ impl<'a> Prices<'a> {
         let result: Result<Vec<_>, _> = rdr.deserialize::<Record>().collect();
         let mut prices = HashMap::new();
         for record in result? {
-            let base = currencies::find(&record.base_currency).expect(
-                format!("invalid base currency {}", record.base_currency).as_ref(),
-            );
-            let quote = currencies::find(&record.quote_currency).expect(
-                format!("invalid quote currency {}", record.quote_currency).as_ref(),
-            );
+            let base = currencies::find(&record.base_currency)
+                .expect(format!("invalid base currency {}", record.base_currency).as_ref());
+            let quote = currencies::find(&record.quote_currency)
+                .expect(format!("invalid quote currency {}", record.quote_currency).as_ref());
             let date_time = parse_date(&record.date_time);
             let pair = CurrencyPair { base, quote };
             let price = Price {
