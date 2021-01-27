@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 
 use super::ExchangeError;
 use crate::{
-    assets::{
+    money::{
         amount,
         currencies,
     },

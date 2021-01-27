@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 
 use crate::{
-    assets::amount,
+    money::amount,
     trades::{
         Trade,
         TradeKind,

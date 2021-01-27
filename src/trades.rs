@@ -20,7 +20,7 @@ use serde::{
 };
 
 use crate::{
-    assets::{
+    money::{
         currencies::Currency,
         display_amount,
         parse_money_parts,

@@ -17,7 +17,7 @@ use serde::{
 };
 
 use crate::{
-    assets::display_amount,
+    money::display_amount,
     cmd::prices::{
         CurrencyPair,
         Price,

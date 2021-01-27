@@ -1,11 +1,11 @@
 #![recursion_limit = "128"]
 
-mod assets;
+mod money;
 mod cmd;
 mod trades;
 
 use argh::FromArgs;
-use assets::{
+use money::{
     currencies,
     Money,
 };
