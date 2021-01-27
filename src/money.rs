@@ -59,19 +59,72 @@ define_currency_set!(
             name: "Ethereum Classic",
             symbol: "ETC",
             symbol_first: false,
+        },
+        ATOM: {
+            code: "ATOM",
+            exponent: 6,
+            locale: EnUs,
+            minor_units: 1_000_000,
+            name: "Cosmos ATOM",
+            symbol: "ATOM",
+            symbol_first: false,
+        },
+        XRP: {
+            code: "XRP",
+            exponent: 6,
+            locale: EnUs,
+            minor_units: 1_000_000,
+            name: "Ripple",
+            symbol: "XRP",
+            symbol_first: false,
+        },
+        REP: {
+            code: "REP",
+            exponent: 18,
+            locale: EnUs,
+            minor_units: 1_000_000_000_000_000_000,
+            name: "Augur",
+            symbol: "REP",
+            symbol_first: false,
+        },
+        DGD: {
+            code: "DGD",
+            exponent: 18,
+            locale: EnUs,
+            minor_units: 1_000_000_000_000_000_000,
+            name: "Digix DAO",
+            symbol: "DGD",
+            symbol_first: false,
+        },
+        UKG: {
+            code: "UKG",
+            exponent: 18,
+            locale: EnUs,
+            minor_units: 1_000_000_000_000_000_000,
+            name: "Unikoin Gold",
+            symbol: "UKG",
+            symbol_first: false,
+        },
+        OMG: {
+            code: "OMG",
+            exponent: 18,
+            locale: EnUs,
+            minor_units: 1_000_000_000_000_000_000,
+            name: "OMG Network",
+            symbol: "OMG",
+            symbol_first: false,
+        },
+        DOT: {
+            code: "DOT",
+            exponent: 18,
+            locale: EnUs,
+            minor_units: 1_000_000_000_000_000_000,
+            name: "Polkadot",
+            symbol: "DOT",
+            symbol_first: false,
         }
     }
 );
-
-// lazy_static! {
-//     pub static ref XRP: Currency = Currency::new("XRP", 0, 2);
-//     pub static ref REP: Currency = Currency::new("REP", 0, 2);
-//     pub static ref DGD: Currency = Currency::new("DGD", 0, 2);
-//     pub static ref UKG: Currency = Currency::new("UKG", 0, 2);
-//     pub static ref OMG: Currency = Currency::new("OMG", 0, 2);
-//     pub static ref DOT: Currency = Currency::new("DOT", 0, 2);
-//     pub static ref ATM: Currency = Currency::new("ATM", 0, 2);
-// }
 
 // todo: make this return Result instead of panicking
 pub fn amount<'a>(currency: &str, amount: rust_decimal::Decimal) -> crate::Money<'a> {
