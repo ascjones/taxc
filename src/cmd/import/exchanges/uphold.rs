@@ -1,12 +1,13 @@
 use chrono::DateTime;
-
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::convert::TryFrom;
-use steel_cent::currency;
 
 use super::ExchangeError;
-use crate::coins::amount;
-use crate::trades::{Trade, TradeKind};
+use crate::{
+    money::{amount, currencies},
+    trades::{Trade, TradeKind},
+};
 
 #[derive(Clone, Debug, Deserialize)]
 #[allow(non_snake_case)]
@@ -15,25 +16,25 @@ pub struct Record {
     id: String,
     #[serde(rename = "type")]
     tx_type: String,
-    value_in_GBP: f64,
-    commission_in_GBP: f64,
+    value_in_GBP: Decimal,
+    commission_in_GBP: Decimal,
     pair: String,
-    rate: f64,
+    rate: Decimal,
     origin_currency: String,
-    origin_amount: f64,
+    origin_amount: Decimal,
     origin_commission: String,
     destination_currency: String,
-    destination_amount: f64,
+    destination_amount: Decimal,
     destination_commission: String,
 }
 
-impl TryFrom<Record> for Trade {
+impl<'a> TryFrom<Record> for Trade<'a> {
     type Error = ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         // check to see if this is a crypto trade - either are unknown currencies
-        if currency::with_code(&value.origin_currency).is_some()
-            && currency::with_code(&value.destination_currency).is_some()
+        if currencies::find(&value.origin_currency).is_some()
+            && currencies::find(&value.destination_currency).is_some()
         {
             return Err("Either origin or destination currency should be a cryptocurrency".into());
         }

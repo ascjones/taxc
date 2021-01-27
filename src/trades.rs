@@ -1,24 +1,29 @@
 use std::collections::HashMap;
-use std::error::Error;
 
-use std::io::{Read, Write};
-use std::ops::Add;
+use std::{
+    io::{Read, Write},
+    ops::Add,
+};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use steel_cent::Money;
 
-use crate::coins::{display_amount, parse_money_parts};
+use crate::{
+    money::{currencies::Currency, display_amount, parse_money_parts, zero},
+    Money,
+};
+use rust_decimal::Decimal;
 
-#[derive(Clone, Copy)]
-pub struct TradeAmount {
-    amount: Money,
-    gbp_value: Money,
+#[derive(Clone)]
+pub struct TradeAmount<'a> {
+    amount: Money<'a>,
+    gbp_value: Money<'a>,
 }
-impl Add for TradeAmount {
-    type Output = TradeAmount;
 
-    fn add(self, other: TradeAmount) -> TradeAmount {
+impl<'a> Add for TradeAmount<'a> {
+    type Output = TradeAmount<'a>;
+
+    fn add(self, other: TradeAmount<'a>) -> TradeAmount<'a> {
         TradeAmount {
             amount: self.amount + other.amount,
             gbp_value: self.gbp_value + other.gbp_value,
@@ -27,16 +32,17 @@ impl Add for TradeAmount {
 }
 
 #[derive(Clone)]
-pub struct Trade {
+pub struct Trade<'a> {
     pub date_time: NaiveDateTime,
     pub kind: TradeKind,
-    pub buy: Money,
-    pub sell: Money,
-    pub fee: Money,
-    pub rate: f64,
+    pub buy: Money<'a>,
+    pub sell: Money<'a>,
+    pub fee: Money<'a>,
+    pub rate: Decimal,
     pub exchange: Option<String>,
 }
-impl Trade {
+
+impl<'a> Trade<'a> {
     /// Unique key for Trade
     pub fn key(&self) -> TradeKey {
         TradeKey {
@@ -45,9 +51,21 @@ impl Trade {
             sell: self.sell.to_string(),
         }
     }
+
+    /// Use to group similar trades on the same day
+    pub fn key_by_day(&self) -> TradeByDayKey<'a> {
+        TradeByDayKey {
+            date: self.date_time.date(),
+            kind: self.kind.clone(),
+            exchange: self.exchange.clone(),
+            buy: self.buy.currency(),
+            sell: self.sell.currency(),
+            fee: self.fee.currency(),
+        }
+    }
 }
 
-impl From<TradeRecord> for Trade {
+impl<'a> From<TradeRecord> for Trade<'a> {
     fn from(tr: TradeRecord) -> Self {
         let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
             .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
@@ -92,70 +110,83 @@ pub struct TradeKey {
     sell: String,
 }
 
+#[derive(Eq, PartialEq)]
+pub struct TradeByDayKey<'a> {
+    date: NaiveDate,
+    kind: TradeKind,
+    exchange: Option<String>,
+    buy: &'a Currency,
+    sell: &'a Currency,
+    fee: &'a Currency,
+}
+
+impl<'a> std::hash::Hash for TradeByDayKey<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.date.hash(state);
+        self.kind.hash(state);
+        self.exchange.hash(state);
+        self.buy.code.hash(state);
+        self.sell.code.hash(state);
+        self.fee.code.hash(state);
+    }
+}
+
 /// groups trades that occur for a currency on the same day/account
-pub fn group_trades_by_day(trades: &[Trade]) -> Vec<Trade> {
+pub fn group_trades_by_day<'a>(trades: &'a [Trade<'a>]) -> Vec<Trade<'a>> {
     let mut days = HashMap::new();
     for trade in trades.iter() {
-        let key = (
-            trade.date_time.date(),
-            trade.kind.clone(),
-            trade.exchange.clone(),
-            trade.buy.currency,
-            trade.sell.currency,
-            trade.fee.currency,
-        );
-        let day = days.entry(key).or_insert(Vec::new());
+        let day = days.entry(trade.key_by_day()).or_insert(Vec::new());
         day.push(trade);
     }
     days.iter()
-        .map(
-            |((day, kind, exchange, buy_curr, sell_curr, fee_currency), day_trades)| {
-                let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
+        .map(|(key, day_trades)| {
+            let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
+                (zero(&key.buy), zero(&key.sell), zero(&key.fee)),
+                |(buy, sell, fee), t| {
                     (
-                        Money::zero(*buy_curr),
-                        Money::zero(*sell_curr),
-                        Money::zero(*fee_currency),
-                    ),
-                    |(buy, sell, fee), t| (buy + t.buy, sell + t.sell, fee + t.fee),
+                        buy + t.buy.clone(),
+                        sell + t.sell.clone(),
+                        fee + t.fee.clone(),
+                    )
+                },
+            );
+
+            // todo: check if these are the correct way around
+            let (quote_curr, base_curr) = match key.kind {
+                TradeKind::Buy => (key.buy, key.sell),
+                TradeKind::Sell => (key.sell, key.buy),
+            };
+
+            let average_rate = {
+                let (count, total) = day_trades.iter().fold(
+                    (Money::from_major(0, quote_curr), zero(quote_curr)),
+                    |(count, total), trade| {
+                        let (base, _quote) = if trade.buy.currency() == base_curr {
+                            (trade.sell.clone(), trade.buy.clone())
+                        } else if trade.sell.currency() == base_curr {
+                            (trade.buy.clone(), trade.sell.clone())
+                        } else {
+                            panic!("Either buy or sell should be in quote currency")
+                        };
+                        (count + base.clone(), total + (base * trade.rate))
+                    },
                 );
-
-                // todo: check if these are the correct way around
-                let (quote_curr, base_curr) = match kind {
-                    TradeKind::Buy => (buy_curr, sell_curr),
-                    TradeKind::Sell => (sell_curr, buy_curr),
-                };
-
-                let average_rate = {
-                    let (count, total) = day_trades.iter().fold(
-                        (Money::zero(*quote_curr), Money::zero(*quote_curr)),
-                        |(count, total), trade| {
-                            let (base, _quote) = if trade.buy.currency == *base_curr {
-                                (trade.sell, trade.buy)
-                            } else if trade.sell.currency == *base_curr {
-                                (trade.buy, trade.sell)
-                            } else {
-                                panic!("Either buy or sell should be in quote currency")
-                            };
-                            (count + base, total + (base * trade.rate))
-                        },
-                    );
-                    total.minor_amount() as f64 / count.minor_amount() as f64
-                };
-                let latest_trade = day_trades
-                    .iter()
-                    .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
-                    .expect(format!("Should have at least one event for {}", day).as_ref());
-                Trade {
-                    date_time: latest_trade.date_time,
-                    exchange: exchange.clone(),
-                    buy: total_buy,
-                    sell: total_sell,
-                    fee: total_fee,
-                    rate: average_rate,
-                    kind: kind.clone(),
-                }
-            },
-        )
+                total.amount() / count.amount()
+            };
+            let latest_trade = day_trades
+                .iter()
+                .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
+                .expect(format!("Should have at least one event for {}", key.date).as_ref());
+            Trade {
+                date_time: latest_trade.date_time,
+                exchange: key.exchange.clone(),
+                buy: total_buy,
+                sell: total_sell,
+                fee: total_fee,
+                rate: average_rate,
+                kind: key.kind.clone(),
+            }
+        })
         .collect()
 }
 
@@ -169,10 +200,11 @@ pub struct TradeRecord {
     pub sell_amount: String,
     pub fee_asset: String,
     pub fee_amount: String,
-    pub rate: f64,
+    pub rate: Decimal,
     pub exchange: String,
 }
-impl From<&Trade> for TradeRecord {
+
+impl<'a> From<&Trade<'a>> for TradeRecord {
     fn from(trade: &Trade) -> Self {
         let date_time = DateTime::<Utc>::from_utc(trade.date_time, Utc)
             .format("%d/%m/%Y %H:%M:%S")
@@ -180,11 +212,11 @@ impl From<&Trade> for TradeRecord {
 
         TradeRecord {
             date_time,
-            buy_asset: trade.buy.currency.code(),
+            buy_asset: trade.buy.currency().code.to_string(),
             buy_amount: display_amount(&trade.buy),
-            sell_asset: trade.sell.currency.code(),
+            sell_asset: trade.sell.currency().code.to_string(),
             sell_amount: display_amount(&trade.sell),
-            fee_asset: trade.fee.currency.code(),
+            fee_asset: trade.fee.currency().code.to_string(),
             fee_amount: display_amount(&trade.fee),
             rate: trade.rate,
             exchange: trade.exchange.clone().unwrap_or(String::new()),
@@ -197,7 +229,7 @@ impl From<&Trade> for TradeRecord {
     }
 }
 
-pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> Result<(), Box<dyn Error>>
+pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> color_eyre::Result<()>
 where
     W: Write,
 {
@@ -210,7 +242,7 @@ where
     Ok(())
 }
 
-pub fn read_csv<R>(reader: R) -> Result<Vec<Trade>, Box<dyn Error>>
+pub fn read_csv<'a, R>(reader: R) -> color_eyre::Result<Vec<Trade<'a>>>
 where
     R: Read,
 {

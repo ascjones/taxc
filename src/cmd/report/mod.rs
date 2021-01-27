@@ -1,8 +1,7 @@
-use crate::cmd::prices::Prices;
-use crate::trades;
+use crate::{cmd::prices::Prices, currencies::GBP, trades, Money};
 use argh::FromArgs;
-use std::{error::Error, fs::File, io, path::PathBuf};
-use steel_cent::{currency::GBP, Money};
+use rust_decimal::Decimal;
+use std::{fs::File, io, path::PathBuf};
 
 mod cgt;
 
@@ -22,19 +21,17 @@ pub struct ReportCommand {
 }
 
 impl ReportCommand {
-    pub fn exec(&self) -> Result<(), Box<dyn Error>> {
+    pub fn exec(&self) -> color_eyre::Result<()> {
         let trades = trades::read_csv(File::open(&self.txs)?)?;
-        let prices =
-            match self.prices {
-                None => Prices::from_coingecko_api()?,
-                Some(ref path) => {
-                    Prices::read_csv(File::open(path)?)?
-                }
-            };
+        let prices = match self.prices {
+            None => Prices::from_coingecko_api()?,
+            Some(ref path) => Prices::read_csv(File::open(path)?)?,
+        };
         let report = cgt::calculate(trades, &prices)?;
         let gains = report.gains(self.year);
 
-        let estimated_liability = (gains.total_gain() - Money::of_major(GBP, 11_300)) * 0.2;
+        let estimated_liability =
+            (gains.total_gain() - Money::from_major(11_300, GBP)) * Decimal::new(20, 2);
 
         log::info!("Disposals {}", gains.len());
         log::info!("Proceeds {}", gains.total_proceeds());

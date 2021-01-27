@@ -1,35 +1,41 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
-use std::io::Read;
+use std::{collections::HashMap, fmt, io::Read};
 
-use crate::coins::{get_currency, BTC, ETH};
+use crate::currencies::{self, Currency, BTC, ETH, GBP};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use color_eyre::eyre;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use steel_cent::currency::{Currency, GBP};
+use std::hash::{Hash, Hasher};
 
-#[derive(Eq, PartialEq, Hash, Clone)]
-pub struct CurrencyPair {
-    pub base: Currency,
-    pub quote: Currency,
+#[derive(Eq, PartialEq, Clone)]
+pub struct CurrencyPair<'a> {
+    pub base: &'a Currency,
+    pub quote: &'a Currency,
 }
-impl fmt::Display for CurrencyPair {
+
+impl<'a> Hash for CurrencyPair<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.base.code.hash(state);
+        self.base.code.hash(state);
+    }
+}
+
+impl<'a> fmt::Display for CurrencyPair<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.base.code(), self.quote.code())
+        write!(f, "{}/{}", self.base.code, self.quote.code)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub struct Price {
-    pub pair: CurrencyPair,
+pub struct Price<'a> {
+    pub pair: CurrencyPair<'a>,
     pub date_time: NaiveDateTime,
-    pub rate: f64,
+    pub rate: Decimal,
 }
 
 #[derive(Default)]
-pub struct Prices {
-    prices: HashMap<CurrencyPair, Vec<Price>>,
+pub struct Prices<'a> {
+    prices: HashMap<CurrencyPair<'a>, Vec<Price<'a>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,27 +43,30 @@ struct Record {
     base_currency: String,
     quote_currency: String,
     date_time: String,
-    rate: f64,
+    rate: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CoingeckoPrices {
-    prices: Vec<CoingeckoPrice>
+    prices: Vec<CoingeckoPrice>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CoingeckoPrice {
     timestamp: i64,
-    price: f64,
+    price: Decimal,
 }
 
-impl Prices {
+impl<'a> Prices<'a> {
     /// Initializes the prices database from the coingecko api
-    pub fn from_coingecko_api() -> eyre::Result<Prices> {
+    pub fn from_coingecko_api() -> eyre::Result<Prices<'a>> {
         let mut prices = HashMap::new();
 
         let mut fetch_prices = |coin, base| {
-            let url = format!("https://api.coingecko.com/api/v3/coins/{}/market_chart", coin);
+            let url = format!(
+                "https://api.coingecko.com/api/v3/coins/{}/market_chart",
+                coin
+            );
             let response = ureq::get(&url)
                 .query("vs_currency", "gbp")
                 .query("interval", "daily")
@@ -68,7 +77,8 @@ impl Prices {
                 let coingecko_prices: CoingeckoPrices = response.into_json_deserialize()?;
                 log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
                 let pair = CurrencyPair { base, quote: GBP };
-                let pair_prices = coingecko_prices.prices
+                let pair_prices = coingecko_prices
+                    .prices
                     .iter()
                     .map(|price| {
                         let unix_time_secs = price.timestamp / 1000;
@@ -86,14 +96,14 @@ impl Prices {
             }
         };
 
-        fetch_prices("bitcoin", *BTC)?;
-        fetch_prices("ethereum", *ETH)?;
+        fetch_prices("bitcoin", BTC)?;
+        fetch_prices("ethereum", ETH)?;
 
         Ok(Prices { prices })
     }
 
     /// Initialize the prices database from the supplied CSV file
-    pub fn read_csv<'a, R>(reader: R) -> Result<Prices, Box<dyn Error>>
+    pub fn read_csv<R>(reader: R) -> color_eyre::Result<Prices<'a>>
     where
         R: Read,
     {
@@ -101,9 +111,9 @@ impl Prices {
         let result: Result<Vec<_>, _> = rdr.deserialize::<Record>().collect();
         let mut prices = HashMap::new();
         for record in result? {
-            let base = get_currency(&record.base_currency)
+            let base = currencies::find(&record.base_currency)
                 .expect(format!("invalid base currency {}", record.base_currency).as_ref());
-            let quote = get_currency(&record.quote_currency)
+            let quote = currencies::find(&record.quote_currency)
                 .expect(format!("invalid quote currency {}", record.quote_currency).as_ref());
             let date_time = parse_date(&record.date_time);
             let pair = CurrencyPair { base, quote };
@@ -120,7 +130,7 @@ impl Prices {
     }
 
     /// gets daily price if exists
-    pub fn get(&self, pair: CurrencyPair, at: NaiveDate) -> Option<Price> {
+    pub fn get(&self, pair: CurrencyPair<'a>, at: NaiveDate) -> Option<Price<'a>> {
         self.prices.get(&pair).and_then(|prices| {
             prices
                 .iter()

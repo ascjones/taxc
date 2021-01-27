@@ -2,8 +2,11 @@ use chrono::NaiveDateTime;
 use serde::Deserialize;
 use std::convert::TryFrom;
 
-use crate::coins::amount;
-use crate::trades::{Trade, TradeKind};
+use crate::{
+    money::amount,
+    trades::{Trade, TradeKind},
+};
+use rust_decimal::Decimal;
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -15,23 +18,23 @@ pub struct Record {
     #[serde(rename = "Type")]
     order_type: String,
     #[serde(rename = "Quantity")]
-    quantity: f64,
+    quantity: Decimal,
     #[serde(rename = "Limit")]
-    limit: f64,
+    limit: Decimal,
     #[serde(rename = "CommissionPaid")]
-    commission_paid: f64,
+    commission_paid: Decimal,
     #[serde(rename = "Price")]
-    price: f64,
+    price: Decimal,
     #[serde(rename = "Opened")]
     opened: String,
     #[serde(rename = "Closed")]
     closed: String,
 }
 
-impl TryFrom<Record> for Trade {
+impl<'a> TryFrom<Record> for Trade<'a> {
     type Error = super::ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade, Self::Error> {
+    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
         let date_time =
             NaiveDateTime::parse_from_str(value.closed.as_ref(), "%m/%d/%Y %-I:%M:%S %p").unwrap();
 

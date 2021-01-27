@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4.19"
-steel-cent = "0.2.3"
+rusty-money = { git = "https://github.com/varunsrin/rusty_money" }
 serde = { version = "1.0.118", features = ["derive"] }
 lazy_static = "1.4.0"
 csv = "1.1.5"
@@ -17,3 +17,5 @@ pretty_env_logger = "0.4.0"
 argh = "0.1.4"
 ureq = { version = "1.5.4", features = ["json"] }
 color-eyre = "0.5.10"
+rust_decimal = { version = "1.9.0", features = ["serde"] }
+rust_decimal_macros = "1.10.1"
