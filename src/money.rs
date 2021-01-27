@@ -156,6 +156,7 @@ pub fn parse_money_parts<'a>(
 
 pub fn display_amount(amt: &crate::Money) -> String {
     let params = rusty_money::Params {
+        rounding: Some(amt.currency().exponent),
         ..Default::default()
     };
     rusty_money::Formatter::money(&amt, params)
