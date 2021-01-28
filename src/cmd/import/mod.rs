@@ -1,4 +1,7 @@
+mod exchanges;
+
 use crate::trades::Trade;
+use self::exchanges::binance::BinanceApiCommand;
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
 use std::{
@@ -7,13 +10,38 @@ use std::{
     io::{self, Read},
     path::PathBuf,
 };
-
-mod exchanges;
+use std::path::Path;
 
 #[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "import")]
+#[argh(subcommand)]
 /// Import trades from a csv file
-pub struct ImportTradesCommand {
+pub enum ImportTradesCommand {
+    Api(ImportApiCommand),
+    Csv(ImportExchangeCsvCommand),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+/// Import trades from a csv file
+pub enum ImportApiCommand {
+    Binance(BinanceApiCommand),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+/// Import trades from a csv file for the given exchange
+pub enum ImportExchangeCsvCommand {
+    Binance(ImportCsvCommand),
+    Bittrex(ImportCsvCommand),
+    Coinbase(ImportCsvCommand),
+    Poloniex(ImportCsvCommand),
+    Uphold(ImportCsvCommand),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "csv")]
+/// Import trades from a csv file
+pub struct ImportCsvCommand {
     /// the csv file containing trades to import
     #[argh(positional)]
     file: PathBuf,
@@ -25,16 +53,14 @@ pub struct ImportTradesCommand {
     group_by_day: bool,
 }
 
-impl ImportTradesCommand {
+impl ImportExchangeCsvCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let csv_file = File::open(&self.file)?;
-        let trades = match self.source.as_str() {
-            "uphold" => Self::csv_to_trades::<exchanges::uphold::Record, _, _>(csv_file),
-            "poloniex" => Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(csv_file),
-            "bittrex" => Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(csv_file),
-            "binance" => Self::csv_to_trades::<exchanges::binance::CsvRecord, _, _>(csv_file),
-            "coinbase" => Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(csv_file),
-            x => panic!("Unknown file source {}", x), // yes I know should be an error
+        let trades = match self {
+            Self::Uphold(csv) => Self::csv_to_trades::<exchanges::uphold::Record, _, _>(&csv.file),
+            Self::Poloniex(csv) => Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(&csv.file),
+            Self::Bittrex(csv) => Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(&csv.file),
+            Self::Binance(csv) => Self::csv_to_trades::<exchanges::binance::CsvRecord, _, _>(&csv.file),
+            Self::Coinbase(csv) => Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(&csv.file),
         }?;
         let mut trades = if self.group_by_day {
             crate::trades::group_trades_by_day(&trades)
@@ -46,13 +72,14 @@ impl ImportTradesCommand {
         crate::trades::write_csv(trades, io::stdout())
     }
 
-    fn csv_to_trades<'a, CsvRecord, R, E>(reader: R) -> color_eyre::Result<Vec<Trade<'a>>>
+    fn csv_to_trades<'a, CsvRecord, P, E>(path: P) -> color_eyre::Result<Vec<Trade<'a>>>
     where
         CsvRecord: Clone + DeserializeOwned + TryInto<Trade<'a>, Error = E>,
-        R: Read,
+        P: AsRef<Path>,
         E: std::error::Error + 'static + Send + Sync,
     {
-        let mut rdr = csv::Reader::from_reader(reader);
+        let file = File::open(path)?;
+        let mut rdr = csv::Reader::from_reader(file);
         let result: Result<Vec<CsvRecord>, _> = rdr.deserialize().collect();
         let result = result?;
         log::info!("Read {} csv records", result.len());

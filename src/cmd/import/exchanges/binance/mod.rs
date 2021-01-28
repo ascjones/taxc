@@ -1,3 +1,7 @@
+mod api;
 mod csv;
 
-pub use self::csv::CsvRecord;
+pub use self::{
+    api::BinanceApiCommand,
+    csv::CsvRecord,
+};
