@@ -32,7 +32,7 @@ impl ImportTradesCommand {
             "uphold" => Self::csv_to_trades::<exchanges::uphold::Record, _, _>(csv_file),
             "poloniex" => Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(csv_file),
             "bittrex" => Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(csv_file),
-            "binance" => Self::csv_to_trades::<exchanges::binance::Record, _, _>(csv_file),
+            "binance" => Self::csv_to_trades::<exchanges::binance::CsvRecord, _, _>(csv_file),
             "coinbase" => Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(csv_file),
             x => panic!("Unknown file source {}", x), // yes I know should be an error
         }?;

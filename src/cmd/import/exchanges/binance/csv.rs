@@ -10,7 +10,7 @@ use rust_decimal::Decimal;
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
-pub struct Record {
+pub struct CsvRecord {
     // Date(UTC),Market,Type,Price,Amount,Total,Fee,Fee Coin
     #[serde(rename = "Date(UTC)")]
     date: String,
@@ -30,10 +30,10 @@ pub struct Record {
     fee_coin: String,
 }
 
-impl<'a> TryFrom<Record> for Trade<'a> {
-    type Error = super::ExchangeError;
+impl<'a> TryFrom<CsvRecord> for Trade<'a> {
+    type Error = crate::cmd::import::exchanges::ExchangeError;
 
-    fn try_from(value: Record) -> Result<Trade<'a>, Self::Error> {
+    fn try_from(value: CsvRecord) -> Result<Trade<'a>, Self::Error> {
         let date_time = NaiveDateTime::parse_from_str(value.date.as_ref(), "%Y-%m-%d %H:%M:%S")?;
 
         let (base_currency, quote_currency) = value.market.split_at(3);
