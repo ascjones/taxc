@@ -1,18 +1,11 @@
-use std::collections::HashMap;
-
-use std::{
-    io::Read,
-    ops::Add,
-};
-
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use serde::{Deserialize, Serialize};
-
 use crate::{
     money::{currencies::Currency, display_amount, parse_money_parts, zero},
     Money,
 };
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, io::Read, ops::Add};
 
 #[derive(Clone)]
 pub struct TradeAmount<'a> {
@@ -228,19 +221,6 @@ impl<'a> From<&Trade<'a>> for TradeRecord {
         }
     }
 }
-
-// pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> color_eyre::Result<()>
-// where
-//     W: Write,
-// {
-//     let mut wtr = csv::Writer::from_writer(writer);
-//     for trade in trades.iter() {
-//         let record: TradeRecord = trade.into();
-//         wtr.serialize(record)?;
-//     }
-//     wtr.flush()?;
-//     Ok(())
-// }
 
 pub fn read_csv<'a, R>(reader: R) -> color_eyre::Result<Vec<Trade<'a>>>
 where

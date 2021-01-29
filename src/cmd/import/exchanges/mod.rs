@@ -8,7 +8,7 @@ pub mod uphold;
 pub enum ExchangeError {
     DateParse(chrono::format::ParseError),
     InvalidRecord(&'static str),
-    DecimalError(rust_decimal::Error)
+    DecimalError(rust_decimal::Error),
 }
 
 impl std::error::Error for ExchangeError {}

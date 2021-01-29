@@ -1,26 +1,17 @@
 mod exchanges;
 
-use crate::trades::{
-    Trade,
-    TradeRecord,
-};
 use self::exchanges::binance::BinanceApiCommand;
+use crate::trades::{Trade, TradeRecord};
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
-use std::{
-    convert::TryInto,
-    fs::File,
-    io,
-    path::PathBuf,
-};
-use std::path::Path;
+use std::{convert::TryInto, fs::File, io, path::Path, path::PathBuf};
 
 /// Import trades from a csv file
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "import")]
 pub struct ImportTradesCommand {
     #[argh(subcommand)]
-    sub: ImportTradesSubCommand
+    sub: ImportTradesSubCommand,
 }
 
 impl ImportTradesCommand {
@@ -80,7 +71,7 @@ impl ImportApiSubCommand {
 #[argh(subcommand, name = "csv")]
 pub struct ImportExchangeCsvCommand {
     #[argh(subcommand)]
-    sub: ImportExchangeCsvSubCommand
+    sub: ImportExchangeCsvSubCommand,
 }
 
 impl ImportExchangeCsvCommand {
@@ -152,10 +143,7 @@ impl ImportCsvCommand {
             trades
         };
 
-        let trade_records = trades
-            .iter()
-            .map(|t| TradeRecord::from(t))
-            .collect();
+        let trade_records = trades.iter().map(|t| TradeRecord::from(t)).collect();
         crate::utils::write_csv(trade_records, io::stdout())
     }
 }

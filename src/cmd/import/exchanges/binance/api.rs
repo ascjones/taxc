@@ -1,20 +1,13 @@
+use crate::{
+    money::{amount, currencies::Currency, Money},
+    trades::{Trade, TradeKind, TradeRecord},
+};
 use argh::FromArgs;
-use binance::{
-    account::Account,
-    api::Binance,
-    model::TradeHistory,
-};
-use std::convert::TryFrom;
-use crate::trades::{Trade, TradeKind, TradeRecord};
+use binance::{account::Account, api::Binance, model::TradeHistory};
 use chrono::NaiveDateTime;
-use crate::money::{
-    amount,
-    Money,
-};
-use rust_decimal::Decimal;
-use std::str::FromStr;
-use crate::money::currencies::Currency;
 use color_eyre::eyre;
+use rust_decimal::Decimal;
+use std::{convert::TryFrom, str::FromStr};
 
 /// Import transactions from the binance API
 #[derive(FromArgs, PartialEq, Debug)]
@@ -38,14 +31,18 @@ pub struct BinanceApiCommand {
 impl BinanceApiCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let trades = self.get_trade_history(&self.symbol)?;
-        crate::utils::write_csv(trades,std::io::stdout())
+        crate::utils::write_csv(trades, std::io::stdout())
     }
 
     fn get_trade_history(&self, symbol: &str) -> color_eyre::Result<Vec<TradeRecord>> {
         let account: Account = Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
         let mut parts = symbol.split('/');
-        let base_code = parts.next().ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
-        let quote_code = parts.next().ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+        let base_code = parts
+            .next()
+            .ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+        let quote_code = parts
+            .next()
+            .ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
         let base = crate::currencies::find(base_code)
             .ok_or(eyre::eyre!("failed to find base currency {}", base_code))?;
         let quote = crate::currencies::find(quote_code)
@@ -53,15 +50,19 @@ impl BinanceApiCommand {
 
         // the binance symbol has no separator e.g. ETHBTC
         let binance_symbol = symbol.replace('/', "");
-        let trades =
-            account.trade_history(binance_symbol)
-                .unwrap() // todo: handle error
-                .into_iter()
-                .map(|trade| {
-                    let trade = BinanceTrade { base: *base, quote: *quote, trade: trade.clone() };
-                    Trade::try_from(&trade).map(|t| TradeRecord::from(&t))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+        let trades = account
+            .trade_history(binance_symbol)
+            .unwrap() // todo: handle error
+            .into_iter()
+            .map(|trade| {
+                let trade = BinanceTrade {
+                    base: *base,
+                    quote: *quote,
+                    trade: trade.clone(),
+                };
+                Trade::try_from(&trade).map(|t| TradeRecord::from(&t))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(trades)
     }
 }
