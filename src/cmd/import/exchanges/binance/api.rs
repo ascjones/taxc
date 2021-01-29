@@ -30,29 +30,37 @@ pub struct BinanceApiCommand {
 
 impl BinanceApiCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let trades = self.get_trade_history(&self.symbol)?;
-        crate::utils::write_csv(trades, std::io::stdout())
+        let trades = self.get_trade_history()?;
+        let trade_records = self.convert_trades(trades)?;
+        crate::utils::write_csv(trade_records, std::io::stdout())
     }
 
-    fn get_trade_history(&self, symbol: &str) -> color_eyre::Result<Vec<TradeRecord>> {
+    fn get_trade_history(&self) -> color_eyre::Result<Vec<TradeHistory>> {
         let account: Account = Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
-        let mut parts = symbol.split('/');
+
+        // the binance symbol has no separator e.g. ETHBTC
+        let binance_symbol = self.symbol.replace('/', "");
+        let trades = account
+            .trade_history(binance_symbol)
+            .map_err(|e| eyre::eyre!("Binance error {}", e))?;
+
+        Ok(trades)
+    }
+
+    fn convert_trades(&self, trades: Vec<TradeHistory>) -> color_eyre::Result<Vec<TradeRecord>> {
+        let mut parts = self.symbol.split('/');
         let base_code = parts
             .next()
-            .ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+            .ok_or(eyre::eyre!("Invalid symbol {}", self.symbol))?;
         let quote_code = parts
             .next()
-            .ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+            .ok_or(eyre::eyre!("Invalid symbol {}", self.symbol))?;
         let base = crate::currencies::find(base_code)
             .ok_or(eyre::eyre!("failed to find base currency {}", base_code))?;
         let quote = crate::currencies::find(quote_code)
             .ok_or(eyre::eyre!("failed to find quote currency {}", quote_code))?;
 
-        // the binance symbol has no separator e.g. ETHBTC
-        let binance_symbol = symbol.replace('/', "");
-        let trades = account
-            .trade_history(binance_symbol)
-            .unwrap() // todo: handle error
+        let trades = trades
             .into_iter()
             .map(|trade| {
                 let trade = BinanceTrade {
