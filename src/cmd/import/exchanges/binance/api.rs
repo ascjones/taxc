@@ -23,15 +23,19 @@ impl BinanceApiCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let symbols = self.get_symbols()?;
         for symbol in symbols {
-            let trades = self.get_aggregated_trades(&symbol)?;
+            let trades = self.get_trade_history(&symbol)?;
             crate::utils::write_csv(trades,std::io::stdout())?
         }
         Ok(())
     }
 
     fn get_symbols(&self) -> color_eyre::Result<Vec<String>> {
-        // todo: fetch symols from binance API
-        Ok(vec!["ATOMBTC".to_string()])
+        // todo: can get a full list from binance::api::General::exchange_info()
+        Ok(vec![
+            "ATOMBTC".to_string(),
+            "ETHBTC".to_string(),
+            "DOTBTC".to_string(),
+        ])
     }
 
     /// GET /api/v3/aggTrades
@@ -55,6 +59,12 @@ impl BinanceApiCommand {
             .call()?;
 
         let trades: Vec<AggregatedTrade> = response.into_json()?;
+        Ok(trades)
+    }
+
+    fn get_trade_history(&self, symbol: &str) -> color_eyre::Result<Vec<binance::model::TradeHistory>> {
+        let account: binance::account::Account = binance::api::Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
+        let trades = account.trade_history(symbol).unwrap();
         Ok(trades)
     }
 }
