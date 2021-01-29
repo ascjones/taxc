@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use std::{
-    io::{Read, Write},
+    io::Read,
     ops::Add,
 };
 
@@ -229,18 +229,18 @@ impl<'a> From<&Trade<'a>> for TradeRecord {
     }
 }
 
-pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> color_eyre::Result<()>
-where
-    W: Write,
-{
-    let mut wtr = csv::Writer::from_writer(writer);
-    for trade in trades.iter() {
-        let record: TradeRecord = trade.into();
-        wtr.serialize(record)?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
+// pub fn write_csv<W>(trades: Vec<Trade>, writer: W) -> color_eyre::Result<()>
+// where
+//     W: Write,
+// {
+//     let mut wtr = csv::Writer::from_writer(writer);
+//     for trade in trades.iter() {
+//         let record: TradeRecord = trade.into();
+//         wtr.serialize(record)?;
+//     }
+//     wtr.flush()?;
+//     Ok(())
+// }
 
 pub fn read_csv<'a, R>(reader: R) -> color_eyre::Result<Vec<Trade<'a>>>
 where

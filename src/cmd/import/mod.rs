@@ -1,6 +1,9 @@
 mod exchanges;
 
-use crate::trades::Trade;
+use crate::trades::{
+    Trade,
+    TradeRecord,
+};
 use self::exchanges::binance::BinanceApiCommand;
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
@@ -97,6 +100,18 @@ pub enum ImportExchangeCsvSubCommand {
     Uphold(ImportCsvCommand),
 }
 
+impl ImportExchangeCsvSubCommand {
+    pub fn exec(&self) -> color_eyre::Result<()> {
+        match self {
+            Self::Uphold(csv) => csv.exec::<exchanges::uphold::Record, _, _>(&csv.file),
+            Self::Poloniex(csv) => csv.exec::<exchanges::poloniex::Record, _, _>(&csv.file),
+            Self::Bittrex(csv) => csv.exec::<exchanges::bittrex::Record, _, _>(&csv.file),
+            Self::Binance(csv) => csv.exec::<exchanges::binance::CsvRecord, _, _>(&csv.file),
+            Self::Coinbase(csv) => csv.exec::<exchanges::coinbase::Record, _, _>(&csv.file),
+        }
+    }
+}
+
 /// Import trades from a csv file
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "csv")]
@@ -112,26 +127,8 @@ pub struct ImportCsvCommand {
     group_by_day: bool,
 }
 
-impl ImportExchangeCsvSubCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
-        let mut trades = match self {
-            Self::Uphold(csv) => Self::csv_to_trades::<exchanges::uphold::Record, _, _>(&csv.file),
-            Self::Poloniex(csv) => Self::csv_to_trades::<exchanges::poloniex::Record, _, _>(&csv.file),
-            Self::Bittrex(csv) => Self::csv_to_trades::<exchanges::bittrex::Record, _, _>(&csv.file),
-            Self::Binance(csv) => Self::csv_to_trades::<exchanges::binance::CsvRecord, _, _>(&csv.file),
-            Self::Coinbase(csv) => Self::csv_to_trades::<exchanges::coinbase::Record, _, _>(&csv.file),
-        }?;
-        // let mut trades = if self.group_by_day {
-        //     crate::trades::group_trades_by_day(&trades)
-        // } else {
-        //     trades
-        // };
-
-        trades.sort_by(|t1, t2| t1.date_time.cmp(&t2.date_time));
-        crate::trades::write_csv(trades, io::stdout())
-    }
-
-    fn csv_to_trades<'a, CsvRecord, P, E>(path: P) -> color_eyre::Result<Vec<Trade<'a>>>
+impl ImportCsvCommand {
+    fn exec<'a, CsvRecord, P, E>(&self, path: P) -> color_eyre::Result<()>
     where
         CsvRecord: Clone + DeserializeOwned + TryInto<Trade<'a>, Error = E>,
         P: AsRef<Path>,
@@ -148,6 +145,17 @@ impl ImportExchangeCsvSubCommand {
             .map(|record: CsvRecord| TryInto::try_into(record).map_err(Into::into))
             .collect::<color_eyre::Result<Vec<Trade>>>()?;
         trades.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
-        Ok(trades)
+
+        let trades = if self.group_by_day {
+            crate::trades::group_trades_by_day(&trades)
+        } else {
+            trades
+        };
+
+        let trade_records = trades
+            .iter()
+            .map(|t| TradeRecord::from(t))
+            .collect();
+        crate::utils::write_csv(trade_records, io::stdout())
     }
 }
