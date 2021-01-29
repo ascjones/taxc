@@ -220,6 +220,8 @@ dependencies = [
  "color-eyre",
  "csv",
  "derive_more",
+ "hex",
+ "hmac",
  "lazy_static",
  "log",
  "pretty_env_logger",
@@ -228,6 +230,7 @@ dependencies = [
  "rust_decimal_macros",
  "rusty-money",
  "serde",
+ "sha2",
  "ureq",
 ]
 
