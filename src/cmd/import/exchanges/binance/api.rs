@@ -2,7 +2,7 @@ use argh::FromArgs;
 
 /// Import transactions from the binance API
 #[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "api")]
+#[argh(subcommand, name = "binance")]
 pub struct BinanceApiCommand {
     /// the api key
     #[argh(option)]
@@ -10,6 +10,13 @@ pub struct BinanceApiCommand {
     /// the secret key
     #[argh(option)]
     secret: String,
+}
+
+impl BinanceApiCommand {
+    pub fn exec(&self) -> color_eyre::Result<()> {
+        println!("CALL BINANCE API");
+        Ok(())
+    }
 }
 
 // Request must be signed
