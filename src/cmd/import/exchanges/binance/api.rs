@@ -1,9 +1,20 @@
 use argh::FromArgs;
-use hmac::{Hmac, Mac, NewMac};
+use binance::{
+    account::Account,
+    api::Binance,
+    model::TradeHistory,
+};
+use std::convert::TryFrom;
+use crate::trades::{Trade, TradeKind, TradeRecord};
+use chrono::NaiveDateTime;
+use crate::money::{
+    amount,
+    Money,
+};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
-
-const API_ENDPOINT: &'static str = "https://api.binance.com";
+use std::str::FromStr;
+use crate::money::currencies::Currency;
+use color_eyre::eyre;
 
 /// Import transactions from the binance API
 #[derive(FromArgs, PartialEq, Debug)]
@@ -17,116 +28,83 @@ pub struct BinanceApiCommand {
     /// IP address. todo: make this more secure, encrypt with password? !!!
     #[argh(option)]
     secret: String,
+    /// the symbol of the market for trades to download, must be in the format BASE/QUOTE e.g
+    /// BTC/GBP
+    /// todo: could make this an option and if None fetch all from binance::api::General::exchange_info()
+    #[argh(option)]
+    symbol: String,
 }
 
 impl BinanceApiCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let symbols = self.get_symbols()?;
-        for symbol in symbols {
-            let trades = self.get_trade_history(&symbol)?;
-            crate::utils::write_csv(trades,std::io::stdout())?
-        }
-        Ok(())
+        let trades = self.get_trade_history(&self.symbol)?;
+        crate::utils::write_csv(trades,std::io::stdout())
     }
 
-    fn get_symbols(&self) -> color_eyre::Result<Vec<String>> {
-        // todo: can get a full list from binance::api::General::exchange_info()
-        Ok(vec![
-            "ATOMBTC".to_string(),
-            "ETHBTC".to_string(),
-            "DOTBTC".to_string(),
-        ])
-    }
+    fn get_trade_history(&self, symbol: &str) -> color_eyre::Result<Vec<TradeRecord>> {
+        let account: Account = Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
+        let mut parts = symbol.split('/');
+        let base_code = parts.next().ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+        let quote_code = parts.next().ok_or(eyre::eyre!("Invalid symbol {}", symbol))?;
+        let base = crate::currencies::find(base_code)
+            .ok_or(eyre::eyre!("failed to find base currency {}", base_code))?;
+        let quote = crate::currencies::find(quote_code)
+            .ok_or(eyre::eyre!("failed to find quote currency {}", quote_code))?;
 
-    /// GET /api/v3/aggTrades
-    ///
-    /// [API Docs](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#compressedaggregate-trades-list)
-    ///
-    /// Get compressed, aggregate trades. Trades that fill at the time, from the same taker order,
-    /// with the same price will have the quantity aggregated.
-    fn get_aggregated_trades(&self, symbol: &str) -> color_eyre::Result<Vec<AggregatedTrade>> {
-        let query_str = format!("symbol={}", symbol);
-        let mut signed_key = Hmac::<sha2::Sha256>::new_varkey(self.secret.as_bytes()).unwrap();
-        signed_key.update(query_str.as_bytes());
-        let signature = hex::encode(signed_key.finalize().into_bytes());
-
-        let url = format!("{}/api/v3/aggTrades", API_ENDPOINT);
-        let response = ureq::get(&url)
-            .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("x-mbx-apikey", self.api_key.as_str())
-            .query("symbol", symbol)
-            .query("signature", signature.as_str())
-            .call()?;
-
-        let trades: Vec<AggregatedTrade> = response.into_json()?;
-        Ok(trades)
-    }
-
-    fn get_trade_history(&self, symbol: &str) -> color_eyre::Result<Vec<binance::model::TradeHistory>> {
-        let account: binance::account::Account = binance::api::Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
-        let trades = account.trade_history(symbol).unwrap();
+        // the binance symbol has no separator e.g. ETHBTC
+        let binance_symbol = symbol.replace('/', "");
+        let trades =
+            account.trade_history(binance_symbol)
+                .unwrap() // todo: handle error
+                .into_iter()
+                .map(|trade| {
+                    let trade = BinanceTrade { base: *base, quote: *quote, trade: trade.clone() };
+                    Trade::try_from(&trade).map(|t| TradeRecord::from(&t))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
         Ok(trades)
     }
 }
 
-/// Type returned from https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#compressedaggregate-trades-list
-///  ```json
-/// {
-///     "a": 26129,         // Aggregate tradeId
-///     "p": "0.01633102",  // Price
-///     "q": "4.70443515",  // Quantity
-///     "f": 27781,         // First tradeId
-///     "l": 27781,         // Last tradeId
-///     "T": 1498793709153, // Timestamp
-///     "m": true,          // Was the buyer the maker?
-///     "M": true           // Was the trade the best price match?
-/// }
-/// ```
-#[derive(Deserialize, Serialize)]
-pub struct AggregatedTrade {
-    #[serde(rename = "a")]
-    id: u64,
-    #[serde(rename = "p")]
-    price: Decimal,
-    #[serde(rename = "q")]
-    quantity: Decimal,
-    #[serde(rename = "f")]
-    first_trade_id: u64,
-    #[serde(rename = "l")]
-    last_trade_id: u64,
-    #[serde(rename = "t")]
-    timestamp: u64,
-    #[serde(rename = "m")]
-    is_maker: u64,
-    #[serde(rename = "M")]
-    is_best_match: u64,
+struct BinanceTrade {
+    base: Currency,
+    quote: Currency,
+    trade: TradeHistory,
 }
 
-// Request must be signed
-// fn sign_request(&self, endpoint: &str, request: &str) -> String {
-//     let mut signed_key = Hmac::<Sha256>::new_varkey(self.secret_key.as_bytes()).unwrap();
-//     signed_key.update(request.as_bytes());
-//     let signature = hex_encode(signed_key.finalize().into_bytes());
-//     let request_body: String = format!("{}&signature={}", request, signature);
-//     let url: String = format!("{}{}?{}", self.host, endpoint, request_body);
-//
-//     url
-// }
-//
-// fn build_headers(&self, content_type: bool) -> Result<HeaderMap> {
-//     let mut custom_headers = HeaderMap::new();
-//
-//     custom_headers.insert(USER_AGENT, HeaderValue::from_static("binance-rs"));
-//     if content_type {
-//         custom_headers.insert(
-//             CONTENT_TYPE,
-//             HeaderValue::from_static("application/x-www-form-urlencoded"),
-//         );
-//     }
-//     custom_headers.insert(
-//         HeaderName::from_static("x-mbx-apikey"),
-//         HeaderValue::from_str(self.api_key.as_str())?,
-//     );
-//
-//     Ok(custom_headers)
-// }
+impl<'a> TryFrom<&'a BinanceTrade> for Trade<'a> {
+    type Error = crate::cmd::import::exchanges::ExchangeError;
+
+    fn try_from(value: &'a BinanceTrade) -> Result<Trade<'a>, Self::Error> {
+        let trade = &value.trade;
+        let seconds = trade.time as i64 / 1000;
+        let nanos = (trade.time % 1000 * 1_000_000) as u32;
+        let date_time = NaiveDateTime::from_timestamp(seconds, nanos);
+        let qty = Decimal::try_from(trade.qty)?;
+        let rate = Decimal::try_from(trade.price)?;
+
+        // base e.g. in ETH/BTC this is the ETH
+        let base_amount = Money::from_decimal(qty, &value.base);
+        // quote e.g. in ETH/BTC this is the BTC
+        let quote_amount = Money::from_decimal(qty * rate, &value.quote);
+
+        let (kind, buy, sell) = if trade.is_buyer {
+            (TradeKind::Buy, base_amount, quote_amount)
+        } else {
+            (TradeKind::Sell, quote_amount, base_amount)
+        };
+
+        let fee_amount = Decimal::from_str(&trade.commission)?;
+        let fee = amount(&trade.commission_asset, fee_amount);
+
+        Ok(Trade {
+            date_time,
+            kind,
+            buy,
+            sell,
+            fee,
+            rate,
+            exchange: Some("Binance".into()),
+        })
+    }
+}
