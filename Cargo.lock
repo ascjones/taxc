@@ -232,6 +232,7 @@ dependencies = [
  "serde",
  "sha2",
  "ureq",
+ "url",
 ]
 
 [[package]]

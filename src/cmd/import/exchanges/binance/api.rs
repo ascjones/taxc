@@ -3,11 +3,13 @@ use crate::{
     trades::{Trade, TradeKind, TradeRecord},
 };
 use argh::FromArgs;
-use binance::{account::Account, api::Binance, model::TradeHistory};
 use chrono::NaiveDateTime;
+use chrono::prelude::*;
 use color_eyre::eyre;
 use rust_decimal::Decimal;
 use std::{convert::TryFrom, str::FromStr};
+use hmac::{Hmac, Mac, NewMac};
+use serde::{Serialize, Deserialize};
 
 /// Import transactions from the binance API
 #[derive(FromArgs, PartialEq, Debug)]
@@ -21,8 +23,8 @@ pub struct BinanceApiCommand {
     /// IP address. todo: make this more secure, encrypt with password? !!!
     #[argh(option)]
     secret: String,
-    /// the symbol of the market for trades to download, must be in the format BASE/QUOTE e.g
-    /// BTC/GBP
+    /// the symbol of the market for trades to download, must be in the format BASE-QUOTE e.g
+    /// BTC-GBP
     /// todo: could make this an option and if None fetch all from binance::api::General::exchange_info()
     #[argh(option)]
     symbol: String,
@@ -30,25 +32,46 @@ pub struct BinanceApiCommand {
 
 impl BinanceApiCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let trades = self.get_trade_history()?;
+        let trades = self.get_trade_history(None)?;
         let trade_records = self.convert_trades(trades)?;
         crate::utils::write_csv(trade_records, std::io::stdout())
     }
 
-    fn get_trade_history(&self) -> color_eyre::Result<Vec<TradeHistory>> {
-        let account: Account = Binance::new(Some(self.api_key.clone()), Some(self.secret.clone()));
+    /// GET /api/v3/myTrades  (HMAC SHA256)
+    ///
+    /// [API Docs](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-trade-list-user_data)
+    ///
+    /// Get trades for a specific account and symbol.
+    fn get_trade_history(&self, from_id: Option<u64>) -> color_eyre::Result<Vec<TradeHistory>> {
+        let mut url = url::Url::from_str(&format!("{}/api/v3/myTrades", "https://api.binance.com"))?;
 
-        // the binance symbol has no separator e.g. ETHBTC
-        let binance_symbol = self.symbol.replace('/', "");
-        let trades = account
-            .trade_history(binance_symbol)
-            .map_err(|e| eyre::eyre!("Binance error {}", e))?;
+        let binance_symbol = self.symbol.replace("-", "");
+        url.query_pairs_mut().append_pair("symbol", &format!("{}", &binance_symbol));
+        if let Some(from_id) = from_id {
+            url.query_pairs_mut().append_pair("fromId", &format!("{}", from_id));
+        }
+        url.query_pairs_mut().append_pair("timestamp", &format!("{}", Utc::now().timestamp_millis()));
 
+        let query_str = url.query().expect("missing query string");
+
+        println!("{}", query_str);
+
+        let mut signed_key = Hmac::<sha2::Sha256>::new_varkey(self.secret.as_bytes()).unwrap();
+        signed_key.update(query_str.as_bytes());
+        let signature = hex::encode(signed_key.finalize().into_bytes());
+
+        let response = ureq::get(&url.to_string())
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .set("x-mbx-apikey", self.api_key.as_str())
+            .query("signature", signature.as_str())
+            .call()?;
+
+        let trades: Vec<TradeHistory> = response.into_json()?;
         Ok(trades)
     }
 
     fn convert_trades(&self, trades: Vec<TradeHistory>) -> color_eyre::Result<Vec<TradeRecord>> {
-        let mut parts = self.symbol.split('/');
+        let mut parts = self.symbol.split('-');
         let base_code = parts
             .next()
             .ok_or(eyre::eyre!("Invalid symbol {}", self.symbol))?;
@@ -75,6 +98,20 @@ impl BinanceApiCommand {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TradeHistory {
+    pub id: u64,
+    pub price: Decimal,
+    pub qty: Decimal,
+    pub commission: Decimal,
+    pub commission_asset: String,
+    pub time: u64,
+    pub is_buyer: bool,
+    pub is_maker: bool,
+    pub is_best_match: bool,
+}
+
 struct BinanceTrade {
     base: Currency,
     quote: Currency,
@@ -89,13 +126,11 @@ impl<'a> TryFrom<&'a BinanceTrade> for Trade<'a> {
         let seconds = trade.time as i64 / 1000;
         let nanos = (trade.time % 1000 * 1_000_000) as u32;
         let date_time = NaiveDateTime::from_timestamp(seconds, nanos);
-        let qty = Decimal::try_from(trade.qty)?;
-        let rate = Decimal::try_from(trade.price)?;
 
         // base e.g. in ETH/BTC this is the ETH
-        let base_amount = Money::from_decimal(qty, &value.base);
+        let base_amount = Money::from_decimal(trade.qty, &value.base);
         // quote e.g. in ETH/BTC this is the BTC
-        let quote_amount = Money::from_decimal(qty * rate, &value.quote);
+        let quote_amount = Money::from_decimal(trade.qty * trade.price, &value.quote);
 
         let (kind, buy, sell) = if trade.is_buyer {
             (TradeKind::Buy, base_amount, quote_amount)
@@ -103,8 +138,7 @@ impl<'a> TryFrom<&'a BinanceTrade> for Trade<'a> {
             (TradeKind::Sell, quote_amount, base_amount)
         };
 
-        let fee_amount = Decimal::from_str(&trade.commission)?;
-        let fee = amount(&trade.commission_asset, fee_amount);
+        let fee = amount(&trade.commission_asset, trade.commission);
 
         Ok(Trade {
             date_time,
@@ -112,7 +146,7 @@ impl<'a> TryFrom<&'a BinanceTrade> for Trade<'a> {
             buy,
             sell,
             fee,
-            rate,
+            rate: trade.price,
             exchange: Some("Binance".into()),
         })
     }
