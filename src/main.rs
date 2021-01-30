@@ -3,6 +3,7 @@
 mod cmd;
 mod money;
 mod trades;
+mod utils;
 
 use argh::FromArgs;
 use cmd::{import::ImportTradesCommand, report::ReportCommand};

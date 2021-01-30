@@ -62,7 +62,7 @@ impl<'a> Prices<'a> {
     pub fn from_coingecko_api() -> eyre::Result<Prices<'a>> {
         let mut prices = HashMap::new();
 
-        let mut fetch_prices = |coin, base| {
+        let mut fetch_prices = |coin, base| -> eyre::Result<()> {
             let url = format!(
                 "https://api.coingecko.com/api/v3/coins/{}/market_chart",
                 coin
@@ -71,29 +71,25 @@ impl<'a> Prices<'a> {
                 .query("vs_currency", "gbp")
                 .query("interval", "daily")
                 .query("days", "max")
-                .call();
+                .call()?;
 
-            if response.ok() {
-                let coingecko_prices: CoingeckoPrices = response.into_json_deserialize()?;
-                log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
-                let pair = CurrencyPair { base, quote: GBP };
-                let pair_prices = coingecko_prices
-                    .prices
-                    .iter()
-                    .map(|price| {
-                        let unix_time_secs = price.timestamp / 1000;
-                        Price {
-                            pair: pair.clone(),
-                            date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
-                            rate: price.price,
-                        }
-                    })
-                    .collect();
-                prices.insert(pair, pair_prices);
-                Ok(())
-            } else {
-                Err(eyre::eyre!("Error fetching prices"))
-            }
+            let coingecko_prices: CoingeckoPrices = response.into_json()?;
+            log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
+            let pair = CurrencyPair { base, quote: GBP };
+            let pair_prices = coingecko_prices
+                .prices
+                .iter()
+                .map(|price| {
+                    let unix_time_secs = price.timestamp / 1000;
+                    Price {
+                        pair: pair.clone(),
+                        date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
+                        rate: price.price,
+                    }
+                })
+                .collect();
+            prices.insert(pair, pair_prices);
+            Ok(())
         };
 
         fetch_prices("bitcoin", BTC)?;
