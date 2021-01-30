@@ -3,13 +3,13 @@ use crate::{
     trades::{Trade, TradeKind, TradeRecord},
 };
 use argh::FromArgs;
-use chrono::NaiveDateTime;
 use chrono::prelude::*;
+use chrono::NaiveDateTime;
 use color_eyre::eyre;
-use rust_decimal::Decimal;
-use std::{convert::TryFrom, str::FromStr};
 use hmac::{Hmac, Mac, NewMac};
-use serde::{Serialize, Deserialize};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use std::{convert::TryFrom, str::FromStr};
 
 /// Import transactions from the binance API
 #[derive(FromArgs, PartialEq, Debug)]
@@ -43,14 +43,18 @@ impl BinanceApiCommand {
     ///
     /// Get trades for a specific account and symbol.
     fn get_trade_history(&self, from_id: Option<u64>) -> color_eyre::Result<Vec<TradeHistory>> {
-        let mut url = url::Url::from_str(&format!("{}/api/v3/myTrades", "https://api.binance.com"))?;
+        let mut url =
+            url::Url::from_str(&format!("{}/api/v3/myTrades", "https://api.binance.com"))?;
 
         let binance_symbol = self.symbol.replace("-", "");
-        url.query_pairs_mut().append_pair("symbol", &format!("{}", &binance_symbol));
+        url.query_pairs_mut()
+            .append_pair("symbol", &format!("{}", &binance_symbol));
         if let Some(from_id) = from_id {
-            url.query_pairs_mut().append_pair("fromId", &format!("{}", from_id));
+            url.query_pairs_mut()
+                .append_pair("fromId", &format!("{}", from_id));
         }
-        url.query_pairs_mut().append_pair("timestamp", &format!("{}", Utc::now().timestamp_millis()));
+        url.query_pairs_mut()
+            .append_pair("timestamp", &format!("{}", Utc::now().timestamp_millis()));
 
         let query_str = url.query().expect("missing query string");
 
