@@ -30,11 +30,39 @@ pub struct BinanceApiCommand {
     symbol: String,
 }
 
+const API_ENDPOINT: &'static str = "https://api.binance.com";
+const LIMIT: u64 = 200;
+
 impl BinanceApiCommand {
+
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let trades = self.get_trade_history(None)?;
+        let trades = self.get_trade_history()?;
         let trade_records = self.convert_trades(trades)?;
         crate::utils::write_csv(trade_records, std::io::stdout())
+    }
+
+    /// Download the entire trade history for the current symbol from the Binance API.
+    fn get_trade_history(&self) -> color_eyre::Result<Vec<TradeHistory>> {
+        let binance_symbol = self.symbol.replace("-", "");
+        let mut trades = Vec::new();
+        let mut next_from_id = 0;
+        loop {
+            let mut trades_batch = self.fetch_trade_history(&binance_symbol, next_from_id)?;
+            let trade_ids = trades_batch.iter().map(|t| t.id).collect::<Vec<_>>();
+            let max_id = trade_ids
+                .iter()
+                .max();
+            if let Some(max_id) = max_id {
+                log::info!("trades batch: max_id {:?}", max_id);
+                trades.append(&mut trades_batch);
+                next_from_id = max_id + 1;
+            } else {
+                // no more trades returned, so we are done
+                break;
+            }
+        }
+        log::info!("Fetched a total of {:?} trades", trades.len());
+        Ok(trades)
     }
 
     /// GET /api/v3/myTrades  (HMAC SHA256)
@@ -42,23 +70,21 @@ impl BinanceApiCommand {
     /// [API Docs](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-trade-list-user_data)
     ///
     /// Get trades for a specific account and symbol.
-    fn get_trade_history(&self, from_id: Option<u64>) -> color_eyre::Result<Vec<TradeHistory>> {
+    fn fetch_trade_history(&self, symbol: &str, from_id: u64) -> color_eyre::Result<Vec<TradeHistory>> {
+        log::info!("Fetching trades from_id {:?}", from_id);
         let mut url =
-            url::Url::from_str(&format!("{}/api/v3/myTrades", "https://api.binance.com"))?;
+            url::Url::from_str(&format!("{}/api/v3/myTrades", API_ENDPOINT))?;
 
-        let binance_symbol = self.symbol.replace("-", "");
         url.query_pairs_mut()
-            .append_pair("symbol", &format!("{}", &binance_symbol));
-        if let Some(from_id) = from_id {
-            url.query_pairs_mut()
-                .append_pair("fromId", &format!("{}", from_id));
-        }
+            .append_pair("symbol", &format!("{}", &symbol));
+        url.query_pairs_mut()
+            .append_pair("fromId", &format!("{}", from_id));
+        url.query_pairs_mut()
+            .append_pair("limit", &format!("{}", LIMIT));
         url.query_pairs_mut()
             .append_pair("timestamp", &format!("{}", Utc::now().timestamp_millis()));
 
-        let query_str = url.query().expect("missing query string");
-
-        println!("{}", query_str);
+        let query_str = url.query().expect("query string is constructed above");
 
         let mut signed_key = Hmac::<sha2::Sha256>::new_varkey(self.secret.as_bytes()).unwrap();
         signed_key.update(query_str.as_bytes());
@@ -71,6 +97,8 @@ impl BinanceApiCommand {
             .call()?;
 
         let trades: Vec<TradeHistory> = response.into_json()?;
+        log::info!("Fetched {} trades", trades.len());
+
         Ok(trades)
     }
 
