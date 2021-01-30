@@ -34,7 +34,6 @@ const API_ENDPOINT: &'static str = "https://api.binance.com";
 const LIMIT: u64 = 200;
 
 impl BinanceApiCommand {
-
     pub fn exec(&self) -> color_eyre::Result<()> {
         let trades = self.get_trade_history()?;
         let trade_records = self.convert_trades(trades)?;
@@ -49,9 +48,7 @@ impl BinanceApiCommand {
         loop {
             let mut trades_batch = self.fetch_trade_history(&binance_symbol, next_from_id)?;
             let trade_ids = trades_batch.iter().map(|t| t.id).collect::<Vec<_>>();
-            let max_id = trade_ids
-                .iter()
-                .max();
+            let max_id = trade_ids.iter().max();
             if let Some(max_id) = max_id {
                 log::info!("trades batch: max_id {:?}", max_id);
                 trades.append(&mut trades_batch);
@@ -70,10 +67,13 @@ impl BinanceApiCommand {
     /// [API Docs](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-trade-list-user_data)
     ///
     /// Get trades for a specific account and symbol.
-    fn fetch_trade_history(&self, symbol: &str, from_id: u64) -> color_eyre::Result<Vec<TradeHistory>> {
+    fn fetch_trade_history(
+        &self,
+        symbol: &str,
+        from_id: u64,
+    ) -> color_eyre::Result<Vec<TradeHistory>> {
         log::info!("Fetching trades from_id {:?}", from_id);
-        let mut url =
-            url::Url::from_str(&format!("{}/api/v3/myTrades", API_ENDPOINT))?;
+        let mut url = url::Url::from_str(&format!("{}/api/v3/myTrades", API_ENDPOINT))?;
 
         url.query_pairs_mut()
             .append_pair("symbol", &format!("{}", &symbol));
