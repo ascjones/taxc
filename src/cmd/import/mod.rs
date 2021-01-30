@@ -4,7 +4,8 @@ use self::exchanges::binance::BinanceApiCommand;
 use crate::trades::{Trade, TradeRecord};
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
-use std::{convert::TryInto, fs::File, io, path::Path, path::PathBuf};
+use std::{convert::TryInto, fs::File, io, path::PathBuf};
+use crate::cmd::import::exchanges::ExchangeError;
 
 /// Import trades from a csv file
 #[derive(FromArgs, PartialEq, Debug)]
@@ -70,62 +71,34 @@ impl ImportApiSubCommand {
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "csv")]
 pub struct ImportExchangeCsvCommand {
-    #[argh(subcommand)]
-    sub: ImportExchangeCsvSubCommand,
-}
-
-impl ImportExchangeCsvCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
-        self.sub.exec()
-    }
-}
-
-/// Import trades from a csv file for the given exchange
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand)]
-pub enum ImportExchangeCsvSubCommand {
-    Binance(ImportCsvCommand),
-    Bittrex(ImportCsvCommand),
-    Coinbase(ImportCsvCommand),
-    Poloniex(ImportCsvCommand),
-    Uphold(ImportCsvCommand),
-}
-
-impl ImportExchangeCsvSubCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
-        match self {
-            Self::Uphold(csv) => csv.exec::<exchanges::uphold::Record, _, _>(&csv.file),
-            Self::Poloniex(csv) => csv.exec::<exchanges::poloniex::Record, _, _>(&csv.file),
-            Self::Bittrex(csv) => csv.exec::<exchanges::bittrex::Record, _, _>(&csv.file),
-            Self::Binance(csv) => csv.exec::<exchanges::binance::CsvRecord, _, _>(&csv.file),
-            Self::Coinbase(csv) => csv.exec::<exchanges::coinbase::Record, _, _>(&csv.file),
-        }
-    }
-}
-
-/// Import trades from a csv file
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "csv")]
-pub struct ImportCsvCommand {
+    /// the exchange to import csv from
+    #[argh(positional)]
+    exchange: Exchange,
     /// the csv file containing trades to import
     #[argh(positional)]
     file: PathBuf,
-    /// the source of the csv file, e.g. which exchange
-    #[argh(option)]
-    source: String,
     /// combines trades on the same pair on the same day into a single trade
     #[argh(switch, short = 'g')]
     group_by_day: bool,
 }
 
-impl ImportCsvCommand {
-    fn exec<'a, CsvRecord, P, E>(&self, path: P) -> color_eyre::Result<()>
+impl ImportExchangeCsvCommand {
+    pub fn exec(&self) -> color_eyre::Result<()> {
+        match self.exchange {
+            Exchange::Uphold => self.import_csv::<exchanges::uphold::Record, _>(),
+            Exchange::Poloniex => self.import_csv::<exchanges::poloniex::Record, _>(),
+            Exchange::Bittrex => self.import_csv::<exchanges::bittrex::Record, _>(),
+            Exchange::Binance => self.import_csv::<exchanges::binance::CsvRecord, _>(),
+            Exchange::Coinbase => self.import_csv::<exchanges::coinbase::Record, _>(),
+        }
+    }
+
+    fn import_csv<'a, CsvRecord, E>(&self) -> color_eyre::Result<()>
     where
         CsvRecord: Clone + DeserializeOwned + TryInto<Trade<'a>, Error = E>,
-        P: AsRef<Path>,
         E: std::error::Error + 'static + Send + Sync,
     {
-        let file = File::open(path)?;
+        let file = File::open(&self.file)?;
         let mut rdr = csv::Reader::from_reader(file);
         let result: Result<Vec<CsvRecord>, _> = rdr.deserialize().collect();
         let result = result?;
@@ -145,5 +118,30 @@ impl ImportCsvCommand {
 
         let trade_records = trades.iter().map(|t| TradeRecord::from(t)).collect();
         crate::utils::write_csv(trade_records, io::stdout())
+    }
+}
+
+/// Import trades from a csv file for the given exchange
+#[derive(PartialEq, Debug)]
+pub enum Exchange {
+    Binance,
+    Bittrex,
+    Coinbase,
+    Poloniex,
+    Uphold,
+}
+
+impl std::str::FromStr for Exchange {
+    type Err = ExchangeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "binance" => Ok(Self::Binance),
+            "bittrex" => Ok(Self::Bittrex),
+            "coinbase" => Ok(Self::Coinbase),
+            "poloniex" => Ok(Self::Poloniex),
+            "uphold" => Ok(Self::Uphold),
+            e => Err(ExchangeError::UnsupportedExchange(e.into()))
+        }
     }
 }
