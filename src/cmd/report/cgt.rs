@@ -1,9 +1,3 @@
-use std::{collections::HashMap, fmt, io::Write};
-
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
-
-use serde::{Deserialize, Serialize};
-
 use crate::{
     cmd::prices::{CurrencyPair, Price, Prices},
     currencies::{Currency, GBP},
@@ -11,7 +5,10 @@ use crate::{
     trades::{Trade, TradeKey, TradeKind, TradeRecord},
     Money,
 };
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fmt, io::Write};
 
 pub type Year = i32;
 
@@ -482,10 +479,7 @@ fn ymd(y: Year, m: u32, d: u32) -> NaiveDate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        currencies::BTC,
-        trades::Trade,
-    };
+    use crate::{currencies::BTC, trades::Trade};
     use chrono::NaiveDate;
     use rust_decimal_macros::dec;
 

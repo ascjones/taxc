@@ -1,11 +1,12 @@
 mod exchanges;
 
-use self::exchanges::binance::BinanceApiCommand;
-use crate::trades::{Trade, TradeRecord};
+use crate::{
+    cmd::import::exchanges::{binance::BinanceApiCommand, ExchangeError},
+    trades::{Trade, TradeRecord},
+};
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
 use std::{convert::TryInto, fs::File, io, path::PathBuf};
-use crate::cmd::import::exchanges::ExchangeError;
 
 /// Import trades from a csv file
 #[derive(FromArgs, PartialEq, Debug)]
@@ -141,7 +142,7 @@ impl std::str::FromStr for Exchange {
             "coinbase" => Ok(Self::Coinbase),
             "poloniex" => Ok(Self::Poloniex),
             "uphold" => Ok(Self::Uphold),
-            e => Err(ExchangeError::UnsupportedExchange(e.into()))
+            e => Err(ExchangeError::UnsupportedExchange(e.into())),
         }
     }
 }
