@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, io::Read};
 
-use crate::currencies::{self, Currency, BTC, ETH, GBP};
+use crate::currencies::{self, Currency, BTC, ETH, GBP, USDC};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
@@ -59,7 +59,7 @@ pub struct CoingeckoPrice {
 
 impl<'a> Prices<'a> {
     /// Initializes the prices database from the coingecko api
-    pub fn from_coingecko_api() -> eyre::Result<Prices<'a>> {
+    pub fn from_coingecko_api(quote_currency: &Currency) -> eyre::Result<Prices<'a>> {
         let mut prices = HashMap::new();
 
         let mut fetch_prices = |coin, base| -> eyre::Result<()> {
@@ -68,7 +68,7 @@ impl<'a> Prices<'a> {
                 coin
             );
             let response = ureq::get(&url)
-                .query("vs_currency", "gbp")
+                .query("vs_currency", quote_currency.code)
                 .query("interval", "daily")
                 .query("days", "max")
                 .call()?;
@@ -94,6 +94,7 @@ impl<'a> Prices<'a> {
 
         fetch_prices("bitcoin", BTC)?;
         fetch_prices("ethereum", ETH)?;
+        fetch_prices("usd-coin", USDC)?;
 
         Ok(Prices { prices })
     }

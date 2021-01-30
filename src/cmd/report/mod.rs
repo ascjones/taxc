@@ -22,9 +22,12 @@ pub struct ReportCommand {
 
 impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
+        // todo: in the future support other quote currencies
+        let quote_currency = GBP;
+
         let trades = trades::read_csv(File::open(&self.txs)?)?;
         let prices = match self.prices {
-            None => Prices::from_coingecko_api()?,
+            None => Prices::from_coingecko_api(quote_currency)?,
             Some(ref path) => Prices::read_csv(File::open(path)?)?,
         };
         let report = cgt::calculate(trades, &prices)?;

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cmd::prices::{CurrencyPair, Price, Prices},
-    currencies::{Currency, BTC, ETH, GBP},
+    currencies::{Currency, GBP},
     money::display_amount,
     trades::{Trade, TradeKey, TradeKind, TradeRecord},
     Money,
@@ -458,20 +458,8 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
         });
     }
 
-    // prefer BTC price, then ETH price
-    let base = if quote == BTC {
-        BTC
-    } else if quote == ETH {
-        ETH
-    } else {
-        panic!(
-            "Expected quote price to be BTC or ETH or GBP for trade at {}. quote {}, base {}",
-            trade.date_time, quote.code, base.code
-        )
-    };
-
     let pair = CurrencyPair {
-        base: &base,
+        base: &quote,
         quote: GBP,
     };
     prices.get(pair, trade.date_time.date())
@@ -494,7 +482,10 @@ fn ymd(y: Year, m: u32, d: u32) -> NaiveDate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trades::Trade;
+    use crate::{
+        currencies::BTC,
+        trades::Trade,
+    };
     use chrono::NaiveDate;
     use rust_decimal_macros::dec;
 
