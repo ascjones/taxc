@@ -1,7 +1,7 @@
 use crate::{
     cmd::prices::{CurrencyPair, Price, Prices},
     currencies::{Currency, GBP},
-    money::display_amount,
+    money::{display_amount, zero},
     trades::{Trade, TradeKey, TradeKind, TradeRecord},
     Money,
 };
@@ -84,13 +84,13 @@ impl<'a> Gains<'a> {
     }
 
     pub(crate) fn total_proceeds(&self) -> Money<'a> {
-        self.gains.iter().fold(Money::from_major(0, GBP), |acc, g| {
+        self.gains.iter().fold(zero(GBP), |acc, g| {
             acc + g.proceeds().clone()
         })
     }
 
     pub(crate) fn total_allowable_costs(&self) -> Money<'a> {
-        self.gains.iter().fold(Money::from_major(0, GBP), |acc, g| {
+        self.gains.iter().fold(zero(GBP), |acc, g| {
             acc + g.allowable_costs().clone()
         })
     }
@@ -98,7 +98,7 @@ impl<'a> Gains<'a> {
     pub(crate) fn total_gain(&self) -> Money<'a> {
         self.gains
             .iter()
-            .fold(Money::from_major(0, GBP), |acc, g| acc + g.gain())
+            .fold(zero(GBP), |acc, g| acc + g.gain())
     }
 }
 
@@ -214,8 +214,8 @@ impl<'a> Pool<'a> {
     fn new(currency: &'a Currency) -> Self {
         Pool {
             currency,
-            total: Money::from_major(0, currency),
-            costs: Money::from_major(0, GBP),
+            total: zero(currency),
+            costs: zero(GBP),
         }
     }
 
@@ -235,8 +235,8 @@ impl<'a> Pool<'a> {
             // selling more than is in the pool
             (
                 self.costs.clone(),
-                Money::from_major(0, &self.currency),
-                Money::from_major(0, GBP),
+                zero(&self.currency),
+                zero(GBP),
             )
         } else {
             let perc = sell.amount() / self.total.amount();
@@ -305,10 +305,10 @@ pub fn calculate<'a>(
             log::debug!("Trade: {:?}", trade_record);
             let mut buy_pool: Option<Pool> = None;
             let mut sell_pool: Option<Pool> = None;
-            let mut allowable_costs = Money::from_major(0, GBP);
+            let mut allowable_costs = zero(GBP);
 
             if trade.buy.currency() != GBP {
-                let _zero = Money::from_major(0, trade.buy.currency());
+                let _zero = zero(trade.buy.currency());
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
                 let costs = convert_to_gbp(buy_amount.clone(), &price, trade.rate)?;
                 let pool = pools
@@ -331,14 +331,14 @@ pub fn calculate<'a>(
                     .collect::<Vec<_>>();
 
                 let mut main_pool_sell = trade.sell.clone();
-                let mut special_allowable_costs = Money::from_major(0, GBP);
+                let mut special_allowable_costs = zero(GBP);
 
                 for (future_buy, buy_price) in special_rules_buy {
                     let remaining_buy_amount = special_buys
                         .entry(future_buy.key())
                         .or_insert(future_buy.buy.clone());
 
-                    if *remaining_buy_amount > Money::from_major(0, remaining_buy_amount.currency())
+                    if *remaining_buy_amount > zero(remaining_buy_amount.currency())
                     {
                         let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
                             (
@@ -346,7 +346,7 @@ pub fn calculate<'a>(
                                 remaining_buy_amount.clone(),
                             )
                         } else {
-                            (Money::from_major(0, trade.sell.currency()), main_pool_sell)
+                            (zero(trade.sell.currency()), main_pool_sell)
                         };
                         *remaining_buy_amount =
                             remaining_buy_amount.clone() - special_buy_amt.clone();

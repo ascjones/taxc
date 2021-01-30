@@ -153,7 +153,7 @@ pub fn group_trades_by_day<'a>(trades: &'a [Trade<'a>]) -> Vec<Trade<'a>> {
 
             let average_rate = {
                 let (count, total) = day_trades.iter().fold(
-                    (Money::from_major(0, quote_curr), zero(quote_curr)),
+                    (zero(quote_curr), zero(quote_curr)),
                     |(count, total), trade| {
                         let (base, _quote) = if trade.buy.currency() == base_curr {
                             (trade.sell.clone(), trade.buy.clone())
