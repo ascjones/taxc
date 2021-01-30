@@ -281,12 +281,12 @@ impl<'a> fmt::Debug for Pool<'a> {
 }
 
 pub fn calculate<'a>(
-    trades: Vec<Trade<'a>>,
+    mut trades: Vec<Trade<'a>>,
     prices: &'a Prices<'a>,
 ) -> color_eyre::Result<TaxReport<'a>> {
     let mut pools = HashMap::new();
 
-    // todo: sort trades (test)
+    trades.sort_by_key(|trade| trade.date_time);
     let trades_with_prices = trades
         .iter()
         .map(|trade| {
@@ -549,6 +549,29 @@ mod tests {
         );
 
         let trades = vec![acq1, acq2, disp];
+        let prices = Prices::default();
+        let report = calculate(trades, &prices).unwrap();
+
+        let gains_2018 = report.gains(Some(2018));
+
+        assert_money_eq!(gains_2018.total_proceeds(), gbp!(300_000.00));
+        assert_money_eq!(gains_2018.total_allowable_costs(), gbp!(42_000.00));
+        assert_money_eq!(gains_2018.total_gain(), gbp!(258_000.00));
+    }
+
+    #[test]
+    fn hmrc_pooling_example_out_of_order() {
+        let acq1 = trade("2016-01-01", TradeKind::Buy, gbp!(1000.00), btc!(100.), 10);
+        let acq2 = trade("2017-01-01", TradeKind::Buy, gbp!(125_000), btc!(50.), 2500);
+        let disp = trade(
+            "2018-01-01",
+            TradeKind::Sell,
+            btc!(50.00),
+            gbp!(300_000),
+            6000,
+        );
+
+        let trades = vec![disp, acq2, acq1];
         let prices = Prices::default();
         let report = calculate(trades, &prices).unwrap();
 
