@@ -60,8 +60,9 @@ impl<'a> Trade<'a> {
 
 impl<'a> From<TradeRecord> for Trade<'a> {
     fn from(tr: TradeRecord) -> Self {
-        let date_time = NaiveDateTime::parse_from_str(tr.date_time.as_ref(), "%d/%m/%Y %H:%M:%S")
-            .expect(format!("Invalid date_time {}", tr.date_time).as_ref());
+        let date_time = DateTime::parse_from_rfc3339(tr.date_time.as_ref())
+            .expect(format!("Invalid date_time {}", tr.date_time).as_ref())
+            .naive_utc();
         let exchange = if tr.exchange == "" {
             None
         } else {
@@ -200,8 +201,7 @@ pub struct TradeRecord {
 impl<'a> From<&Trade<'a>> for TradeRecord {
     fn from(trade: &Trade) -> Self {
         let date_time = DateTime::<Utc>::from_utc(trade.date_time, Utc)
-            .format("%d/%m/%Y %H:%M:%S")
-            .to_string();
+            .to_rfc3339();
 
         TradeRecord {
             date_time,
