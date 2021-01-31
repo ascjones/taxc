@@ -200,8 +200,7 @@ pub struct TradeRecord {
 
 impl<'a> From<&Trade<'a>> for TradeRecord {
     fn from(trade: &Trade) -> Self {
-        let date_time = DateTime::<Utc>::from_utc(trade.date_time, Utc)
-            .to_rfc3339();
+        let date_time = DateTime::<Utc>::from_utc(trade.date_time, Utc).to_rfc3339();
 
         TradeRecord {
             date_time,

@@ -1,26 +1,25 @@
+use super::Year;
 use crate::{
     cmd::prices::{CurrencyPair, Price, Prices},
     currencies::{Currency, GBP},
     money::{display_amount, zero},
-    trades::{Trade, TradeKey, TradeKind, TradeRecord},
+    trades::{Trade, TradeKey, TradeKind},
     Money,
 };
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
+use color_eyre::eyre;
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, io::Write};
-
-pub type Year = i32;
+use std::{collections::HashMap, fmt};
 
 pub struct TaxYear<'a> {
     pub year: Year,
-    pub events: Vec<Disposal<'a>>,
+    pub disposals: Vec<Disposal<'a>>,
 }
 impl<'a> TaxYear<'a> {
     fn new(year: Year) -> Self {
         TaxYear {
             year,
-            events: Vec::new(),
+            disposals: Vec::new(),
         }
     }
 }
@@ -41,7 +40,7 @@ impl<'a> TaxReport<'a> {
         for gain in gains.iter() {
             let year = gain.tax_year;
             let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
-            ty.events.push(gain.clone())
+            ty.disposals.push(gain.clone())
         }
         Self {
             trades: trades.to_vec(),
@@ -52,11 +51,11 @@ impl<'a> TaxReport<'a> {
 
     pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
         let mut gains = year
-            .and_then(|y| self.years.get(&y).map(|ty| ty.events.clone()))
+            .and_then(|y| self.years.get(&y).map(|ty| ty.disposals.clone()))
             .unwrap_or(
                 self.years
                     .iter()
-                    .flat_map(|(_, y)| y.events.clone())
+                    .flat_map(|(_, y)| y.disposals.clone())
                     .collect::<Vec<_>>(),
             );
         gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
@@ -84,35 +83,33 @@ impl<'a> Gains<'a> {
     }
 
     pub(crate) fn total_proceeds(&self) -> Money<'a> {
-        self.gains.iter().fold(zero(GBP), |acc, g| {
-            acc + g.proceeds().clone()
-        })
+        self.gains
+            .iter()
+            .fold(zero(GBP), |acc, g| acc + g.proceeds().clone())
     }
 
     pub(crate) fn total_allowable_costs(&self) -> Money<'a> {
-        self.gains.iter().fold(zero(GBP), |acc, g| {
-            acc + g.allowable_costs().clone()
-        })
+        self.gains
+            .iter()
+            .fold(zero(GBP), |acc, g| acc + g.allowable_costs().clone())
     }
 
     pub(crate) fn total_gain(&self) -> Money<'a> {
-        self.gains
-            .iter()
-            .fold(zero(GBP), |acc, g| acc + g.gain())
+        self.gains.iter().fold(zero(GBP), |acc, g| acc + g.gain())
     }
 }
 
 #[derive(Clone)]
 pub struct Disposal<'a> {
-    trade: Trade<'a>,
-    tax_year: Year,
-    buy_value: Money<'a>,
-    sell_value: Money<'a>,
-    fee_value: Money<'a>,
-    price: Price<'a>,
-    allowable_costs: Money<'a>,
-    buy_pool: Option<Pool<'a>>,
-    sell_pool: Option<Pool<'a>>,
+    pub(super) trade: Trade<'a>,
+    pub(super) tax_year: Year,
+    pub(super) buy_value: Money<'a>,
+    pub(super) sell_value: Money<'a>,
+    pub(super) fee_value: Money<'a>,
+    pub(super) price: Price<'a>,
+    pub(super) allowable_costs: Money<'a>,
+    pub(super) buy_pool: Option<Pool<'a>>,
+    pub(super) sell_pool: Option<Pool<'a>>,
 }
 impl<'a> Disposal<'a> {
     pub fn proceeds(&self) -> &Money<'a> {
@@ -129,78 +126,6 @@ impl<'a> Disposal<'a> {
 
     pub fn gain(&self) -> Money<'a> {
         self.sell_value.clone() - self.allowable_costs.clone() - self.fee().clone()
-    }
-
-    pub fn write_csv<E, W>(tax_events: E, writer: W) -> color_eyre::Result<()>
-    where
-        E: IntoIterator<Item = Disposal<'a>>,
-        W: Write,
-    {
-        let mut wtr = csv::Writer::from_writer(writer);
-        for tax_event in tax_events.into_iter() {
-            let record: DisposalRecord = tax_event.into();
-            wtr.serialize(record)?;
-        }
-        wtr.flush()?;
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct DisposalRecord {
-    date_time: String,
-    tax_year: Year,
-    exchange: String,
-    buy_asset: String,
-    buy_amt: String,
-    sell_asset: String,
-    sell_amt: String,
-    price: String,
-    rate: String,
-    buy_gbp: String,
-    sell_gbp: String,
-    fee: String,
-    allowable_cost: String,
-    gain: String,
-    buy_pool_total: String,
-    buy_pool_cost: String,
-    sell_pool_total: String,
-    sell_pool_cost: String,
-}
-impl<'a> From<Disposal<'a>> for DisposalRecord {
-    fn from(tax_event: Disposal) -> Self {
-        DisposalRecord {
-            date_time: tax_event.trade.date_time.date().to_string(),
-            tax_year: tax_event.tax_year,
-            exchange: tax_event.trade.exchange.clone().unwrap_or(String::new()),
-            buy_asset: tax_event.trade.buy.currency().code.to_string(),
-            buy_amt: display_amount(&tax_event.trade.buy),
-            sell_asset: tax_event.trade.sell.currency().code.to_string(),
-            sell_amt: display_amount(&tax_event.trade.sell),
-            price: tax_event.price.pair.to_string(),
-            rate: tax_event.price.rate.to_string(),
-            buy_gbp: display_amount(&tax_event.buy_value),
-            sell_gbp: display_amount(&tax_event.sell_value),
-            fee: display_amount(tax_event.fee()),
-            allowable_cost: display_amount(tax_event.allowable_costs()),
-            gain: display_amount(&tax_event.gain()),
-            buy_pool_total: tax_event
-                .buy_pool
-                .as_ref()
-                .map_or("".to_string(), |p| display_amount(&p.total)),
-            buy_pool_cost: tax_event
-                .buy_pool
-                .as_ref()
-                .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
-            sell_pool_total: tax_event
-                .sell_pool
-                .as_ref()
-                .map_or("".to_string(), |p| display_amount(&p.total)),
-            sell_pool_cost: tax_event
-                .sell_pool
-                .as_ref()
-                .map_or("".to_string(), |p| format!("{:.2}", &p.cost_basis())),
-        }
     }
 }
 
@@ -219,6 +144,10 @@ impl<'a> Pool<'a> {
         }
     }
 
+    pub fn total(&self) -> &Money<'a> {
+        &self.total
+    }
+
     fn buy(&mut self, buy: &Money<'a>, costs: &Money<'a>) {
         self.total = self.total.clone() + buy.clone();
         self.costs = self.costs.clone() + costs.clone();
@@ -233,11 +162,7 @@ impl<'a> Pool<'a> {
     fn sell(&mut self, sell: Money<'a>) -> Money<'a> {
         let (costs, new_total, new_costs) = if sell > self.total {
             // selling more than is in the pool
-            (
-                self.costs.clone(),
-                zero(&self.currency),
-                zero(GBP),
-            )
+            (self.costs.clone(), zero(&self.currency), zero(GBP))
         } else {
             let perc = sell.amount() / self.total.amount();
             let costs = self.costs.clone() * perc;
@@ -256,7 +181,7 @@ impl<'a> Pool<'a> {
         costs
     }
 
-    fn cost_basis(&self) -> Decimal {
+    pub fn cost_basis(&self) -> Decimal {
         use rust_decimal::prelude::Zero;
         self.costs
             .amount()
@@ -284,161 +209,122 @@ pub fn calculate<'a>(
     let mut pools = HashMap::new();
 
     trades.sort_by_key(|trade| trade.date_time);
-    let trades_with_prices = trades
-        .iter()
-        .map(|trade| {
-            let price = get_price(trade, &prices).expect(&format!(
-                "Should have price for buy: {} sell: {} at {}",
-                trade.buy, trade.sell, trade.date_time
-            ));
-            (trade, price)
-        })
-        .collect::<Vec<_>>();
 
     let mut special_buys: HashMap<TradeKey, Money> = HashMap::new();
+    let mut disposals = Vec::new();
 
-    let gains = trades_with_prices
-        .iter()
-        .cloned()
-        .map(|(trade, price)| {
-            let trade_record: TradeRecord = trade.into();
-            log::debug!("Trade: {:?}", trade_record);
-            let mut buy_pool: Option<Pool> = None;
-            let mut sell_pool: Option<Pool> = None;
-            let mut allowable_costs = zero(GBP);
+    for trade in &trades {
+        let price = get_price(&trade, &prices).expect(&format!(
+            "Should have price for buy: {} sell: {} at {}",
+            trade.buy, trade.sell, trade.date_time
+        ));
 
-            if trade.buy.currency() != GBP {
-                // this trade is an acquisition
-                let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
-                let costs = convert_to_gbp(buy_amount.clone(), &price, trade.rate)?;
-                let pool = pools
-                    .entry(trade.buy.currency().code.to_string())
-                    .or_insert(Pool::new(trade.buy.currency()));
-                pool.buy(buy_amount, &costs);
-                buy_pool = Some(pool.clone());
-            }
+        let mut buy_pool: Option<Pool> = None;
+        let mut sell_pool: Option<Pool> = None;
+        let mut allowable_costs = zero(GBP);
 
-            if trade.sell.currency() != GBP {
-                // this trade is a disposal
-                // find any buys of this asset within the next 30 days
-                let special_rules_buy = trades_with_prices
-                    .iter()
-                    .filter(|(t, _)| {
-                        t.buy.currency() == trade.sell.currency()
-                            && t.date_time.date() >= trade.date_time.date()
-                            && t.date_time < trade.date_time + Duration::days(30)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
+        if trade.buy.currency() != GBP {
+            // this trade is an acquisition
+            let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
+            let costs = price.convert_to_gbp(buy_amount.clone(), trade.rate)?;
+            let pool = pools
+                .entry(trade.buy.currency().code.to_string())
+                .or_insert(Pool::new(trade.buy.currency()));
+            pool.buy(buy_amount, &costs);
+            buy_pool = Some(pool.clone());
+        }
 
-                let mut main_pool_sell = trade.sell.clone();
-                let mut special_allowable_costs = zero(GBP);
+        if trade.sell.currency() != GBP {
+            // this trade is a disposal
+            // find any buys of this asset within the next 30 days
+            let special_rules_buy = trades
+                .iter()
+                .filter(|t| {
+                    t.buy.currency() == trade.sell.currency()
+                        && t.date_time.date() >= trade.date_time.date()
+                        && t.date_time < trade.date_time + Duration::days(30)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
 
-                for (future_buy, buy_price) in special_rules_buy {
-                    let remaining_buy_amount = special_buys
-                        .entry(future_buy.key())
-                        .or_insert(future_buy.buy.clone());
+            let mut main_pool_sell = trade.sell.clone();
+            let mut special_allowable_costs = zero(GBP);
 
-                    if *remaining_buy_amount > zero(remaining_buy_amount.currency())
-                    {
-                        let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
-                            (
-                                main_pool_sell - remaining_buy_amount.clone(),
-                                remaining_buy_amount.clone(),
-                            )
-                        } else {
-                            (zero(trade.sell.currency()), main_pool_sell)
-                        };
-                        *remaining_buy_amount =
-                            remaining_buy_amount.clone() - special_buy_amt.clone();
-                        let costs =
-                            convert_to_gbp(special_buy_amt.clone(), &buy_price, future_buy.rate)?;
-                        log::debug!(
-                            "Deducting SELL of {} from future BUY at {}, cost: {}",
-                            display_amount(&special_buy_amt),
-                            future_buy.date_time,
-                            display_amount(&costs)
-                        );
-                        main_pool_sell = sell;
-                        special_allowable_costs = special_allowable_costs + costs;
-                    }
+            for future_buy in &special_rules_buy {
+                let remaining_buy_amount = special_buys
+                    .entry(future_buy.key())
+                    .or_insert(future_buy.buy.clone());
+
+                if *remaining_buy_amount > zero(remaining_buy_amount.currency()) {
+                    let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
+                        (
+                            main_pool_sell - remaining_buy_amount.clone(),
+                            remaining_buy_amount.clone(),
+                        )
+                    } else {
+                        (zero(trade.sell.currency()), main_pool_sell)
+                    };
+                    *remaining_buy_amount = remaining_buy_amount.clone() - special_buy_amt.clone();
+                    let buy_price = get_price(&future_buy, &prices).ok_or(eyre::eyre!(
+                        "Failed to find price for B&B trade {}",
+                        future_buy.date_time
+                    ))?;
+                    let costs =
+                        buy_price.convert_to_gbp(special_buy_amt.clone(), future_buy.rate)?;
+                    log::debug!(
+                        "Deducting SELL of {} from future BUY at {}, cost: {}",
+                        display_amount(&special_buy_amt),
+                        future_buy.date_time,
+                        display_amount(&costs)
+                    );
+                    main_pool_sell = sell;
+                    special_allowable_costs = special_allowable_costs + costs;
                 }
-
-                let pool = pools
-                    .entry(trade.sell.currency().code.to_string())
-                    .or_insert(Pool::new(trade.sell.currency()));
-                let main_pool_costs = pool.sell(main_pool_sell);
-                allowable_costs = main_pool_costs + special_allowable_costs;
-                sell_pool = Some(pool.clone());
             }
 
-            let sell_value = if trade.sell.currency() == GBP {
-                trade.sell.clone()
-            } else {
-                convert_to_gbp(trade.sell.clone(), &price, trade.rate)?
-            };
+            let pool = pools
+                .entry(trade.sell.currency().code.to_string())
+                .or_insert(Pool::new(trade.sell.currency()));
+            let main_pool_costs = pool.sell(main_pool_sell);
+            allowable_costs = main_pool_costs + special_allowable_costs;
+            sell_pool = Some(pool.clone());
+        }
 
-            let buy_value = if trade.buy.currency() == GBP {
-                trade.buy.clone()
-            } else {
-                convert_to_gbp(trade.buy.clone(), &price, trade.rate)?
-            };
+        let sell_value = if trade.sell.currency() == GBP {
+            trade.sell.clone()
+        } else {
+            price.convert_to_gbp(trade.sell.clone(), trade.rate)?
+        };
 
-            let fee_value = if trade.fee.currency() == GBP {
-                trade.fee.clone()
-            } else {
-                convert_to_gbp(trade.fee.clone(), &price, trade.rate)?
-            };
+        let buy_value = if trade.buy.currency() == GBP {
+            trade.buy.clone()
+        } else {
+            price.convert_to_gbp(trade.buy.clone(), trade.rate)?
+        };
 
-            let tax_year = uk_tax_year(trade.date_time);
+        let fee_value = if trade.fee.currency() == GBP {
+            trade.fee.clone()
+        } else {
+            price.convert_to_gbp(trade.fee.clone(), trade.rate)?
+        };
 
-            Ok(Disposal {
-                trade: trade.clone(),
-                buy_value,
-                sell_value,
-                fee_value,
-                price: price.clone(),
-                allowable_costs,
-                tax_year,
-                sell_pool,
-                buy_pool,
-            })
+        let tax_year = uk_tax_year(trade.date_time);
+
+        // todo: split
+        disposals.push(Disposal {
+            trade: trade.clone(),
+            buy_value,
+            sell_value,
+            fee_value,
+            price: price.clone(),
+            allowable_costs,
+            tax_year,
+            sell_pool,
+            buy_pool,
         })
-        .collect::<color_eyre::Result<Vec<_>>>()?;
-    let report = TaxReport::new(trades, gains, pools);
+    }
+    let report = TaxReport::new(trades, disposals, pools);
     Ok(report)
-}
-
-fn convert_to_gbp<'a>(
-    money: Money<'a>,
-    price: &Price<'a>,
-    trade_rate: Decimal,
-) -> color_eyre::Result<Money<'a>> {
-    if money.currency() == GBP {
-        return Ok(money);
-    }
-    if money.currency() == price.pair.base {
-        let quote_rate =
-            rusty_money::ExchangeRate::new(money.currency(), GBP, price.rate).expect(&format!(
-                "Creating quote rate exchange pair from {} price",
-                price.pair
-            ));
-        let gbp = quote_rate.convert(money)?;
-        Ok(gbp)
-    } else {
-        let base_rate =
-            rusty_money::ExchangeRate::new(money.currency(), price.pair.base, trade_rate).expect(
-                &format!("Creating base rate exchange pair from {} price", price.pair),
-            );
-        let gbp_rate =
-            rusty_money::ExchangeRate::new(price.pair.base, GBP, price.rate).expect(&format!(
-                "Creating quote rate exchange pair from {} price",
-                price.pair
-            ));
-        let base = base_rate.convert(money)?;
-        let gbp = gbp_rate.convert(base)?;
-        Ok(gbp)
-    }
 }
 
 fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>> {
@@ -466,15 +352,11 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
 fn uk_tax_year(date_time: NaiveDateTime) -> Year {
     let date = date_time.date();
     let year = date.year();
-    if date > ymd(year, 4, 5) && date <= ymd(year, 12, 31) {
+    if date > NaiveDate::from_ymd(year, 4, 5) && date <= NaiveDate::from_ymd(year, 12, 31) {
         year + 1
     } else {
         year
     }
-}
-
-fn ymd(y: Year, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd(y, m, d)
 }
 
 #[cfg(test)]

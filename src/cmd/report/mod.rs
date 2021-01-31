@@ -4,6 +4,11 @@ use rust_decimal::Decimal;
 use std::{fs::File, io, path::PathBuf};
 
 mod cgt;
+mod display;
+
+pub use cgt::Disposal;
+
+pub type Year = i32;
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "report")]
@@ -42,6 +47,6 @@ impl ReportCommand {
         log::info!("Gains {}", gains.total_gain());
         log::info!("Estimated Liability {}", estimated_liability);
 
-        cgt::Disposal::write_csv(gains, io::stdout())
+        display::write_csv(gains, io::stdout())
     }
 }

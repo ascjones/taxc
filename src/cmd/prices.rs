@@ -1,6 +1,9 @@
 use std::{collections::HashMap, fmt, io::Read};
 
-use crate::currencies::{self, Currency, BTC, ETH, GBP, USDC};
+use crate::{
+    currencies::{self, Currency, BTC, ETH, GBP, USDC},
+    Money,
+};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
@@ -31,6 +34,34 @@ pub struct Price<'a> {
     pub pair: CurrencyPair<'a>,
     pub date_time: NaiveDateTime,
     pub rate: Decimal,
+}
+
+impl<'a> Price<'a> {
+    pub fn convert_to_gbp(&self, money: Money<'a>, rate: Decimal) -> color_eyre::Result<Money<'a>> {
+        if money.currency() == GBP {
+            return Ok(money);
+        }
+        if money.currency() == self.pair.base {
+            let quote_rate = rusty_money::ExchangeRate::new(money.currency(), GBP, self.rate)
+                .expect(&format!(
+                    "Creating quote rate exchange pair from {} price",
+                    self.pair
+                ));
+            let gbp = quote_rate.convert(money)?;
+            Ok(gbp)
+        } else {
+            let base_rate =
+                rusty_money::ExchangeRate::new(money.currency(), self.pair.base, rate).expect(
+                    &format!("Creating base rate exchange pair from {} price", self.pair),
+                );
+            let gbp_rate = rusty_money::ExchangeRate::new(self.pair.base, GBP, self.rate).expect(
+                &format!("Creating quote rate exchange pair from {} price", self.pair),
+            );
+            let base = base_rate.convert(money)?;
+            let gbp = gbp_rate.convert(base)?;
+            Ok(gbp)
+        }
+    }
 }
 
 #[derive(Default)]
