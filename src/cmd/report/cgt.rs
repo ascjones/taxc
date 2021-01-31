@@ -155,12 +155,12 @@ where
     display_amount(money).serialize(serializer)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 pub enum MatchType {
-    None,
     SameDay,
     BedAndBreakfast(NaiveDate),
     Section104Pool,
+    None,
 }
 
 #[derive(Clone)]
@@ -245,7 +245,7 @@ impl<'a> Disposals<'a> {
         Self { disposals: BTreeMap::new() }
     }
 
-    fn add(&mut self, trade: &Trade<'a>, price: &Price<'a>, quantity: Money<'a>, cost: Money<'a>, match_type: MatchType) -> color_eyre::Result<()> {
+    fn add(&mut self, trade: &Trade<'a>, date: NaiveDate, price: &Price<'a>, quantity: Money<'a>, cost: Money<'a>, match_type: MatchType) -> color_eyre::Result<()> {
         if quantity.is_zero() {
             log::debug!(
                 "Attempting to add a disposal with 0 quantity for trade on {:?}, igmoring",
@@ -279,7 +279,7 @@ impl<'a> Disposals<'a> {
                 disposal.proceeds += proceeds.clone();
             })
             .or_insert(Disposal {
-                date: trade.date_time.date(),
+                date,
                 quantity: quantity.clone(),
                 cost,
                 fees,
@@ -297,7 +297,9 @@ impl<'a> Disposals<'a> {
     }
 
     fn into_vec(&self) -> Vec<Disposal<'a>> {
-        self.disposals.values().cloned().collect()
+        let mut result = self.disposals.values().cloned().collect::<Vec<_>>();
+        result.sort_by_key(|d| (d.date, d.match_type));
+        result
     }
 }
 
@@ -386,7 +388,7 @@ pub fn calculate<'a>(
                         buy_price.convert_to_gbp(matched_disposed.clone(), future_buy.rate)?;
                     let match_type = MatchType::BedAndBreakfast(future_buy.date_time.date()); // todo: make SameDay if same day acq
 
-                    disposals.add(future_buy, &price, matched_disposed, costs, match_type)?;
+                    disposals.add(future_buy, trade.date_time.date(), &price, matched_disposed, costs, match_type)?;
                 }
             }
 
@@ -396,7 +398,7 @@ pub fn calculate<'a>(
             let main_pool_costs = pool.sell(unmatched_disposed.clone());
             let match_type = MatchType::Section104Pool; // todo: split if part or all of costs not in pool
 
-            disposals.add(trade, &price, unmatched_disposed, main_pool_costs, match_type)?;
+            disposals.add(trade, trade.date_time.date(), &price, unmatched_disposed, main_pool_costs, match_type)?;
         }
     }
     let report = TaxReport::new(trades, disposals.into_vec(), pools);
@@ -542,23 +544,18 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        let pooled_gain = gains_2019.gains.get(0).unwrap();
-        let bandb_gain = gains_2019.gains.get(1).unwrap();
+        let bandb_gain = gains_2019.gains.get(0).unwrap();
+        let pooled_gain = gains_2019.gains.get(1).unwrap();
 
-        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
-        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
-        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
-
-        println!(
-            "bandb_gain: {}, cost: {}, fees: {}, proceeds: {}",
-            display_amount(&bandb_gain.quantity),
-            display_amount(&bandb_gain.cost),
-            display_amount(&bandb_gain.fees),
-            display_amount(&bandb_gain.proceeds),
-        );
+        assert_eq!(bandb_gain.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
         assert_money_eq!(bandb_gain.proceeds(), gbp!(20_000), "Consideration");
         assert_money_eq!(bandb_gain.cost, gbp!(17_500), "Allowable costs");
         assert_money_eq!(bandb_gain.gain(), gbp!(2_500), "Gain B&B");
+
+        assert_eq!(pooled_gain.match_type, MatchType::Section104Pool);
+        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
+        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
+        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
@@ -588,35 +585,24 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        println!(
-            "GAINS {}",
-            gains_2019
-                .gains
-                .iter()
-                .map(|g| format!(
-                    "proceeds: {}, cost: {}, gain {}\n",
-                    display_amount(&g.proceeds()),
-                    display_amount(&g.cost),
-                    display_amount(&g.gain()),
-                ))
-                // .map(|g| g.gain().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        let pooled_gain = gains_2019.gains.get(0).unwrap();
-        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
-        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
-        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
 
-        let bandb_gain1 = gains_2019.gains.get(1).unwrap();
+        let bandb_gain1 = gains_2019.gains.get(0).unwrap();
+        assert_eq!(bandb_gain1.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
         assert_money_eq!(bandb_gain1.proceeds(), gbp!(10_000), "Consideration");
         assert_money_eq!(bandb_gain1.cost, gbp!(8_750), "Allowable costs");
         assert_money_eq!(bandb_gain1.gain(), gbp!(1_250), "Gain B&B");
 
-        let bandb_gain2 = gains_2019.gains.get(2).unwrap();
+        let bandb_gain2 = gains_2019.gains.get(1).unwrap();
+        assert_eq!(bandb_gain2.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 12)));
         assert_money_eq!(bandb_gain2.proceeds(), gbp!(10_000), "Consideration");
         assert_money_eq!(bandb_gain2.cost, gbp!(8_750), "Allowable costs");
         assert_money_eq!(bandb_gain2.gain(), gbp!(1_250), "Gain B&B");
+
+        let pooled_gain = gains_2019.gains.get(2).unwrap();
+        assert_eq!(pooled_gain.match_type, MatchType::Section104Pool);
+        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
+        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
+        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
@@ -640,11 +626,40 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        let gain1 = gains_2019.gains.get(0).unwrap();
+        println!(
+            "GAINS {}",
+            gains_2019
+                .gains
+                .iter()
+                .map(|g| format!(
+                    "\nmatch: {:?}, proceeds: {}, cost: {}, gain {}",
+                    g.match_type,
+                    display_amount(&g.proceeds()),
+                    display_amount(&g.cost),
+                    display_amount(&g.gain()),
+                ))
+                // .map(|g| g.gain().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
-        assert_money_eq!(gain1.proceeds(), gbp!(40_000), "Consideration");
-        assert_money_eq!(gain1.cost, gbp!(25_000.00), "Allowable costs");
-        assert_money_eq!(gain1.gain(), gbp!(15_000.00), "Gain 30 days");
+        let gain1 = gains_2019.gains.get(0).unwrap();
+        assert_eq!(gain1.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
+        assert_money_eq!(gain1.proceeds(), gbp!(20_000), "Consideration");
+        assert_money_eq!(gain1.cost, gbp!(15_000), "Allowable costs");
+        assert_money_eq!(gain1.gain(), gbp!(5_000), "Gain 30 days");
+
+        let gain2 = gains_2019.gains.get(1).unwrap();
+        assert_eq!(gain2.match_type, MatchType::Section104Pool);
+        assert_money_eq!(gain2.proceeds(), gbp!(20_000), "Consideration");
+        assert_money_eq!(gain2.cost, gbp!(10_000.00), "Allowable costs");
+        assert_money_eq!(gain2.gain(), gbp!(10_000.00), "Gain 30 days");
+
+        let gain3 = gains_2019.gains.get(2).unwrap();
+        assert_eq!(gain3.match_type, MatchType::Section104Pool);
+        assert_money_eq!(gain3.proceeds(), gbp!(40_000), "Consideration");
+        assert_money_eq!(gain3.cost, gbp!(20_000.00), "Allowable costs");
+        assert_money_eq!(gain3.gain(), gbp!(20_000.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
