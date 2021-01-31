@@ -258,21 +258,33 @@ impl<'a> Disposals<'a> {
             price.convert_to_gbp(trade.fee.clone(), trade.rate)?
         };
 
-        self.disposals
-            .entry((trade.date_time.date(), trade.sell.currency().code.to_string(), match_type.clone()))
+        let key = (trade.date_time.date(), trade.sell.currency().code.to_string(), match_type.clone());
+        println!("Disposal key {:?}", key);
+
+        let updated = self.disposals
+            .entry(key)
             .and_modify(|disposal| {
+                println!("Updating existing disposal");
                 disposal.quantity += quantity.clone();
                 disposal.cost += cost.clone();
                 disposal.fees += fees.clone();
+                disposal.proceeds += proceeds.clone();
             })
             .or_insert(Disposal {
                 date: trade.date_time.date(),
                 quantity: quantity.clone(),
-                proceeds,
-                fees,
                 cost,
+                fees,
+                proceeds,
                 match_type
             });
+        println!(
+            "Updated Disposal quantity: {}, cost: {}, fees: {}, proceeds: {}",
+            display_amount(&updated.quantity),
+            display_amount(&updated.cost),
+            display_amount(&updated.fees),
+            display_amount(&updated.proceeds),
+        );
         Ok(())
     }
 
@@ -304,13 +316,18 @@ pub fn calculate<'a>(
             // if this acquisition was already matched with a disposal, only pool the remainder
             let trade_date = trade.date_time.date();
             let key = (trade_date, trade.buy.currency().code.to_string());
-            let buy_amount = if let Some(bandb_disposal) = bandb_matched_acqs.get(&key) {
+            println!("A: acquisition key: {:?}", key);
+            let buy_amount = if let Some(bandb_remaining) = bandb_matched_acqs.get(&key) {
                 // this acquisition was already partly accounted for by an earlier disposal less
                 // than 30 days ago
-                saturating_sub(&trade.buy, &bandb_disposal)
+                println!("C: bandb_disposal: {:?}", display_amount(bandb_remaining));
+                // saturating_sub(&trade.buy, &bandb_disposal)
+                bandb_remaining.clone()
             } else {
+                println!("D: trade.buy: {:?}", display_amount(&trade.buy));
                 trade.buy.clone()
             };
+            println!("B: buy amount: {:?}", display_amount(&buy_amount));
             let costs = price.convert_to_gbp(buy_amount.clone(), trade.rate)?;
             let pool = pools
                 .entry(trade.buy.currency().code.to_string())
@@ -332,27 +349,35 @@ pub fn calculate<'a>(
                 .collect::<Vec<_>>();
 
             let mut unmatched_disposed = trade.sell.clone();
+            println!("1: unmatched_disposed {}", display_amount(&unmatched_disposed));
 
             for future_buy in &special_rules_buy {
+                let future_buy_key = (future_buy.date_time.date(), future_buy.buy.currency().code.to_string());
+                println!("1.1 future_buy_key {:?}", future_buy_key);
                 let remaining_buy_amount = bandb_matched_acqs
-                    .entry((future_buy.date_time.date(), future_buy.buy.currency().code.to_string()))
+                    .entry(future_buy_key)
                     .or_insert(future_buy.buy.clone());
+                println!("2: remaining_buy_amount {}", display_amount(remaining_buy_amount));
 
                 if *remaining_buy_amount > zero(remaining_buy_amount.currency()) {
                     let matched_disposed = std::cmp::min(unmatched_disposed.clone(), remaining_buy_amount.clone());
+                    println!("3: matched_disposed {}", display_amount(&matched_disposed));
                     unmatched_disposed = saturating_sub(&unmatched_disposed, remaining_buy_amount);
+                    println!("4: unmatched_disposed {}", display_amount(&unmatched_disposed));
 
                     *remaining_buy_amount = saturating_sub(remaining_buy_amount, &unmatched_disposed);
+                    println!("5: remaining_buy_amount {}", display_amount(&remaining_buy_amount));
 
                     let buy_price = get_price(&future_buy, &prices).ok_or(eyre::eyre!(
                         "Failed to find price for B&B trade {}",
                         future_buy.date_time
                     ))?;
+                    println!("6: buy_price {}", buy_price.rate);
                     let costs =
                         buy_price.convert_to_gbp(matched_disposed.clone(), future_buy.rate)?;
                     let match_type = MatchType::BedAndBreakfast(future_buy.date_time.date()); // todo: make SameDay if same day acq
 
-                    disposals.add(future_buy, &buy_price, matched_disposed, costs, match_type)?;
+                    disposals.add(future_buy, &price, matched_disposed, costs, match_type)?;
                 }
             }
 
@@ -508,11 +533,23 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        let gain = gains_2019.gains.get(0).unwrap();
+        let pooled_gain = gains_2019.gains.get(0).unwrap();
+        let bandb_gain = gains_2019.gains.get(1).unwrap();
 
-        assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.cost, gbp!(67_500.00), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
+        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
+        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
+        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
+
+        println!(
+            "bandb_gain: {}, cost: {}, fees: {}, proceeds: {}",
+            display_amount(&bandb_gain.quantity),
+            display_amount(&bandb_gain.cost),
+            display_amount(&bandb_gain.fees),
+            display_amount(&bandb_gain.proceeds),
+        );
+        assert_money_eq!(bandb_gain.proceeds(), gbp!(20_000), "Consideration");
+        assert_money_eq!(bandb_gain.cost, gbp!(17_500), "Allowable costs");
+        assert_money_eq!(bandb_gain.gain(), gbp!(2_500), "Gain B&B");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
