@@ -2,14 +2,20 @@ use super::Year;
 use crate::{
     cmd::prices::{CurrencyPair, Price, Prices},
     currencies::{Currency, GBP},
-    money::{display_amount, zero},
-    trades::{Trade, TradeKey, TradeKind},
+    money::{display_amount, saturating_sub, zero},
+    trades::{Trade, TradeKind},
     Money,
 };
 use chrono::{Datelike, Duration, NaiveDate};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{
+        BTreeMap,
+        HashMap,
+    },
+    fmt
+};
 use serde::Serialize;
 
 pub struct TaxYear<'a> {
@@ -110,7 +116,7 @@ impl<'a> Gains<'a> {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Disposal<'a> {
     pub(super) date: NaiveDate,
     #[serde(serialize_with = "serialize_amount")]
@@ -149,7 +155,7 @@ where
     display_amount(money).serialize(serializer)
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 pub enum MatchType {
     None,
     SameDay,
@@ -230,6 +236,51 @@ impl<'a> fmt::Debug for Pool<'a> {
     }
 }
 
+pub struct Disposals<'a> {
+    disposals: BTreeMap<(NaiveDate, String, MatchType), Disposal<'a>>
+}
+
+impl<'a> Disposals<'a> {
+    fn new() -> Self {
+        Self { disposals: BTreeMap::new() }
+    }
+
+    fn add(&mut self, trade: &Trade<'a>, price: &Price<'a>, quantity: Money<'a>, cost: Money<'a>, match_type: MatchType) -> color_eyre::Result<()> {
+        let proceeds = if quantity.currency() == GBP {
+            quantity.clone()
+        } else {
+            price.convert_to_gbp(quantity.clone(), trade.rate)?
+        };
+
+        let fees = if trade.fee.currency() == GBP {
+            trade.fee.clone()
+        } else {
+            price.convert_to_gbp(trade.fee.clone(), trade.rate)?
+        };
+
+        self.disposals
+            .entry((trade.date_time.date(), trade.sell.currency().code.to_string(), match_type.clone()))
+            .and_modify(|disposal| {
+                disposal.quantity += quantity.clone();
+                disposal.cost += cost.clone();
+                disposal.fees += fees.clone();
+            })
+            .or_insert(Disposal {
+                date: trade.date_time.date(),
+                quantity: quantity.clone(),
+                proceeds,
+                fees,
+                cost,
+                match_type
+            });
+        Ok(())
+    }
+
+    fn into_vec(&self) -> Vec<Disposal<'a>> {
+        self.disposals.values().cloned().collect()
+    }
+}
+
 pub fn calculate<'a>(
     mut trades: Vec<Trade<'a>>,
     prices: &'a Prices<'a>,
@@ -239,8 +290,8 @@ pub fn calculate<'a>(
     trades.sort_by_key(|trade| trade.date_time);
 
     // acquisitions already matched within 30 days of a disposal
-    let mut bandb_matched_acqs: HashMap<TradeKey, Money> = HashMap::new();
-    let mut disposals = Vec::new();
+    let mut bandb_matched_acqs: HashMap<(NaiveDate, String), Money> = HashMap::new();
+    let mut disposals = Disposals::new();
 
     for trade in &trades {
         let price = get_price(&trade, &prices).expect(&format!(
@@ -248,27 +299,23 @@ pub fn calculate<'a>(
             trade.buy, trade.sell, trade.date_time
         ));
 
-        let proceeds = if trade.sell.currency() == GBP {
-            trade.sell.clone()
-        } else {
-            price.convert_to_gbp(trade.sell.clone(), trade.rate)?
-        };
-
-        let fees = if trade.fee.currency() == GBP {
-            trade.fee.clone()
-        } else {
-            price.convert_to_gbp(trade.fee.clone(), trade.rate)?
-        };
-
         if trade.buy.currency() != GBP {
             // this trade is an acquisition
             // if this acquisition was already matched with a disposal, only pool the remainder
-            let buy_amount = bandb_matched_acqs.get(&trade.key()).unwrap_or(&trade.buy);
+            let trade_date = trade.date_time.date();
+            let key = (trade_date, trade.buy.currency().code.to_string());
+            let buy_amount = if let Some(bandb_disposal) = bandb_matched_acqs.get(&key) {
+                // this acquisition was already partly accounted for by an earlier disposal less
+                // than 30 days ago
+                saturating_sub(&trade.buy, &bandb_disposal)
+            } else {
+                trade.buy.clone()
+            };
             let costs = price.convert_to_gbp(buy_amount.clone(), trade.rate)?;
             let pool = pools
                 .entry(trade.buy.currency().code.to_string())
                 .or_insert(Pool::new(trade.buy.currency()));
-            pool.buy(buy_amount, &costs);
+            pool.buy(&buy_amount, &costs);
         }
 
         if trade.sell.currency() != GBP {
@@ -284,52 +331,41 @@ pub fn calculate<'a>(
                 .cloned()
                 .collect::<Vec<_>>();
 
-            let mut main_pool_sell = trade.sell.clone();
-            let mut special_allowable_costs = zero(GBP);
+            let mut unmatched_disposed = trade.sell.clone();
 
             for future_buy in &special_rules_buy {
                 let remaining_buy_amount = bandb_matched_acqs
-                    .entry(future_buy.key())
+                    .entry((future_buy.date_time.date(), future_buy.buy.currency().code.to_string()))
                     .or_insert(future_buy.buy.clone());
 
                 if *remaining_buy_amount > zero(remaining_buy_amount.currency()) {
-                    let (sell, special_buy_amt) = if *remaining_buy_amount <= main_pool_sell {
-                        (
-                            main_pool_sell - remaining_buy_amount.clone(),
-                            remaining_buy_amount.clone(),
-                        )
-                    } else {
-                        (zero(trade.sell.currency()), main_pool_sell)
-                    };
-                    *remaining_buy_amount = remaining_buy_amount.clone() - special_buy_amt.clone();
+                    let matched_disposed = std::cmp::min(unmatched_disposed.clone(), remaining_buy_amount.clone());
+                    unmatched_disposed = saturating_sub(&unmatched_disposed, remaining_buy_amount);
+
+                    *remaining_buy_amount = saturating_sub(remaining_buy_amount, &unmatched_disposed);
+
                     let buy_price = get_price(&future_buy, &prices).ok_or(eyre::eyre!(
                         "Failed to find price for B&B trade {}",
                         future_buy.date_time
                     ))?;
                     let costs =
-                        buy_price.convert_to_gbp(special_buy_amt.clone(), future_buy.rate)?;
-                    main_pool_sell = sell;
-                    special_allowable_costs = special_allowable_costs + costs;
+                        buy_price.convert_to_gbp(matched_disposed.clone(), future_buy.rate)?;
+                    let match_type = MatchType::BedAndBreakfast(future_buy.date_time.date()); // todo: make SameDay if same day acq
+
+                    disposals.add(future_buy, &buy_price, matched_disposed, costs, match_type)?;
                 }
             }
 
             let pool = pools
                 .entry(trade.sell.currency().code.to_string())
                 .or_insert(Pool::new(trade.sell.currency()));
-            let main_pool_costs = pool.sell(main_pool_sell);
-            let allowable_costs = main_pool_costs + special_allowable_costs;
+            let main_pool_costs = pool.sell(unmatched_disposed.clone());
+            let match_type = MatchType::Section104Pool; // todo: split if part or all of costs not in pool
 
-            disposals.push(Disposal {
-                date: trade.date_time.date(),
-                quantity: trade.sell.clone(),
-                proceeds,
-                fees,
-                cost: allowable_costs,
-                match_type: MatchType::None
-            })
+            disposals.add(trade, &price, unmatched_disposed, main_pool_costs, match_type)?;
         }
     }
-    let report = TaxReport::new(trades, disposals, pools);
+    let report = TaxReport::new(trades, disposals.into_vec(), pools);
     Ok(report)
 }
 

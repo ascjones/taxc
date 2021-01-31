@@ -146,6 +146,14 @@ pub fn zero(currency: &currencies::Currency) -> rusty_money::Money<currencies::C
     rusty_money::Money::from_decimal(dec!(0), currency)
 }
 
+pub fn saturating_sub<'a>(m1: &Money<'a>, m2: &Money<'a>) -> Money<'a> {
+    if m2 >= m1 {
+        zero(m1.currency())
+    } else {
+        m1.clone() - m2.clone()
+    }
+}
+
 pub fn parse_money_parts<'a>(
     currency: &str,
     amount: &str,

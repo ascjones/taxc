@@ -35,17 +35,6 @@ pub struct Trade<'a> {
     pub exchange: Option<String>,
 }
 
-impl<'a> Trade<'a> {
-    /// Unique key for Trade
-    pub fn key(&self) -> TradeKey {
-        TradeKey {
-            date_time: self.date_time,
-            buy: self.buy.to_string(),
-            sell: self.sell.to_string(),
-        }
-    }
-}
-
 impl<'a> From<TradeRecord> for Trade<'a> {
     fn from(tr: TradeRecord) -> Self {
         let date_time = DateTime::parse_from_rfc3339(tr.date_time.as_ref())
@@ -83,13 +72,6 @@ impl<'a> From<TradeRecord> for Trade<'a> {
 pub enum TradeKind {
     Buy,
     Sell,
-}
-
-#[derive(Eq, PartialEq, Hash)]
-pub struct TradeKey {
-    date_time: NaiveDateTime,
-    buy: String,
-    sell: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
