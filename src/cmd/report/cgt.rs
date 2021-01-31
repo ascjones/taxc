@@ -267,12 +267,9 @@ impl<'a> Disposals<'a> {
         };
 
         let key = (trade.date_time.date(), trade.sell.currency().code.to_string(), match_type.clone());
-        println!("Disposal key {:?}", key);
-
         let updated = self.disposals
             .entry(key)
             .and_modify(|disposal| {
-                println!("Updating existing disposal");
                 disposal.quantity += quantity.clone();
                 disposal.cost += cost.clone();
                 disposal.fees += fees.clone();
@@ -286,13 +283,6 @@ impl<'a> Disposals<'a> {
                 proceeds,
                 match_type
             });
-        println!(
-            "Updated Disposal quantity: {}, cost: {}, fees: {}, proceeds: {}",
-            display_amount(&updated.quantity),
-            display_amount(&updated.cost),
-            display_amount(&updated.fees),
-            display_amount(&updated.proceeds),
-        );
         Ok(())
     }
 
@@ -326,18 +316,13 @@ pub fn calculate<'a>(
             // if this acquisition was already matched with a disposal, only pool the remainder
             let trade_date = trade.date_time.date();
             let key = (trade_date, trade.buy.currency().code.to_string());
-            println!("A: acquisition key: {:?}", key);
             let buy_amount = if let Some(bandb_remaining) = bandb_matched_acqs.get(&key) {
                 // this acquisition was already partly accounted for by an earlier disposal less
                 // than 30 days ago
-                println!("C: bandb_disposal: {:?}", display_amount(bandb_remaining));
-                // saturating_sub(&trade.buy, &bandb_disposal)
                 bandb_remaining.clone()
             } else {
-                println!("D: trade.buy: {:?}", display_amount(&trade.buy));
                 trade.buy.clone()
             };
-            println!("B: buy amount: {:?}", display_amount(&buy_amount));
             let costs = price.convert_to_gbp(buy_amount.clone(), trade.rate)?;
             let pool = pools
                 .entry(trade.buy.currency().code.to_string())
@@ -359,31 +344,24 @@ pub fn calculate<'a>(
                 .collect::<Vec<_>>();
 
             let mut unmatched_disposed = trade.sell.clone();
-            println!("1: unmatched_disposed {}", display_amount(&unmatched_disposed));
 
             for future_buy in &special_rules_buy {
                 let future_buy_key = (future_buy.date_time.date(), future_buy.buy.currency().code.to_string());
-                println!("1.1 future_buy_key {:?}", future_buy_key);
                 let remaining_buy_amount = bandb_matched_acqs
                     // todo: update if multiple trades same day
                     .entry(future_buy_key)
                     .or_insert(future_buy.buy.clone());
-                println!("2: remaining_buy_amount {}", display_amount(remaining_buy_amount));
 
                 if *remaining_buy_amount > zero(remaining_buy_amount.currency()) {
                     let matched_disposed = std::cmp::min(unmatched_disposed.clone(), remaining_buy_amount.clone());
-                    println!("3: matched_disposed {}", display_amount(&matched_disposed));
                     unmatched_disposed = saturating_sub(&unmatched_disposed, remaining_buy_amount);
-                    println!("4: unmatched_disposed {}", display_amount(&unmatched_disposed));
 
                     *remaining_buy_amount = saturating_sub(remaining_buy_amount, &matched_disposed);
-                    println!("5: remaining_buy_amount {}", display_amount(&remaining_buy_amount));
 
                     let buy_price = get_price(&future_buy, &prices).ok_or(eyre::eyre!(
                         "Failed to find price for B&B trade {}",
                         future_buy.date_time
                     ))?;
-                    println!("6: buy_price {}", buy_price.rate);
                     let costs =
                         buy_price.convert_to_gbp(matched_disposed.clone(), future_buy.rate)?;
                     let match_type = MatchType::BedAndBreakfast(future_buy.date_time.date()); // todo: make SameDay if same day acq
