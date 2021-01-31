@@ -246,6 +246,14 @@ impl<'a> Disposals<'a> {
     }
 
     fn add(&mut self, trade: &Trade<'a>, price: &Price<'a>, quantity: Money<'a>, cost: Money<'a>, match_type: MatchType) -> color_eyre::Result<()> {
+        if quantity.is_zero() {
+            log::debug!(
+                "Attempting to add a disposal with 0 quantity for trade on {:?}, igmoring",
+                trade.date_time
+            );
+            return Ok(())
+        }
+
         let proceeds = if quantity.currency() == GBP {
             quantity.clone()
         } else {
@@ -355,6 +363,7 @@ pub fn calculate<'a>(
                 let future_buy_key = (future_buy.date_time.date(), future_buy.buy.currency().code.to_string());
                 println!("1.1 future_buy_key {:?}", future_buy_key);
                 let remaining_buy_amount = bandb_matched_acqs
+                    // todo: update if multiple trades same day
                     .entry(future_buy_key)
                     .or_insert(future_buy.buy.clone());
                 println!("2: remaining_buy_amount {}", display_amount(remaining_buy_amount));
@@ -365,7 +374,7 @@ pub fn calculate<'a>(
                     unmatched_disposed = saturating_sub(&unmatched_disposed, remaining_buy_amount);
                     println!("4: unmatched_disposed {}", display_amount(&unmatched_disposed));
 
-                    *remaining_buy_amount = saturating_sub(remaining_buy_amount, &unmatched_disposed);
+                    *remaining_buy_amount = saturating_sub(remaining_buy_amount, &matched_disposed);
                     println!("5: remaining_buy_amount {}", display_amount(&remaining_buy_amount));
 
                     let buy_price = get_price(&future_buy, &prices).ok_or(eyre::eyre!(
@@ -641,7 +650,13 @@ mod tests {
             gains_2019
                 .gains
                 .iter()
-                .map(|g| g.gain().to_string())
+                .map(|g| format!(
+                    "proceeds: {}, cost: {}, gain {}",
+                    display_amount(&g.proceeds()),
+                    display_amount(&g.cost),
+                    display_amount(&g.gain()),
+                ))
+                // .map(|g| g.gain().to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         );
