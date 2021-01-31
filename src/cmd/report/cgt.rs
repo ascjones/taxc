@@ -14,7 +14,7 @@ pub type Year = i32;
 
 pub struct TaxYear<'a> {
     pub year: Year,
-    pub events: Vec<TaxEvent<'a>>,
+    pub events: Vec<Disposal<'a>>,
 }
 impl<'a> TaxYear<'a> {
     fn new(year: Year) -> Self {
@@ -34,7 +34,7 @@ pub struct TaxReport<'a> {
 impl<'a> TaxReport<'a> {
     fn new(
         trades: Vec<Trade<'a>>,
-        gains: Vec<TaxEvent<'a>>,
+        gains: Vec<Disposal<'a>>,
         pools: HashMap<String, Pool<'a>>,
     ) -> Self {
         let mut tax_years = HashMap::new();
@@ -66,12 +66,12 @@ impl<'a> TaxReport<'a> {
 
 pub struct Gains<'a> {
     pub year: Option<Year>,
-    pub gains: Vec<TaxEvent<'a>>,
+    pub gains: Vec<Disposal<'a>>,
 }
 
 impl<'a> IntoIterator for Gains<'a> {
-    type Item = TaxEvent<'a>;
-    type IntoIter = std::vec::IntoIter<TaxEvent<'a>>;
+    type Item = Disposal<'a>;
+    type IntoIter = std::vec::IntoIter<Disposal<'a>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.gains.into_iter()
@@ -103,7 +103,7 @@ impl<'a> Gains<'a> {
 }
 
 #[derive(Clone)]
-pub struct TaxEvent<'a> {
+pub struct Disposal<'a> {
     trade: Trade<'a>,
     tax_year: Year,
     buy_value: Money<'a>,
@@ -114,7 +114,7 @@ pub struct TaxEvent<'a> {
     buy_pool: Option<Pool<'a>>,
     sell_pool: Option<Pool<'a>>,
 }
-impl<'a> TaxEvent<'a> {
+impl<'a> Disposal<'a> {
     pub fn proceeds(&self) -> &Money<'a> {
         &self.sell_value // todo: fees
     }
@@ -133,12 +133,12 @@ impl<'a> TaxEvent<'a> {
 
     pub fn write_csv<E, W>(tax_events: E, writer: W) -> color_eyre::Result<()>
     where
-        E: IntoIterator<Item = TaxEvent<'a>>,
+        E: IntoIterator<Item = Disposal<'a>>,
         W: Write,
     {
         let mut wtr = csv::Writer::from_writer(writer);
         for tax_event in tax_events.into_iter() {
-            let record: TaxEventRecord = tax_event.into();
+            let record: DisposalRecord = tax_event.into();
             wtr.serialize(record)?;
         }
         wtr.flush()?;
@@ -147,7 +147,7 @@ impl<'a> TaxEvent<'a> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct TaxEventRecord {
+struct DisposalRecord {
     date_time: String,
     tax_year: Year,
     exchange: String,
@@ -167,9 +167,9 @@ struct TaxEventRecord {
     sell_pool_total: String,
     sell_pool_cost: String,
 }
-impl<'a> From<TaxEvent<'a>> for TaxEventRecord {
-    fn from(tax_event: TaxEvent) -> Self {
-        TaxEventRecord {
+impl<'a> From<Disposal<'a>> for DisposalRecord {
+    fn from(tax_event: Disposal) -> Self {
+        DisposalRecord {
             date_time: tax_event.trade.date_time.date().to_string(),
             tax_year: tax_event.tax_year,
             exchange: tax_event.trade.exchange.clone().unwrap_or(String::new()),
@@ -308,7 +308,7 @@ pub fn calculate<'a>(
             let mut allowable_costs = zero(GBP);
 
             if trade.buy.currency() != GBP {
-                let _zero = zero(trade.buy.currency());
+                // this trade is an acquisition
                 let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
                 let costs = convert_to_gbp(buy_amount.clone(), &price, trade.rate)?;
                 let pool = pools
@@ -319,6 +319,7 @@ pub fn calculate<'a>(
             }
 
             if trade.sell.currency() != GBP {
+                // this trade is a disposal
                 // find any buys of this asset within the next 30 days
                 let special_rules_buy = trades_with_prices
                     .iter()
@@ -391,7 +392,7 @@ pub fn calculate<'a>(
 
             let tax_year = uk_tax_year(trade.date_time);
 
-            Ok(TaxEvent {
+            Ok(Disposal {
                 trade: trade.clone(),
                 buy_value,
                 sell_value,

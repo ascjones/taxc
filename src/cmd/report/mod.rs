@@ -42,6 +42,6 @@ impl ReportCommand {
         log::info!("Gains {}", gains.total_gain());
         log::info!("Estimated Liability {}", estimated_liability);
 
-        cgt::TaxEvent::write_csv(gains, io::stdout())
+        cgt::Disposal::write_csv(gains, io::stdout())
     }
 }
