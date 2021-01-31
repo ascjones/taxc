@@ -117,7 +117,7 @@ impl ImportExchangeCsvCommand {
             trades
         };
 
-        let trade_records = trades.iter().map(|t| TradeRecord::from(t)).collect();
+        let trade_records = trades.iter().map(|t| TradeRecord::from(t));
         crate::utils::write_csv(trade_records, io::stdout())
     }
 }

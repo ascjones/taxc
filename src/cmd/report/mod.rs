@@ -4,7 +4,6 @@ use rust_decimal::Decimal;
 use std::{fs::File, io, path::PathBuf};
 
 mod cgt;
-mod display;
 
 pub use cgt::Disposal;
 
@@ -47,6 +46,6 @@ impl ReportCommand {
         log::info!("Gains {}", gains.total_gain());
         log::info!("Estimated Liability {}", estimated_liability);
 
-        display::write_csv(gains, io::stdout())
+        crate::utils::write_csv(gains, io::stdout())
     }
 }

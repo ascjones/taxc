@@ -6,10 +6,11 @@ use crate::{
     trades::{Trade, TradeKey, TradeKind},
     Money,
 };
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
+use chrono::{Datelike, Duration, NaiveDate};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
 use std::{collections::HashMap, fmt};
+use serde::Serialize;
 
 pub struct TaxYear<'a> {
     pub year: Year,
@@ -37,10 +38,10 @@ impl<'a> TaxReport<'a> {
         pools: HashMap<String, Pool<'a>>,
     ) -> Self {
         let mut tax_years = HashMap::new();
-        for gain in gains.iter() {
-            let year = gain.tax_year;
+        for disposal in gains.iter() {
+            let year = Self::uk_tax_year(disposal.date);
             let ty = tax_years.entry(year).or_insert(TaxYear::new(year));
-            ty.disposals.push(gain.clone())
+            ty.disposals.push(disposal.clone())
         }
         Self {
             trades: trades.to_vec(),
@@ -49,8 +50,18 @@ impl<'a> TaxReport<'a> {
         }
     }
 
+    fn uk_tax_year(date: NaiveDate) -> Year {
+        // todo check tax year length 6th Apr -> 5th Apr
+        let year = date.year();
+        if date > NaiveDate::from_ymd(year, 4, 5) && date <= NaiveDate::from_ymd(year, 12, 31) {
+            year + 1
+        } else {
+            year
+        }
+    }
+
     pub(crate) fn gains(&self, year: Option<Year>) -> Gains {
-        let mut gains = year
+        let mut disposals = year
             .and_then(|y| self.years.get(&y).map(|ty| ty.disposals.clone()))
             .unwrap_or(
                 self.years
@@ -58,8 +69,8 @@ impl<'a> TaxReport<'a> {
                     .flat_map(|(_, y)| y.disposals.clone())
                     .collect::<Vec<_>>(),
             );
-        gains.sort_by(|g1, g2| g1.trade.date_time.cmp(&g2.trade.date_time));
-        Gains { year, gains }
+        disposals.sort_by_key(|d| d.date);
+        Gains { year, gains: disposals }
     }
 }
 
@@ -99,34 +110,51 @@ impl<'a> Gains<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Disposal<'a> {
-    pub(super) trade: Trade<'a>,
-    pub(super) tax_year: Year,
-    pub(super) buy_value: Money<'a>,
-    pub(super) sell_value: Money<'a>,
-    pub(super) fee_value: Money<'a>,
-    pub(super) price: Price<'a>,
-    pub(super) allowable_costs: Money<'a>,
-    pub(super) buy_pool: Option<Pool<'a>>,
-    pub(super) sell_pool: Option<Pool<'a>>,
+    pub(super) date: NaiveDate,
+    #[serde(serialize_with = "serialize_amount")]
+    pub(super) quantity: Money<'a>,
+    pub(super) match_type: MatchType,
+    #[serde(serialize_with = "serialize_amount")]
+    pub(super) cost: Money<'a>,
+    #[serde(serialize_with = "serialize_amount")]
+    pub(super) fees: Money<'a>,
+    #[serde(serialize_with = "serialize_amount")]
+    pub(super) proceeds: Money<'a>,
 }
+
 impl<'a> Disposal<'a> {
     pub fn proceeds(&self) -> &Money<'a> {
-        &self.sell_value // todo: fees
+        &self.proceeds // todo: fees
     }
 
     pub fn allowable_costs(&self) -> &Money<'a> {
-        &self.allowable_costs
+        &self.cost
     }
 
     pub fn fee(&self) -> &Money<'a> {
-        &self.fee_value
+        &self.fees
     }
 
     pub fn gain(&self) -> Money<'a> {
-        self.sell_value.clone() - self.allowable_costs.clone() - self.fee().clone()
+        self.proceeds.clone() - self.cost.clone() - self.fee().clone()
     }
+}
+
+fn serialize_amount<S>(money: &Money, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer
+{
+    display_amount(money).serialize(serializer)
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum MatchType {
+    None,
+    SameDay,
+    BedAndBreakfast(NaiveDate),
+    Section104Pool,
 }
 
 #[derive(Clone)]
@@ -210,7 +238,8 @@ pub fn calculate<'a>(
 
     trades.sort_by_key(|trade| trade.date_time);
 
-    let mut special_buys: HashMap<TradeKey, Money> = HashMap::new();
+    // acquisitions already matched within 30 days of a disposal
+    let mut bandb_matched_acqs: HashMap<TradeKey, Money> = HashMap::new();
     let mut disposals = Vec::new();
 
     for trade in &trades {
@@ -219,19 +248,27 @@ pub fn calculate<'a>(
             trade.buy, trade.sell, trade.date_time
         ));
 
-        let mut buy_pool: Option<Pool> = None;
-        let mut sell_pool: Option<Pool> = None;
-        let mut allowable_costs = zero(GBP);
+        let proceeds = if trade.sell.currency() == GBP {
+            trade.sell.clone()
+        } else {
+            price.convert_to_gbp(trade.sell.clone(), trade.rate)?
+        };
+
+        let fees = if trade.fee.currency() == GBP {
+            trade.fee.clone()
+        } else {
+            price.convert_to_gbp(trade.fee.clone(), trade.rate)?
+        };
 
         if trade.buy.currency() != GBP {
             // this trade is an acquisition
-            let buy_amount = special_buys.get(&trade.key()).unwrap_or(&trade.buy);
+            // if this acquisition was already matched with a disposal, only pool the remainder
+            let buy_amount = bandb_matched_acqs.get(&trade.key()).unwrap_or(&trade.buy);
             let costs = price.convert_to_gbp(buy_amount.clone(), trade.rate)?;
             let pool = pools
                 .entry(trade.buy.currency().code.to_string())
                 .or_insert(Pool::new(trade.buy.currency()));
             pool.buy(buy_amount, &costs);
-            buy_pool = Some(pool.clone());
         }
 
         if trade.sell.currency() != GBP {
@@ -251,7 +288,7 @@ pub fn calculate<'a>(
             let mut special_allowable_costs = zero(GBP);
 
             for future_buy in &special_rules_buy {
-                let remaining_buy_amount = special_buys
+                let remaining_buy_amount = bandb_matched_acqs
                     .entry(future_buy.key())
                     .or_insert(future_buy.buy.clone());
 
@@ -271,12 +308,6 @@ pub fn calculate<'a>(
                     ))?;
                     let costs =
                         buy_price.convert_to_gbp(special_buy_amt.clone(), future_buy.rate)?;
-                    log::debug!(
-                        "Deducting SELL of {} from future BUY at {}, cost: {}",
-                        display_amount(&special_buy_amt),
-                        future_buy.date_time,
-                        display_amount(&costs)
-                    );
                     main_pool_sell = sell;
                     special_allowable_costs = special_allowable_costs + costs;
                 }
@@ -286,42 +317,17 @@ pub fn calculate<'a>(
                 .entry(trade.sell.currency().code.to_string())
                 .or_insert(Pool::new(trade.sell.currency()));
             let main_pool_costs = pool.sell(main_pool_sell);
-            allowable_costs = main_pool_costs + special_allowable_costs;
-            sell_pool = Some(pool.clone());
+            let allowable_costs = main_pool_costs + special_allowable_costs;
+
+            disposals.push(Disposal {
+                date: trade.date_time.date(),
+                quantity: trade.sell.clone(),
+                proceeds,
+                fees,
+                cost: allowable_costs,
+                match_type: MatchType::None
+            })
         }
-
-        let sell_value = if trade.sell.currency() == GBP {
-            trade.sell.clone()
-        } else {
-            price.convert_to_gbp(trade.sell.clone(), trade.rate)?
-        };
-
-        let buy_value = if trade.buy.currency() == GBP {
-            trade.buy.clone()
-        } else {
-            price.convert_to_gbp(trade.buy.clone(), trade.rate)?
-        };
-
-        let fee_value = if trade.fee.currency() == GBP {
-            trade.fee.clone()
-        } else {
-            price.convert_to_gbp(trade.fee.clone(), trade.rate)?
-        };
-
-        let tax_year = uk_tax_year(trade.date_time);
-
-        // todo: split
-        disposals.push(Disposal {
-            trade: trade.clone(),
-            buy_value,
-            sell_value,
-            fee_value,
-            price: price.clone(),
-            allowable_costs,
-            tax_year,
-            sell_pool,
-            buy_pool,
-        })
     }
     let report = TaxReport::new(trades, disposals, pools);
     Ok(report)
@@ -347,16 +353,6 @@ fn get_price<'a>(trade: &Trade<'a>, prices: &'a Prices<'a>) -> Option<Price<'a>>
         quote: GBP,
     };
     prices.get(pair, trade.date_time.date())
-}
-
-fn uk_tax_year(date_time: NaiveDateTime) -> Year {
-    let date = date_time.date();
-    let year = date.year();
-    if date > NaiveDate::from_ymd(year, 4, 5) && date <= NaiveDate::from_ymd(year, 12, 31) {
-        year + 1
-    } else {
-        year
-    }
 }
 
 #[cfg(test)]
@@ -479,7 +475,7 @@ mod tests {
         let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp!(67_500.00), "Allowable costs");
+        assert_money_eq!(gain.cost, gbp!(67_500.00), "Allowable costs");
         assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
@@ -513,7 +509,7 @@ mod tests {
         let gain = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.allowable_costs, gbp!(67_500.00), "Allowable costs");
+        assert_money_eq!(gain.cost, gbp!(67_500.00), "Allowable costs");
         assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
@@ -541,7 +537,7 @@ mod tests {
         let gain1 = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(gain1.proceeds(), gbp!(40_000), "Consideration");
-        assert_money_eq!(gain1.allowable_costs, gbp!(25_000.00), "Allowable costs");
+        assert_money_eq!(gain1.cost, gbp!(25_000.00), "Allowable costs");
         assert_money_eq!(gain1.gain(), gbp!(15_000.00), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
@@ -579,7 +575,7 @@ mod tests {
         let tax_event = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(tax_event.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(tax_event.allowable_costs, gbp!(140_000), "Allowable costs");
+        assert_money_eq!(tax_event.cost, gbp!(140_000), "Allowable costs");
         assert_money_eq!(tax_event.gain(), gbp!(20_000), "Gain 30 days");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
