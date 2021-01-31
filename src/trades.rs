@@ -1,11 +1,11 @@
 use crate::{
-    money::{currencies::Currency, display_amount, parse_money_parts, zero},
+    money::{display_amount, parse_money_parts},
     Money,
 };
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::Read, ops::Add};
+use std::{io::Read, ops::Add};
 
 #[derive(Clone)]
 pub struct TradeAmount<'a> {
@@ -42,18 +42,6 @@ impl<'a> Trade<'a> {
             date_time: self.date_time,
             buy: self.buy.to_string(),
             sell: self.sell.to_string(),
-        }
-    }
-
-    /// Use to group similar trades on the same day
-    pub fn key_by_day(&self) -> TradeByDayKey<'a> {
-        TradeByDayKey {
-            date: self.date_time.date(),
-            kind: self.kind.clone(),
-            exchange: self.exchange.clone(),
-            buy: self.buy.currency(),
-            sell: self.sell.currency(),
-            fee: self.fee.currency(),
         }
     }
 }
@@ -102,86 +90,6 @@ pub struct TradeKey {
     date_time: NaiveDateTime,
     buy: String,
     sell: String,
-}
-
-#[derive(Eq, PartialEq)]
-pub struct TradeByDayKey<'a> {
-    date: NaiveDate,
-    kind: TradeKind,
-    exchange: Option<String>,
-    buy: &'a Currency,
-    sell: &'a Currency,
-    fee: &'a Currency,
-}
-
-impl<'a> std::hash::Hash for TradeByDayKey<'a> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.date.hash(state);
-        self.kind.hash(state);
-        self.exchange.hash(state);
-        self.buy.code.hash(state);
-        self.sell.code.hash(state);
-        self.fee.code.hash(state);
-    }
-}
-
-/// groups trades that occur for a currency on the same day/account
-pub fn group_trades_by_day<'a>(trades: &'a [Trade<'a>]) -> Vec<Trade<'a>> {
-    let mut days = HashMap::new();
-    for trade in trades.iter() {
-        let day = days.entry(trade.key_by_day()).or_insert(Vec::new());
-        day.push(trade);
-    }
-    days.iter()
-        .map(|(key, day_trades)| {
-            let (total_buy, total_sell, total_fee) = day_trades.iter().fold(
-                (zero(&key.buy), zero(&key.sell), zero(&key.fee)),
-                |(buy, sell, fee), t| {
-                    (
-                        buy + t.buy.clone(),
-                        sell + t.sell.clone(),
-                        fee + t.fee.clone(),
-                    )
-                },
-            );
-
-            // todo: check if these are the correct way around
-            let (quote_curr, base_curr) = match key.kind {
-                TradeKind::Buy => (key.buy, key.sell),
-                TradeKind::Sell => (key.sell, key.buy),
-            };
-
-            let average_rate = {
-                let (count, total) = day_trades.iter().fold(
-                    (zero(quote_curr), zero(quote_curr)),
-                    |(count, total), trade| {
-                        let (base, _quote) = if trade.buy.currency() == base_curr {
-                            (trade.sell.clone(), trade.buy.clone())
-                        } else if trade.sell.currency() == base_curr {
-                            (trade.buy.clone(), trade.sell.clone())
-                        } else {
-                            panic!("Either buy or sell should be in quote currency")
-                        };
-                        (count + base.clone(), total + (base * trade.rate))
-                    },
-                );
-                total.amount() / count.amount()
-            };
-            let latest_trade = day_trades
-                .iter()
-                .max_by(|e1, e2| e1.date_time.cmp(&e2.date_time))
-                .expect(format!("Should have at least one event for {}", key.date).as_ref());
-            Trade {
-                date_time: latest_trade.date_time,
-                exchange: key.exchange.clone(),
-                buy: total_buy,
-                sell: total_sell,
-                fee: total_fee,
-                rate: average_rate,
-                kind: key.kind.clone(),
-            }
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

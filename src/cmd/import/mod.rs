@@ -78,9 +78,6 @@ pub struct ImportExchangeCsvCommand {
     /// the csv file containing trades to import
     #[argh(positional)]
     file: PathBuf,
-    /// combines trades on the same pair on the same day into a single trade
-    #[argh(switch, short = 'g')]
-    group_by_day: bool,
 }
 
 impl ImportExchangeCsvCommand {
@@ -110,12 +107,6 @@ impl ImportExchangeCsvCommand {
             .map(|record: CsvRecord| TryInto::try_into(record).map_err(Into::into))
             .collect::<color_eyre::Result<Vec<Trade>>>()?;
         trades.sort_by(|tx1, tx2| tx1.date_time.cmp(&tx2.date_time));
-
-        let trades = if self.group_by_day {
-            crate::trades::group_trades_by_day(&trades)
-        } else {
-            trades
-        };
 
         let trade_records = trades.iter().map(|t| TradeRecord::from(t));
         crate::utils::write_csv(trade_records, io::stdout())
