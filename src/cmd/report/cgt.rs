@@ -588,11 +588,35 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        let gain = gains_2019.gains.get(0).unwrap();
+        println!(
+            "GAINS {}",
+            gains_2019
+                .gains
+                .iter()
+                .map(|g| format!(
+                    "proceeds: {}, cost: {}, gain {}\n",
+                    display_amount(&g.proceeds()),
+                    display_amount(&g.cost),
+                    display_amount(&g.gain()),
+                ))
+                // .map(|g| g.gain().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let pooled_gain = gains_2019.gains.get(0).unwrap();
+        assert_money_eq!(pooled_gain.proceeds(), gbp!(140_000), "Consideration");
+        assert_money_eq!(pooled_gain.cost, gbp!(50_000.00), "Allowable costs");
+        assert_money_eq!(pooled_gain.gain(), gbp!(90_000.00), "Gain Pooled");
 
-        assert_money_eq!(gain.proceeds(), gbp!(160_000), "Consideration");
-        assert_money_eq!(gain.cost, gbp!(67_500.00), "Allowable costs");
-        assert_money_eq!(gain.gain(), gbp!(92_500.00), "Gain 30 days");
+        let bandb_gain1 = gains_2019.gains.get(1).unwrap();
+        assert_money_eq!(bandb_gain1.proceeds(), gbp!(10_000), "Consideration");
+        assert_money_eq!(bandb_gain1.cost, gbp!(8_750), "Allowable costs");
+        assert_money_eq!(bandb_gain1.gain(), gbp!(1_250), "Gain B&B");
+
+        let bandb_gain2 = gains_2019.gains.get(2).unwrap();
+        assert_money_eq!(bandb_gain2.proceeds(), gbp!(10_000), "Consideration");
+        assert_money_eq!(bandb_gain2.cost, gbp!(8_750), "Allowable costs");
+        assert_money_eq!(bandb_gain2.gain(), gbp!(1_250), "Gain B&B");
 
         let btc_pool = report.pools.get("BTC").expect("BTC should have a Pool");
 
@@ -645,21 +669,6 @@ mod tests {
         let report = calculate(trades, &prices).unwrap();
 
         let gains_2019 = report.gains(Some(2019));
-        println!(
-            "GAINS {}",
-            gains_2019
-                .gains
-                .iter()
-                .map(|g| format!(
-                    "proceeds: {}, cost: {}, gain {}",
-                    display_amount(&g.proceeds()),
-                    display_amount(&g.cost),
-                    display_amount(&g.gain()),
-                ))
-                // .map(|g| g.gain().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
         let tax_event = gains_2019.gains.get(0).unwrap();
 
         assert_money_eq!(tax_event.proceeds(), gbp!(160_000), "Consideration");
