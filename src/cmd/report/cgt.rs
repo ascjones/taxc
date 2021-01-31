@@ -9,14 +9,11 @@ use crate::{
 use chrono::{Datelike, Duration, NaiveDate};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
-use std::{
-    collections::{
-        BTreeMap,
-        HashMap,
-    },
-    fmt
-};
 use serde::Serialize;
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+};
 
 pub struct TaxYear<'a> {
     pub year: Year,
@@ -76,7 +73,10 @@ impl<'a> TaxReport<'a> {
                     .collect::<Vec<_>>(),
             );
         disposals.sort_by_key(|d| d.date);
-        Gains { year, gains: disposals }
+        Gains {
+            year,
+            gains: disposals,
+        }
     }
 }
 
@@ -150,7 +150,7 @@ impl<'a> Disposal<'a> {
 
 fn serialize_amount<S>(money: &Money, serializer: S) -> Result<S::Ok, S::Error>
 where
-    S: serde::Serializer
+    S: serde::Serializer,
 {
     display_amount(money).serialize(serializer)
 }
@@ -237,21 +237,31 @@ impl<'a> fmt::Debug for Pool<'a> {
 }
 
 pub struct Disposals<'a> {
-    disposals: BTreeMap<(NaiveDate, String, MatchType), Disposal<'a>>
+    disposals: BTreeMap<(NaiveDate, String, MatchType), Disposal<'a>>,
 }
 
 impl<'a> Disposals<'a> {
     fn new() -> Self {
-        Self { disposals: BTreeMap::new() }
+        Self {
+            disposals: BTreeMap::new(),
+        }
     }
 
-    fn add(&mut self, trade: &Trade<'a>, date: NaiveDate, price: &Price<'a>, quantity: Money<'a>, cost: Money<'a>, match_type: MatchType) -> color_eyre::Result<()> {
+    fn add(
+        &mut self,
+        trade: &Trade<'a>,
+        date: NaiveDate,
+        price: &Price<'a>,
+        quantity: Money<'a>,
+        cost: Money<'a>,
+        match_type: MatchType,
+    ) -> color_eyre::Result<()> {
         if quantity.is_zero() {
             log::debug!(
                 "Attempting to add a disposal with 0 quantity for trade on {:?}, igmoring",
                 trade.date_time
             );
-            return Ok(())
+            return Ok(());
         }
 
         let proceeds = if quantity.currency() == GBP {
@@ -266,8 +276,13 @@ impl<'a> Disposals<'a> {
             price.convert_to_gbp(trade.fee.clone(), trade.rate)?
         };
 
-        let key = (trade.date_time.date(), trade.sell.currency().code.to_string(), match_type.clone());
-        let updated = self.disposals
+        let key = (
+            trade.date_time.date(),
+            trade.sell.currency().code.to_string(),
+            match_type.clone(),
+        );
+        let updated = self
+            .disposals
             .entry(key)
             .and_modify(|disposal| {
                 disposal.quantity += quantity.clone();
@@ -281,7 +296,7 @@ impl<'a> Disposals<'a> {
                 cost,
                 fees,
                 proceeds,
-                match_type
+                match_type,
             });
         Ok(())
     }
@@ -346,14 +361,18 @@ pub fn calculate<'a>(
             let mut unmatched_disposed = trade.sell.clone();
 
             for future_buy in &special_rules_buy {
-                let future_buy_key = (future_buy.date_time.date(), future_buy.buy.currency().code.to_string());
+                let future_buy_key = (
+                    future_buy.date_time.date(),
+                    future_buy.buy.currency().code.to_string(),
+                );
                 let remaining_buy_amount = bandb_matched_acqs
                     // todo: update if multiple trades same day
                     .entry(future_buy_key)
                     .or_insert(future_buy.buy.clone());
 
                 if *remaining_buy_amount > zero(remaining_buy_amount.currency()) {
-                    let matched_disposed = std::cmp::min(unmatched_disposed.clone(), remaining_buy_amount.clone());
+                    let matched_disposed =
+                        std::cmp::min(unmatched_disposed.clone(), remaining_buy_amount.clone());
                     unmatched_disposed = saturating_sub(&unmatched_disposed, remaining_buy_amount);
 
                     *remaining_buy_amount = saturating_sub(remaining_buy_amount, &matched_disposed);
@@ -366,7 +385,14 @@ pub fn calculate<'a>(
                         buy_price.convert_to_gbp(matched_disposed.clone(), future_buy.rate)?;
                     let match_type = MatchType::BedAndBreakfast(future_buy.date_time.date()); // todo: make SameDay if same day acq
 
-                    disposals.add(future_buy, trade.date_time.date(), &price, matched_disposed, costs, match_type)?;
+                    disposals.add(
+                        future_buy,
+                        trade.date_time.date(),
+                        &price,
+                        matched_disposed,
+                        costs,
+                        match_type,
+                    )?;
                 }
             }
 
@@ -376,7 +402,14 @@ pub fn calculate<'a>(
             let main_pool_costs = pool.sell(unmatched_disposed.clone());
             let match_type = MatchType::Section104Pool; // todo: split if part or all of costs not in pool
 
-            disposals.add(trade, trade.date_time.date(), &price, unmatched_disposed, main_pool_costs, match_type)?;
+            disposals.add(
+                trade,
+                trade.date_time.date(),
+                &price,
+                unmatched_disposed,
+                main_pool_costs,
+                match_type,
+            )?;
         }
     }
     let report = TaxReport::new(trades, disposals.into_vec(), pools);
@@ -525,7 +558,10 @@ mod tests {
         let bandb_gain = gains_2019.gains.get(0).unwrap();
         let pooled_gain = gains_2019.gains.get(1).unwrap();
 
-        assert_eq!(bandb_gain.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
+        assert_eq!(
+            bandb_gain.match_type,
+            MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11))
+        );
         assert_money_eq!(bandb_gain.proceeds(), gbp!(20_000), "Consideration");
         assert_money_eq!(bandb_gain.cost, gbp!(17_500), "Allowable costs");
         assert_money_eq!(bandb_gain.gain(), gbp!(2_500), "Gain B&B");
@@ -565,13 +601,19 @@ mod tests {
         let gains_2019 = report.gains(Some(2019));
 
         let bandb_gain1 = gains_2019.gains.get(0).unwrap();
-        assert_eq!(bandb_gain1.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
+        assert_eq!(
+            bandb_gain1.match_type,
+            MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11))
+        );
         assert_money_eq!(bandb_gain1.proceeds(), gbp!(10_000), "Consideration");
         assert_money_eq!(bandb_gain1.cost, gbp!(8_750), "Allowable costs");
         assert_money_eq!(bandb_gain1.gain(), gbp!(1_250), "Gain B&B");
 
         let bandb_gain2 = gains_2019.gains.get(1).unwrap();
-        assert_eq!(bandb_gain2.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 12)));
+        assert_eq!(
+            bandb_gain2.match_type,
+            MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 12))
+        );
         assert_money_eq!(bandb_gain2.proceeds(), gbp!(10_000), "Consideration");
         assert_money_eq!(bandb_gain2.cost, gbp!(8_750), "Allowable costs");
         assert_money_eq!(bandb_gain2.gain(), gbp!(1_250), "Gain B&B");
@@ -622,7 +664,10 @@ mod tests {
         );
 
         let gain1 = gains_2019.gains.get(0).unwrap();
-        assert_eq!(gain1.match_type, MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11)));
+        assert_eq!(
+            gain1.match_type,
+            MatchType::BedAndBreakfast(NaiveDate::from_ymd(2018, 09, 11))
+        );
         assert_money_eq!(gain1.proceeds(), gbp!(20_000), "Consideration");
         assert_money_eq!(gain1.cost, gbp!(15_000), "Allowable costs");
         assert_money_eq!(gain1.gain(), gbp!(5_000), "Gain 30 days");
