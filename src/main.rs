@@ -11,7 +11,7 @@ use money::{currencies, Money};
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// Top-level command.
-struct Cccgt {
+struct Taxc {
     #[argh(subcommand)]
     cmd: Command,
 }
@@ -35,7 +35,7 @@ impl Command {
 
 fn main() -> color_eyre::Result<()> {
     pretty_env_logger::init();
-    let cccgt: Cccgt = argh::from_env();
+    let taxc: Taxc = argh::from_env();
 
-    cccgt.cmd.exec()
+    taxc.cmd.exec()
 }

@@ -176,30 +176,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c0496836a84f8d0495758516b8621a622beb77c0fed418570e50764093ced48"
 
 [[package]]
-name = "cccgt"
-version = "0.1.0"
-dependencies = [
- "argh",
- "chrono",
- "color-eyre",
- "csv",
- "derive_more",
- "hex",
- "hmac",
- "lazy_static",
- "log",
- "pretty_env_logger",
- "prettytable-rs",
- "rust_decimal",
- "rust_decimal_macros",
- "rusty-money",
- "serde",
- "sha2",
- "ureq",
- "url",
-]
-
-[[package]]
 name = "cfg-if"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -986,6 +962,30 @@ dependencies = [
  "quote 0.6.13",
  "syn 0.15.42",
  "unicode-xid 0.1.0",
+]
+
+[[package]]
+name = "taxc"
+version = "0.1.0"
+dependencies = [
+ "argh",
+ "chrono",
+ "color-eyre",
+ "csv",
+ "derive_more",
+ "hex",
+ "hmac",
+ "lazy_static",
+ "log",
+ "pretty_env_logger",
+ "prettytable-rs",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "rusty-money",
+ "serde",
+ "sha2",
+ "ureq",
+ "url",
 ]
 
 [[package]]
