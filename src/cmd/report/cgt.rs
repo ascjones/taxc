@@ -320,11 +320,15 @@ pub fn calculate<'a>(
     let mut bandb_matched_acqs: HashMap<(NaiveDate, String), Money> = HashMap::new();
     let mut disposals = Disposals::new();
 
+    // todo: keep track of future trades that are already 0 and skip over them.
+    // todo: OR: preprocess into Acquisitions and Disposals and do grouping by dat in advance, then just check future acquisitions
+
     for trade in &trades {
         let price = get_price(&trade, &prices).expect(&format!(
             "Should have price for buy: {} sell: {} at {}",
             trade.buy, trade.sell, trade.date_time
         ));
+
 
         if trade.buy.currency() != GBP {
             // this trade is an acquisition
