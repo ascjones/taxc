@@ -4,6 +4,7 @@ mod cmd;
 mod money;
 mod trades;
 mod utils;
+mod coingecko;
 
 use argh::FromArgs;
 use cmd::{import::ImportTradesCommand, report::ReportCommand};

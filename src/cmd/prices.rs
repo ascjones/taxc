@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, io::Read};
 
-use crate::currencies::{self, Currency, BTC, ETH, GBP, USDC};
+use crate::currencies::{self, Currency, BTC, ETH, USDC};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use color_eyre::eyre;
 use rust_decimal::Decimal;
@@ -46,44 +46,19 @@ struct Record {
     rate: Decimal,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CoingeckoPrices {
-    prices: Vec<CoingeckoPrice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CoingeckoPrice {
-    timestamp: i64,
-    price: Decimal,
-}
-
 impl<'a> Prices<'a> {
     /// Initializes the prices database from the coingecko api
-    pub fn from_coingecko_api(quote_currency: &Currency) -> eyre::Result<Prices<'a>> {
+    pub fn from_coingecko_api(quote_currency: &'a Currency) -> eyre::Result<Prices<'a>> {
         let mut prices = HashMap::new();
 
         let mut fetch_prices = |coin, base| -> eyre::Result<()> {
-            let url = format!(
-                "https://api.coingecko.com/api/v3/coins/{}/market_chart",
-                coin
-            );
-            let response = ureq::get(&url)
-                .query("vs_currency", quote_currency.code)
-                .query("interval", "daily")
-                .query("days", "max")
-                .call()?;
-
-            let coingecko_prices: CoingeckoPrices = response.into_json()?;
-            log::info!("{} {} prices fetched", coingecko_prices.prices.len(), coin);
-            let pair = CurrencyPair { base, quote: GBP };
-            let pair_prices = coingecko_prices
-                .prices
+            let pair = CurrencyPair { base, quote: quote_currency };
+            let pair_prices = crate::coingecko::fetch_daily_prices(coin, quote_currency)?
                 .iter()
                 .map(|price| {
-                    let unix_time_secs = price.timestamp / 1000;
                     Price {
                         pair: pair.clone(),
-                        date_time: NaiveDateTime::from_timestamp(unix_time_secs, 0).into(),
+                        date_time: price.timestamp,
                         rate: price.price,
                     }
                 })
