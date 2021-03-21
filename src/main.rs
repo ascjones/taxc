@@ -7,7 +7,7 @@ mod utils;
 mod coingecko;
 
 use argh::FromArgs;
-use cmd::{import::ImportTradesCommand, report::ReportCommand};
+use cmd::{import::ImportCommand, report::ReportCommand};
 use money::{currencies, Money};
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -21,7 +21,7 @@ struct Taxc {
 #[argh(subcommand)]
 /// Calculate UK Capital Gains Tax (CGT)
 enum Command {
-    Import(ImportTradesCommand),
+    Import(ImportCommand),
     Report(ReportCommand),
 }
 

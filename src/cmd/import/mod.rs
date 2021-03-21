@@ -1,16 +1,34 @@
 mod exchanges;
+mod rewards;
 
 use crate::{
     cmd::import::exchanges::{binance::BinanceApiCommand, ExchangeError},
     trades::{Trade, TradeRecord},
 };
+use self::rewards::ImportStakingRewardsCommand;
 use argh::FromArgs;
 use serde::de::DeserializeOwned;
 use std::{convert::TryInto, fs::File, io, path::PathBuf};
 
-/// Import trades from a csv file
+/// Import trades or staking rewards
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "import")]
+pub struct ImportCommand {
+    #[argh(subcommand)]
+    sub: ImportSubCommand,
+}
+
+/// Import trades from a csv file
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum ImportSubCommand {
+    StakingRewards(ImportStakingRewardsCommand),
+    Trades(ImportTradesCommand),
+}
+
+/// Import trades from a csv file
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "trades")]
 pub struct ImportTradesCommand {
     #[argh(subcommand)]
     sub: ImportTradesSubCommand,
