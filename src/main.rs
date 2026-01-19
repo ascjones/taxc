@@ -1,16 +1,12 @@
-#![recursion_limit = "128"]
-
 mod cmd;
-mod money;
-mod trades;
-mod utils;
+mod events;
+mod tax;
 
 use argh::FromArgs;
-use cmd::{import::ImportTradesCommand, report::ReportCommand};
-use money::{currencies, Money};
+use cmd::report::ReportCommand;
 
 #[derive(FromArgs, PartialEq, Debug)]
-/// Top-level command.
+/// UK Tax Calculator for Capital Gains and Income
 struct Taxc {
     #[argh(subcommand)]
     cmd: Command,
@@ -18,24 +14,21 @@ struct Taxc {
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand)]
-/// Calculate UK Capital Gains Tax (CGT)
 enum Command {
-    Import(ImportTradesCommand),
     Report(ReportCommand),
 }
 
 impl Command {
     fn exec(&self) -> color_eyre::Result<()> {
         match self {
-            Command::Import(import) => import.exec(),
             Command::Report(report) => report.exec(),
         }
     }
 }
 
 fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
     pretty_env_logger::init();
     let taxc: Taxc = argh::from_env();
-
     taxc.cmd.exec()
 }
