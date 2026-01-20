@@ -1,42 +1,66 @@
 use crate::events;
 use crate::tax::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
-use argh::FromArgs;
+use clap::{Args, ValueEnum};
 use std::{fs::File, io, path::PathBuf};
 
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand, name = "report")]
-/// Calculate UK taxes from taxable events CSV
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum ReportType {
+    /// Capital Gains Tax report only
+    Cgt,
+    /// Income Tax report only
+    Income,
+    /// Both CGT and Income Tax reports
+    #[default]
+    All,
+}
+
+#[derive(Args, Debug)]
 pub struct ReportCommand {
-    /// the CSV file containing taxable events
-    #[argh(option)]
+    /// CSV file containing taxable events
+    #[arg(short, long)]
     events: PathBuf,
 
-    /// tax year to report (e.g., 2025 for 2024/25)
-    #[argh(option)]
+    /// Tax year to report (e.g., 2025 for 2024/25)
+    #[arg(short, long)]
     year: Option<i32>,
 
-    /// tax band for income tax: basic, higher, or additional (default: basic)
-    #[argh(option, default = "String::from(\"basic\")")]
-    tax_band: String,
+    /// Tax band for income tax calculation
+    #[arg(short, long, value_enum, default_value_t = TaxBandArg::Basic)]
+    tax_band: TaxBandArg,
 
-    /// report type: cgt, income, or all (default: all)
-    #[argh(option, default = "String::from(\"all\")")]
-    report: String,
+    /// Type of report to generate
+    #[arg(short, long, value_enum, default_value_t = ReportType::All)]
+    report: ReportType,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum TaxBandArg {
+    #[default]
+    Basic,
+    Higher,
+    Additional,
+}
+
+impl From<TaxBandArg> for TaxBand {
+    fn from(arg: TaxBandArg) -> Self {
+        match arg {
+            TaxBandArg::Basic => TaxBand::Basic,
+            TaxBandArg::Higher => TaxBand::Higher,
+            TaxBandArg::Additional => TaxBand::Additional,
+        }
+    }
 }
 
 impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let tax_band = TaxBand::from_str(&self.tax_band)
-            .ok_or_else(|| color_eyre::eyre::eyre!("Invalid tax band: {}", self.tax_band))?;
-
+        let tax_band: TaxBand = self.tax_band.into();
         let tax_year = self.year.map(TaxYear);
-
         let all_events = events::read_csv(File::open(&self.events)?)?;
 
-        match self.report.as_str() {
-            "cgt" => self.report_cgt(all_events, tax_year),
-            "income" => self.report_income(all_events, tax_year, tax_band),
-            "all" | _ => {
+        match self.report {
+            ReportType::Cgt => self.report_cgt(all_events, tax_year),
+            ReportType::Income => self.report_income(all_events, tax_year, tax_band),
+            ReportType::All => {
                 self.report_cgt(all_events.clone(), tax_year)?;
                 eprintln!(); // Separator
                 self.report_income(all_events, tax_year, tax_band)

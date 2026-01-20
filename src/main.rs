@@ -2,19 +2,20 @@ mod cmd;
 mod events;
 mod tax;
 
-use argh::FromArgs;
+use clap::{Parser, Subcommand};
 use cmd::report::ReportCommand;
 
-#[derive(FromArgs, PartialEq, Debug)]
-/// UK Tax Calculator for Capital Gains and Income
-struct Taxc {
-    #[argh(subcommand)]
-    cmd: Command,
+#[derive(Parser, Debug)]
+#[command(name = "taxc")]
+#[command(about = "UK Tax Calculator for Capital Gains and Income", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
 }
 
-#[derive(FromArgs, PartialEq, Debug)]
-#[argh(subcommand)]
+#[derive(Subcommand, Debug)]
 enum Command {
+    /// Calculate UK taxes from taxable events CSV
     Report(ReportCommand),
 }
 
@@ -29,6 +30,6 @@ impl Command {
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     pretty_env_logger::init();
-    let taxc: Taxc = argh::from_env();
-    taxc.cmd.exec()
+    let cli = Cli::parse();
+    cli.command.exec()
 }

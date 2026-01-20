@@ -11,17 +11,6 @@ pub enum TaxBand {
     Additional,
 }
 
-impl TaxBand {
-    pub fn from_str(s: &str) -> Option<TaxBand> {
-        match s.to_lowercase().as_str() {
-            "basic" => Some(TaxBand::Basic),
-            "higher" => Some(TaxBand::Higher),
-            "additional" => Some(TaxBand::Additional),
-            _ => None,
-        }
-    }
-}
-
 /// UK Tax Year (runs 6 April to 5 April)
 /// The year value represents the end year (e.g., 2025 = 2024/25 tax year)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -228,13 +217,4 @@ mod tests {
         assert_eq!(ty.income_rate(TaxBand::Additional), dec!(0.45));
     }
 
-    #[test]
-    fn tax_band_from_str() {
-        assert_eq!(TaxBand::from_str("basic"), Some(TaxBand::Basic));
-        assert_eq!(TaxBand::from_str("Basic"), Some(TaxBand::Basic));
-        assert_eq!(TaxBand::from_str("BASIC"), Some(TaxBand::Basic));
-        assert_eq!(TaxBand::from_str("higher"), Some(TaxBand::Higher));
-        assert_eq!(TaxBand::from_str("additional"), Some(TaxBand::Additional));
-        assert_eq!(TaxBand::from_str("invalid"), None);
-    }
 }
