@@ -5,6 +5,10 @@ use crate::tax::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use std::{fs::File, io, path::PathBuf};
+use tabled::{
+    settings::{object::Rows, Alignment, Modify, Style},
+    Table, Tabled,
+};
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum ReportType {
@@ -123,59 +127,59 @@ impl ReportCommand {
         let tax_higher = (taxable_gain * higher_rate).round_dp(2);
 
         // Print header
-        println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-        println!("║                    CAPITAL GAINS TAX REPORT ({:^10})                    ║", year_str);
-        println!("╠══════════════════════════════════════════════════════════════════════════════╣");
+        println!("\nCAPITAL GAINS TAX REPORT ({})\n", year_str);
 
         if disposals.is_empty() {
-            println!("║  No disposals found                                                          ║");
+            println!("No disposals found\n");
         } else {
-            // Print disposals table header
-            println!("║  Date       │ Asset │    Proceeds │        Cost │        Fees │        Gain ║");
-            println!("╟─────────────┼───────┼─────────────┼─────────────┼─────────────┼─────────────╢");
+            // Build disposals table using tabled
+            let rows: Vec<DisposalRow> = disposals
+                .iter()
+                .map(|d| DisposalRow {
+                    date: d.date.format("%Y-%m-%d").to_string(),
+                    asset: d.asset.clone(),
+                    proceeds: format_gbp(d.proceeds_gbp),
+                    cost: format_gbp(d.allowable_cost_gbp),
+                    fees: format_gbp(d.fees_gbp),
+                    gain: format_gbp_signed(d.gain_gbp),
+                })
+                .collect();
 
-            // Print each disposal
-            for d in &disposals {
-                println!(
-                    "║  {} │ {:>5} │ {:>11} │ {:>11} │ {:>11} │ {:>11} ║",
-                    d.date.format("%Y-%m-%d"),
-                    truncate(&d.asset, 5),
-                    format_gbp(d.proceeds_gbp),
-                    format_gbp(d.allowable_cost_gbp),
-                    format_gbp(d.fees_gbp),
-                    format_gbp_signed(d.gain_gbp),
-                );
-            }
+            let table = Table::new(rows)
+                .with(Style::rounded())
+                .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+                .to_string();
+            println!("{}\n", table);
 
-            // Print totals row
-            println!("╟─────────────┴───────┼─────────────┼─────────────┼─────────────┼─────────────╢");
+            // Totals
             println!(
-                "║              TOTALS │ {:>11} │ {:>11} │             │ {:>11} ║",
+                "Totals: Proceeds {} | Cost {} | Gain/Loss {}\n",
                 format_gbp(total_proceeds),
                 format_gbp(total_costs),
-                format_gbp_signed(total_gain),
+                format_gbp_signed(total_gain)
             );
         }
 
-        // Print summary section
-        println!("╠══════════════════════════════════════════════════════════════════════════════╣");
-        println!("║  SUMMARY                                                                     ║");
-        println!("╟──────────────────────────────────────────────────────────────────────────────╢");
-        println!("║  Total Gain/Loss:          {:>12}                                      ║", format_gbp_signed(total_gain));
-        println!("║  Annual Exempt Amount:     {:>12}                                      ║", format_gbp(exempt_amount));
-        println!("║  Taxable Gain:             {:>12}                                      ║", format_gbp_signed(taxable_gain));
-        println!("╟──────────────────────────────────────────────────────────────────────────────╢");
-        println!(
-            "║  Tax @ {:>5.1}% (basic):    {:>12}                                      ║",
-            basic_rate * rust_decimal_macros::dec!(100),
-            format_gbp(tax_basic)
-        );
-        println!(
-            "║  Tax @ {:>5.1}% (higher):   {:>12}                                      ║",
-            higher_rate * rust_decimal_macros::dec!(100),
-            format_gbp(tax_higher)
-        );
-        println!("╚══════════════════════════════════════════════════════════════════════════════╝");
+        // Summary table
+        let summary = vec![
+            SummaryRow::new("Total Gain/Loss", format_gbp_signed(total_gain)),
+            SummaryRow::new("Annual Exempt Amount", format_gbp(exempt_amount)),
+            SummaryRow::new("Taxable Gain", format_gbp_signed(taxable_gain)),
+            SummaryRow::new(
+                format!("Tax @ {:.1}% (basic)", basic_rate * rust_decimal_macros::dec!(100)),
+                format_gbp(tax_basic),
+            ),
+            SummaryRow::new(
+                format!("Tax @ {:.1}% (higher)", higher_rate * rust_decimal_macros::dec!(100)),
+                format_gbp(tax_higher),
+            ),
+        ];
+
+        let summary_table = Table::new(summary)
+            .with(Style::rounded())
+            .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+            .to_string();
+        println!("{}", summary_table);
     }
 
     fn report_income(
@@ -208,38 +212,92 @@ impl ReportCommand {
                 TaxBand::Additional => "Additional",
             };
 
-            println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-            println!("║                      INCOME TAX REPORT ({:^10})                        ║", tax_year.display());
-            println!("║                           Tax Band: {:^10}                              ║", band_str);
-            println!("╠══════════════════════════════════════════════════════════════════════════════╣");
+            println!("\nINCOME TAX REPORT ({}) - Tax Band: {}\n", tax_year.display(), band_str);
 
             // Staking section
-            println!("║  STAKING REWARDS                                                             ║");
-            println!("╟──────────────────────────────────────────────────────────────────────────────╢");
-            println!("║  Total Staking Income:     {:>12}                                      ║", format_gbp(tax.staking_income));
-            println!(
-                "║  Tax @ {:>5.1}%:            {:>12}                                      ║",
-                tax_year.income_rate(band) * rust_decimal_macros::dec!(100),
-                format_gbp(tax.staking_tax)
-            );
+            println!("Staking Rewards");
+            let staking_rows = vec![
+                IncomeRow::new("Total Staking Income", format_gbp(tax.staking_income)),
+                IncomeRow::new(
+                    format!("Tax @ {:.1}%", tax_year.income_rate(band) * rust_decimal_macros::dec!(100)),
+                    format_gbp(tax.staking_tax),
+                ),
+            ];
+            let staking_table = Table::new(staking_rows)
+                .with(Style::rounded())
+                .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+                .to_string();
+            println!("{}\n", staking_table);
 
             // Dividends section
-            println!("╠══════════════════════════════════════════════════════════════════════════════╣");
-            println!("║  DIVIDENDS                                                                   ║");
-            println!("╟──────────────────────────────────────────────────────────────────────────────╢");
-            println!("║  Total Dividend Income:    {:>12}                                      ║", format_gbp(tax.dividend_income));
-            println!("║  Dividend Allowance Used:  {:>12}                                      ║", format_gbp(tax.dividend_allowance_used));
-            println!("║  Taxable Dividends:        {:>12}                                      ║", format_gbp(tax.taxable_dividends));
-            println!(
-                "║  Tax @ {:>5.2}%:           {:>12}                                      ║",
-                tax_year.dividend_rate(band) * rust_decimal_macros::dec!(100),
-                format_gbp(tax.dividend_tax)
-            );
+            println!("Dividends");
+            let dividend_rows = vec![
+                IncomeRow::new("Total Dividend Income", format_gbp(tax.dividend_income)),
+                IncomeRow::new("Dividend Allowance Used", format_gbp(tax.dividend_allowance_used)),
+                IncomeRow::new("Taxable Dividends", format_gbp(tax.taxable_dividends)),
+                IncomeRow::new(
+                    format!("Tax @ {:.2}%", tax_year.dividend_rate(band) * rust_decimal_macros::dec!(100)),
+                    format_gbp(tax.dividend_tax),
+                ),
+            ];
+            let dividend_table = Table::new(dividend_rows)
+                .with(Style::rounded())
+                .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+                .to_string();
+            println!("{}\n", dividend_table);
 
             // Total
-            println!("╠══════════════════════════════════════════════════════════════════════════════╣");
-            println!("║  TOTAL INCOME TAX:         {:>12}                                      ║", format_gbp(tax.total_tax));
-            println!("╚══════════════════════════════════════════════════════════════════════════════╝");
+            println!("TOTAL INCOME TAX: {}\n", format_gbp(tax.total_tax));
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct DisposalRow {
+    #[tabled(rename = "Date")]
+    date: String,
+    #[tabled(rename = "Asset")]
+    asset: String,
+    #[tabled(rename = "Proceeds")]
+    proceeds: String,
+    #[tabled(rename = "Cost")]
+    cost: String,
+    #[tabled(rename = "Fees")]
+    fees: String,
+    #[tabled(rename = "Gain/Loss")]
+    gain: String,
+}
+
+#[derive(Tabled)]
+struct SummaryRow {
+    #[tabled(rename = "")]
+    label: String,
+    #[tabled(rename = "Amount")]
+    amount: String,
+}
+
+impl SummaryRow {
+    fn new(label: impl Into<String>, amount: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            amount: amount.into(),
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct IncomeRow {
+    #[tabled(rename = "")]
+    label: String,
+    #[tabled(rename = "Amount")]
+    amount: String,
+}
+
+impl IncomeRow {
+    fn new(label: impl Into<String>, amount: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            amount: amount.into(),
         }
     }
 }
@@ -256,10 +314,3 @@ fn format_gbp_signed(amount: Decimal) -> String {
     }
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        format!("{:>width$}", s, width = max_len)
-    } else {
-        s[..max_len].to_string()
-    }
-}
