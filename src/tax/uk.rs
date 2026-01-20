@@ -30,12 +30,12 @@ impl TaxYear {
         }
     }
 
-    /// Start date of the tax year (6 April of previous year)
+    #[cfg(test)]
     pub fn start_date(&self) -> NaiveDate {
         NaiveDate::from_ymd_opt(self.0 - 1, 4, 6).unwrap()
     }
 
-    /// End date of the tax year (5 April)
+    #[cfg(test)]
     pub fn end_date(&self) -> NaiveDate {
         NaiveDate::from_ymd_opt(self.0, 4, 5).unwrap()
     }
@@ -97,8 +97,8 @@ impl TaxYear {
     pub fn dividend_rate(&self, band: TaxBand) -> Decimal {
         // Dividend rates have been stable for several years
         match band {
-            TaxBand::Basic => dec!(0.0875),     // 8.75%
-            TaxBand::Higher => dec!(0.3375),    // 33.75%
+            TaxBand::Basic => dec!(0.0875),      // 8.75%
+            TaxBand::Higher => dec!(0.3375),     // 33.75%
             TaxBand::Additional => dec!(0.3935), // 39.35%
         }
     }
@@ -168,7 +168,10 @@ mod tests {
     #[test]
     fn tax_year_start_end_dates() {
         let ty = TaxYear(2025);
-        assert_eq!(ty.start_date(), NaiveDate::from_ymd_opt(2024, 4, 6).unwrap());
+        assert_eq!(
+            ty.start_date(),
+            NaiveDate::from_ymd_opt(2024, 4, 6).unwrap()
+        );
         assert_eq!(ty.end_date(), NaiveDate::from_ymd_opt(2025, 4, 5).unwrap());
     }
 
@@ -216,5 +219,4 @@ mod tests {
         assert_eq!(ty.income_rate(TaxBand::Higher), dec!(0.40));
         assert_eq!(ty.income_rate(TaxBand::Additional), dec!(0.45));
     }
-
 }

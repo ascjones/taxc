@@ -101,7 +101,7 @@ impl ReportCommand {
         let disposals: Vec<_> = report
             .disposals
             .iter()
-            .filter(|d| year.map_or(true, |y| d.tax_year == y))
+            .filter(|d| year.is_none_or(|y| d.tax_year == y))
             .collect();
 
         // Calculate totals
@@ -111,7 +111,11 @@ impl ReportCommand {
 
         // Get tax rates
         let (exempt_amount, basic_rate, higher_rate) = match year {
-            Some(y) => (y.cgt_exempt_amount(), y.cgt_basic_rate(), y.cgt_higher_rate()),
+            Some(y) => (
+                y.cgt_exempt_amount(),
+                y.cgt_basic_rate(),
+                y.cgt_higher_rate(),
+            ),
             None => {
                 let current = TaxYear(2025);
                 (
@@ -166,11 +170,17 @@ impl ReportCommand {
             SummaryRow::new("Annual Exempt Amount", format_gbp(exempt_amount)),
             SummaryRow::new("Taxable Gain", format_gbp_signed(taxable_gain)),
             SummaryRow::new(
-                format!("Tax @ {:.1}% (basic)", basic_rate * rust_decimal_macros::dec!(100)),
+                format!(
+                    "Tax @ {:.1}% (basic)",
+                    basic_rate * rust_decimal_macros::dec!(100)
+                ),
                 format_gbp(tax_basic),
             ),
             SummaryRow::new(
-                format!("Tax @ {:.1}% (higher)", higher_rate * rust_decimal_macros::dec!(100)),
+                format!(
+                    "Tax @ {:.1}% (higher)",
+                    higher_rate * rust_decimal_macros::dec!(100)
+                ),
                 format_gbp(tax_higher),
             ),
         ];
@@ -212,14 +222,21 @@ impl ReportCommand {
                 TaxBand::Additional => "Additional",
             };
 
-            println!("\nINCOME TAX REPORT ({}) - Tax Band: {}\n", tax_year.display(), band_str);
+            println!(
+                "\nINCOME TAX REPORT ({}) - Tax Band: {}\n",
+                tax_year.display(),
+                band_str
+            );
 
             // Staking section
             println!("Staking Rewards");
             let staking_rows = vec![
                 IncomeRow::new("Total Staking Income", format_gbp(tax.staking_income)),
                 IncomeRow::new(
-                    format!("Tax @ {:.1}%", tax_year.income_rate(band) * rust_decimal_macros::dec!(100)),
+                    format!(
+                        "Tax @ {:.1}%",
+                        tax_year.income_rate(band) * rust_decimal_macros::dec!(100)
+                    ),
                     format_gbp(tax.staking_tax),
                 ),
             ];
@@ -233,10 +250,16 @@ impl ReportCommand {
             println!("Dividends");
             let dividend_rows = vec![
                 IncomeRow::new("Total Dividend Income", format_gbp(tax.dividend_income)),
-                IncomeRow::new("Dividend Allowance Used", format_gbp(tax.dividend_allowance_used)),
+                IncomeRow::new(
+                    "Dividend Allowance Used",
+                    format_gbp(tax.dividend_allowance_used),
+                ),
                 IncomeRow::new("Taxable Dividends", format_gbp(tax.taxable_dividends)),
                 IncomeRow::new(
-                    format!("Tax @ {:.2}%", tax_year.dividend_rate(band) * rust_decimal_macros::dec!(100)),
+                    format!(
+                        "Tax @ {:.2}%",
+                        tax_year.dividend_rate(band) * rust_decimal_macros::dec!(100)
+                    ),
                     format_gbp(tax.dividend_tax),
                 ),
             ];
@@ -313,4 +336,3 @@ fn format_gbp_signed(amount: Decimal) -> String {
         format!("£{:.2}", amount)
     }
 }
-

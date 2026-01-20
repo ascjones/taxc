@@ -39,7 +39,9 @@ pub enum IncomeType {
 /// Tax calculation for a specific year
 #[derive(Debug, Clone)]
 pub struct YearlyIncomeTax {
+    #[allow(dead_code)]
     pub tax_year: TaxYear,
+    #[allow(dead_code)]
     pub tax_band: TaxBand,
     pub staking_income: Decimal,
     pub staking_tax: Decimal,
@@ -53,8 +55,16 @@ pub struct YearlyIncomeTax {
 impl IncomeReport {
     /// Calculate tax liability for a specific year
     pub fn calculate_tax(&self, year: TaxYear, band: TaxBand) -> YearlyIncomeTax {
-        let staking_income = self.staking_by_year.get(&year).copied().unwrap_or(Decimal::ZERO);
-        let dividend_income = self.dividends_by_year.get(&year).copied().unwrap_or(Decimal::ZERO);
+        let staking_income = self
+            .staking_by_year
+            .get(&year)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        let dividend_income = self
+            .dividends_by_year
+            .get(&year)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
 
         // Staking is taxed as miscellaneous income at marginal rate
         let staking_tax = (staking_income * year.income_rate(band)).round_dp(2);
@@ -91,18 +101,26 @@ impl IncomeReport {
         years
     }
 
-    /// Total staking income for a year
+    #[cfg(test)]
     pub fn staking_total(&self, year: Option<TaxYear>) -> Decimal {
         match year {
-            Some(y) => self.staking_by_year.get(&y).copied().unwrap_or(Decimal::ZERO),
+            Some(y) => self
+                .staking_by_year
+                .get(&y)
+                .copied()
+                .unwrap_or(Decimal::ZERO),
             None => self.staking_by_year.values().sum(),
         }
     }
 
-    /// Total dividend income for a year
+    #[cfg(test)]
     pub fn dividend_total(&self, year: Option<TaxYear>) -> Decimal {
         match year {
-            Some(y) => self.dividends_by_year.get(&y).copied().unwrap_or(Decimal::ZERO),
+            Some(y) => self
+                .dividends_by_year
+                .get(&y)
+                .copied()
+                .unwrap_or(Decimal::ZERO),
             None => self.dividends_by_year.values().sum(),
         }
     }
@@ -115,7 +133,7 @@ impl IncomeReport {
             .staking_events
             .iter()
             .chain(self.dividend_events.iter())
-            .filter(|e| year.map_or(true, |y| e.tax_year == y))
+            .filter(|e| year.is_none_or(|y| e.tax_year == y))
             .collect();
 
         for event in all_events {

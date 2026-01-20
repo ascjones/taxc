@@ -69,7 +69,7 @@ impl Pool {
         }
     }
 
-    /// Cost basis per unit
+    #[cfg(test)]
     pub fn cost_basis(&self) -> Decimal {
         if self.quantity.is_zero() {
             Decimal::ZERO
@@ -90,11 +90,13 @@ pub struct DisposalRecord {
     pub allowable_cost_gbp: Decimal,
     pub fees_gbp: Decimal,
     pub gain_gbp: Decimal,
+    #[allow(dead_code)]
     pub matching: DisposalMatching,
     pub description: Option<String>,
 }
 
 /// How the disposal was matched for cost basis
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum DisposalMatching {
     /// Matched with same-day acquisition
@@ -113,12 +115,6 @@ pub enum DisposalMatching {
         bed_and_breakfast: Vec<(NaiveDate, Decimal, Decimal)>,
         pool: Option<(Decimal, Decimal)>,
     },
-}
-
-impl DisposalRecord {
-    pub fn gain(&self) -> Decimal {
-        self.proceeds_gbp - self.allowable_cost_gbp - self.fees_gbp
-    }
 }
 
 /// CSV record for disposal output
@@ -155,23 +151,14 @@ impl From<&DisposalRecord> for DisposalCsvRecord {
 #[derive(Debug)]
 pub struct CgtReport {
     pub disposals: Vec<DisposalRecord>,
+    #[allow(dead_code)]
     pub pools: HashMap<String, Pool>,
 }
 
 impl CgtReport {
-    /// Get disposals for a specific tax year
-    pub fn disposals_for_year(&self, year: TaxYear) -> Vec<&DisposalRecord> {
-        self.disposals
-            .iter()
-            .filter(|d| d.tax_year == year)
-            .collect()
-    }
-
     /// Total proceeds for a tax year
     pub fn total_proceeds(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year)
-            .map(|d| d.proceeds_gbp)
-            .sum()
+        self.filter_disposals(year).map(|d| d.proceeds_gbp).sum()
     }
 
     /// Total allowable costs for a tax year
@@ -186,7 +173,7 @@ impl CgtReport {
         self.filter_disposals(year).map(|d| d.gain_gbp).sum()
     }
 
-    /// Number of disposals for a tax year
+    #[cfg(test)]
     pub fn disposal_count(&self, year: Option<TaxYear>) -> usize {
         self.filter_disposals(year).count()
     }
@@ -194,7 +181,7 @@ impl CgtReport {
     fn filter_disposals(&self, year: Option<TaxYear>) -> impl Iterator<Item = &DisposalRecord> {
         self.disposals
             .iter()
-            .filter(move |d| year.map_or(true, |y| d.tax_year == y))
+            .filter(move |d| year.is_none_or(|y| d.tax_year == y))
     }
 
     /// Write disposals to CSV
@@ -246,8 +233,12 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     for event in &events {
         if event.event_type == EventType::Acquisition {
             let key = (event.date, event.asset.clone());
-            *acquisition_remaining.entry(key.clone()).or_insert(Decimal::ZERO) += event.quantity;
-            *acquisition_total_qty.entry(key.clone()).or_insert(Decimal::ZERO) += event.quantity;
+            *acquisition_remaining
+                .entry(key.clone())
+                .or_insert(Decimal::ZERO) += event.quantity;
+            *acquisition_total_qty
+                .entry(key.clone())
+                .or_insert(Decimal::ZERO) += event.quantity;
             *acquisition_total_cost.entry(key).or_insert(Decimal::ZERO) += event.total_cost_gbp();
         }
     }
@@ -262,10 +253,19 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 let key = (event.date, event.asset.clone());
 
                 // Calculate how much of this day's acquisitions should go to pool
-                let total_qty = acquisition_total_qty.get(&key).copied().unwrap_or(Decimal::ZERO);
-                let remaining = acquisition_remaining.get(&key).copied().unwrap_or(Decimal::ZERO);
-                let total_cost = acquisition_total_cost.get(&key).copied().unwrap_or(Decimal::ZERO);
-                let already_added = pool_added.get(&key).copied().unwrap_or(Decimal::ZERO);
+                let total_qty = acquisition_total_qty
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(Decimal::ZERO);
+                let remaining = acquisition_remaining
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(Decimal::ZERO);
+                let total_cost = acquisition_total_cost
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(Decimal::ZERO);
+                let _already_added = pool_added.get(&key).copied().unwrap_or(Decimal::ZERO);
 
                 // The amount that should go to pool is what's left for matching
                 // We spread this across all acquisitions proportionally
@@ -303,12 +303,8 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                     if *available > Decimal::ZERO {
                         let match_qty = remaining_to_match.min(*available);
                         // Find the acquisition to get its cost
-                        let same_day_cost = find_acquisition_cost(
-                            &events,
-                            &event.asset,
-                            event.date,
-                            match_qty,
-                        );
+                        let same_day_cost =
+                            find_acquisition_cost(&events, &event.asset, event.date, match_qty);
                         total_allowable_cost += same_day_cost;
                         same_day_match = Some((match_qty, same_day_cost));
                         remaining_to_match -= match_qty;
@@ -372,26 +368,26 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 }
 
                 // Determine matching type for record
-                let matching = if same_day_match.is_some() || !bnb_matches.is_empty() {
-                    if same_day_match.is_some() && bnb_matches.is_empty() && pool_match.is_none() {
-                        let (qty, cost) = same_day_match.unwrap();
-                        DisposalMatching::SameDay {
-                            quantity: qty,
-                            cost,
-                        }
-                    } else if same_day_match.is_none() && bnb_matches.len() == 1 && pool_match.is_none() {
-                        let (date, qty, cost) = bnb_matches[0];
-                        DisposalMatching::BedAndBreakfast {
-                            date,
-                            quantity: qty,
-                            cost,
-                        }
-                    } else {
-                        DisposalMatching::Mixed {
-                            same_day: same_day_match,
-                            bed_and_breakfast: bnb_matches,
-                            pool: pool_match,
-                        }
+                let matching = if let (Some((qty, cost)), true, true) =
+                    (same_day_match, bnb_matches.is_empty(), pool_match.is_none())
+                {
+                    DisposalMatching::SameDay {
+                        quantity: qty,
+                        cost,
+                    }
+                } else if same_day_match.is_none() && bnb_matches.len() == 1 && pool_match.is_none()
+                {
+                    let (date, qty, cost) = bnb_matches[0];
+                    DisposalMatching::BedAndBreakfast {
+                        date,
+                        quantity: qty,
+                        cost,
+                    }
+                } else if same_day_match.is_some() || !bnb_matches.is_empty() {
+                    DisposalMatching::Mixed {
+                        same_day: same_day_match,
+                        bed_and_breakfast: bnb_matches,
+                        pool: pool_match,
                     }
                 } else if let Some((qty, cost)) = pool_match {
                     DisposalMatching::Pool {
@@ -438,9 +434,7 @@ fn find_acquisition_cost(
     // Find acquisitions on this date for this asset
     let day_acquisitions: Vec<&TaxableEvent> = events
         .iter()
-        .filter(|e| {
-            e.event_type == EventType::Acquisition && e.asset == asset && e.date == date
-        })
+        .filter(|e| e.event_type == EventType::Acquisition && e.asset == asset && e.date == date)
         .collect();
 
     if day_acquisitions.is_empty() {
@@ -615,7 +609,10 @@ mod tests {
         assert_eq!(disposal.allowable_cost_gbp, dec!(40000));
         assert_eq!(disposal.gain_gbp, dec!(5000));
 
-        assert!(matches!(disposal.matching, DisposalMatching::SameDay { .. }));
+        assert!(matches!(
+            disposal.matching,
+            DisposalMatching::SameDay { .. }
+        ));
     }
 
     #[test]

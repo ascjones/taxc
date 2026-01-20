@@ -13,14 +13,7 @@ pub enum EventType {
 }
 
 impl EventType {
-    pub fn is_acquisition(&self) -> bool {
-        matches!(self, EventType::Acquisition)
-    }
-
-    pub fn is_disposal(&self) -> bool {
-        matches!(self, EventType::Disposal)
-    }
-
+    #[cfg(test)]
     pub fn is_income(&self) -> bool {
         matches!(self, EventType::StakingReward | EventType::Dividend)
     }
@@ -70,7 +63,7 @@ pub struct TaxableEventRecord {
 impl From<TaxableEventRecord> for TaxableEvent {
     fn from(record: TaxableEventRecord) -> Self {
         let date = NaiveDate::parse_from_str(&record.date, "%Y-%m-%d")
-            .expect(&format!("Invalid date format: {}", record.date));
+            .unwrap_or_else(|_| panic!("Invalid date format: {}", record.date));
 
         let event_type = match record.event_type.as_str() {
             "Acquisition" => EventType::Acquisition,
@@ -138,20 +131,6 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
     Ok(events)
 }
 
-/// Write taxable events to CSV
-pub fn write_csv<W: std::io::Write>(
-    events: &[TaxableEvent],
-    writer: W,
-) -> color_eyre::Result<()> {
-    let mut wtr = csv::Writer::from_writer(writer);
-    for event in events {
-        let record: TaxableEventRecord = event.into();
-        wtr.serialize(record)?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,7 +148,10 @@ mod tests {
         assert_eq!(events.len(), 4);
 
         // Check first event (Acquisition)
-        assert_eq!(events[0].date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        assert_eq!(
+            events[0].date,
+            NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()
+        );
         assert_eq!(events[0].event_type, EventType::Acquisition);
         assert_eq!(events[0].asset, "BTC");
         assert_eq!(events[0].asset_class, AssetClass::Crypto);
