@@ -1,0 +1,5 @@
+date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
+2024-01-01,Acquisition,BTC,Crypto,10,100000,,Initial buy
+2024-06-15,Acquisition,BTC,Crypto,2,20000,,Same day buy
+2024-06-15,Disposal,BTC,Crypto,5,60000,,Partial sell
+2024-06-20,Acquisition,BTC,Crypto,3,30000,,B&B repurchase

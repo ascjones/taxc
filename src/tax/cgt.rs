@@ -6,6 +6,55 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 
+/// Snapshot of pool state at a point in time
+#[derive(Debug, Clone, Default)]
+pub struct PoolSnapshot {
+    pub quantity: Decimal,
+    pub cost_gbp: Decimal,
+}
+
+impl From<&Pool> for PoolSnapshot {
+    fn from(pool: &Pool) -> Self {
+        PoolSnapshot {
+            quantity: pool.quantity,
+            cost_gbp: pool.cost_gbp,
+        }
+    }
+}
+
+/// Which HMRC rule was used for matching
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchingRule {
+    SameDay,
+    BedAndBreakfast,
+    Pool,
+}
+
+impl MatchingRule {
+    pub fn display(&self) -> &'static str {
+        match self {
+            MatchingRule::SameDay => "Same-Day",
+            MatchingRule::BedAndBreakfast => "B&B",
+            MatchingRule::Pool => "Pool",
+        }
+    }
+}
+
+impl std::fmt::Display for MatchingRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display())
+    }
+}
+
+/// A single matching component for detailed reporting
+#[derive(Debug, Clone)]
+pub struct MatchingComponent {
+    pub rule: MatchingRule,
+    pub quantity: Decimal,
+    pub cost: Decimal,
+    pub matched_date: Option<NaiveDate>, // For B&B: the acquisition date
+}
+
 /// Asset pool for share pooling (section 104 pool)
 #[derive(Debug, Clone)]
 pub struct Pool {
@@ -93,6 +142,10 @@ pub struct DisposalRecord {
     #[allow(dead_code)]
     pub matching: DisposalMatching,
     pub description: Option<String>,
+    /// Pool state after this disposal
+    pub pool_after: PoolSnapshot,
+    /// Breakdown by matching rule for detailed reporting
+    pub matching_components: Vec<MatchingComponent>,
 }
 
 /// How the disposal was matched for cost basis
@@ -147,6 +200,23 @@ impl From<&DisposalRecord> for DisposalCsvRecord {
     }
 }
 
+/// CSV record for detailed disposal output with per-rule breakdown
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DetailedDisposalCsvRecord {
+    pub date: String,
+    pub tax_year: String,
+    pub asset: String,
+    pub rule: String,
+    pub matched_date: String,
+    pub quantity: String,
+    pub proceeds_gbp: String,
+    pub cost_gbp: String,
+    pub gain_gbp: String,
+    pub pool_quantity: String,
+    pub pool_cost_gbp: String,
+    pub running_gain_gbp: String,
+}
+
 /// CGT report containing all disposals
 #[derive(Debug)]
 pub struct CgtReport {
@@ -190,6 +260,53 @@ impl CgtReport {
         for disposal in self.filter_disposals(year) {
             let record: DisposalCsvRecord = disposal.into();
             wtr.serialize(record)?;
+        }
+        wtr.flush()?;
+        Ok(())
+    }
+
+    /// Write detailed disposals to CSV with per-rule breakdown
+    pub fn write_detailed_csv<W: Write>(
+        &self,
+        writer: W,
+        year: Option<TaxYear>,
+    ) -> color_eyre::Result<()> {
+        let mut wtr = csv::Writer::from_writer(writer);
+        let mut running_gain = Decimal::ZERO;
+
+        for disposal in self.filter_disposals(year) {
+            let total_qty = disposal.quantity;
+
+            for component in &disposal.matching_components {
+                let proportion = if total_qty.is_zero() {
+                    Decimal::ZERO
+                } else {
+                    component.quantity / total_qty
+                };
+
+                let proceeds = (disposal.proceeds_gbp * proportion).round_dp(2);
+                let gain = (proceeds - component.cost).round_dp(2);
+                running_gain += gain;
+
+                let record = DetailedDisposalCsvRecord {
+                    date: disposal.date.format("%Y-%m-%d").to_string(),
+                    tax_year: disposal.tax_year.display(),
+                    asset: disposal.asset.clone(),
+                    rule: component.rule.display().to_string(),
+                    matched_date: component
+                        .matched_date
+                        .map(|d| d.format("%Y-%m-%d").to_string())
+                        .unwrap_or_default(),
+                    quantity: component.quantity.to_string(),
+                    proceeds_gbp: proceeds.to_string(),
+                    cost_gbp: component.cost.round_dp(2).to_string(),
+                    gain_gbp: gain.to_string(),
+                    pool_quantity: disposal.pool_after.quantity.to_string(),
+                    pool_cost_gbp: disposal.pool_after.cost_gbp.round_dp(2).to_string(),
+                    running_gain_gbp: running_gain.round_dp(2).to_string(),
+                };
+                wtr.serialize(record)?;
+            }
         }
         wtr.flush()?;
         Ok(())
@@ -386,7 +503,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 } else if same_day_match.is_some() || !bnb_matches.is_empty() {
                     DisposalMatching::Mixed {
                         same_day: same_day_match,
-                        bed_and_breakfast: bnb_matches,
+                        bed_and_breakfast: bnb_matches.clone(),
                         pool: pool_match,
                     }
                 } else if let Some((qty, cost)) = pool_match {
@@ -403,6 +520,39 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
 
                 let gain = event.value_gbp - total_allowable_cost - fees;
 
+                // Capture pool state after disposal
+                let pool_after = pools
+                    .get(&event.asset)
+                    .map(PoolSnapshot::from)
+                    .unwrap_or_default();
+
+                // Build matching components for detailed reporting
+                let mut matching_components = Vec::new();
+                if let Some((qty, cost)) = same_day_match {
+                    matching_components.push(MatchingComponent {
+                        rule: MatchingRule::SameDay,
+                        quantity: qty,
+                        cost,
+                        matched_date: Some(event.date),
+                    });
+                }
+                for (date, qty, cost) in &bnb_matches {
+                    matching_components.push(MatchingComponent {
+                        rule: MatchingRule::BedAndBreakfast,
+                        quantity: *qty,
+                        cost: *cost,
+                        matched_date: Some(*date),
+                    });
+                }
+                if let Some((qty, cost)) = pool_match {
+                    matching_components.push(MatchingComponent {
+                        rule: MatchingRule::Pool,
+                        quantity: qty,
+                        cost,
+                        matched_date: None,
+                    });
+                }
+
                 disposals.push(DisposalRecord {
                     date: event.date,
                     tax_year,
@@ -414,6 +564,8 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                     gain_gbp: gain,
                     matching,
                     description: event.description.clone(),
+                    pool_after,
+                    matching_components,
                 });
             }
             // Income events (staking, dividends) don't affect CGT
@@ -843,5 +995,159 @@ mod tests {
         // All years
         assert_eq!(report.total_proceeds(None), dec!(48000));
         assert_eq!(report.disposal_count(None), 3);
+    }
+
+    // Tests for new detailed reporting functionality
+
+    #[test]
+    fn pool_snapshot_accuracy_after_disposal() {
+        // Test that pool_after accurately reflects pool state after each disposal
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            disp("2024-06-15", "BTC", dec!(3), dec!(45000)),
+            disp("2024-07-15", "BTC", dec!(2), dec!(30000)),
+        ];
+
+        let report = calculate_cgt(events);
+
+        assert_eq!(report.disposals.len(), 2);
+
+        // After first disposal: 10 - 3 = 7 BTC remaining
+        let d1 = &report.disposals[0];
+        assert_eq!(d1.pool_after.quantity, dec!(7));
+        // Cost: 100000 * (7/10) = 70000
+        assert_eq!(d1.pool_after.cost_gbp, dec!(70000));
+
+        // After second disposal: 7 - 2 = 5 BTC remaining
+        let d2 = &report.disposals[1];
+        assert_eq!(d2.pool_after.quantity, dec!(5));
+        // Cost: 70000 * (5/7) = 50000
+        assert_eq!(d2.pool_after.cost_gbp, dec!(50000));
+    }
+
+    #[test]
+    fn matching_components_sum_to_total_cost() {
+        // Test that matching components sum to total allowable cost
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+            acq("2024-06-20", "BTC", dec!(3), dec!(36000)), // B&B - 3 matched
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        // Components should be: 3 B&B + 2 Pool
+        assert_eq!(disposal.matching_components.len(), 2);
+
+        // Sum of component costs should equal allowable cost
+        let total_component_cost: Decimal =
+            disposal.matching_components.iter().map(|c| c.cost).sum();
+        assert_eq!(total_component_cost, disposal.allowable_cost_gbp);
+    }
+
+    #[test]
+    fn matching_components_same_day_and_pool() {
+        // Test same-day + pool matching creates correct components
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            acq("2024-06-15", "BTC", dec!(2), dec!(30000)), // Same-day
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        // Should have 2 components: same-day (2) + pool (3)
+        assert_eq!(disposal.matching_components.len(), 2);
+
+        // Find same-day component
+        let same_day = disposal
+            .matching_components
+            .iter()
+            .find(|c| c.rule == MatchingRule::SameDay)
+            .unwrap();
+        assert_eq!(same_day.quantity, dec!(2));
+        assert_eq!(same_day.cost, dec!(30000));
+        assert_eq!(same_day.matched_date, Some(disposal.date));
+
+        // Find pool component
+        let pool = disposal
+            .matching_components
+            .iter()
+            .find(|c| c.rule == MatchingRule::Pool)
+            .unwrap();
+        assert_eq!(pool.quantity, dec!(3));
+        // Pool cost: 3/10 * 100000 = 30000
+        assert_eq!(pool.cost, dec!(30000));
+        assert!(pool.matched_date.is_none());
+    }
+
+    #[test]
+    fn matching_components_bnb_has_matched_date() {
+        // Test B&B component has the correct matched acquisition date
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+            acq("2024-06-20", "BTC", dec!(5), dec!(60000)), // B&B
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        assert_eq!(disposal.matching_components.len(), 1);
+        let bnb = &disposal.matching_components[0];
+
+        assert_eq!(bnb.rule, MatchingRule::BedAndBreakfast);
+        assert_eq!(
+            bnb.matched_date,
+            Some(NaiveDate::parse_from_str("2024-06-20", "%Y-%m-%d").unwrap())
+        );
+    }
+
+    #[test]
+    fn multi_asset_pool_isolation() {
+        // Test that pool snapshots are per-asset
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            acq("2024-01-01", "ETH", dec!(100), dec!(50000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let btc_disposal = &report.disposals[0];
+
+        // BTC pool after should show BTC state only
+        assert_eq!(btc_disposal.pool_after.quantity, dec!(5));
+        assert_eq!(btc_disposal.pool_after.cost_gbp, dec!(50000));
+
+        // ETH pool should be unaffected
+        let eth_pool = report.pools.get("ETH").unwrap();
+        assert_eq!(eth_pool.quantity, dec!(100));
+        assert_eq!(eth_pool.cost_gbp, dec!(50000));
+    }
+
+    #[test]
+    fn detailed_csv_output() {
+        // Test that detailed CSV includes all components
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            acq("2024-06-15", "BTC", dec!(2), dec!(30000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let mut output = Vec::new();
+        report.write_detailed_csv(&mut output, None).unwrap();
+
+        let csv_str = String::from_utf8(output).unwrap();
+        // Should have header + 2 data rows (same-day + pool)
+        let lines: Vec<_> = csv_str.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 rows
+
+        // Check header contains expected columns
+        assert!(csv_str.contains("rule"));
+        assert!(csv_str.contains("pool_quantity"));
+        assert!(csv_str.contains("running_gain_gbp"));
     }
 }

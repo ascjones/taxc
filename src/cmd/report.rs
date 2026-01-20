@@ -1,5 +1,5 @@
 use crate::events;
-use crate::tax::cgt::CgtReport;
+use crate::tax::cgt::{CgtReport, MatchingRule};
 use crate::tax::income::IncomeReport;
 use crate::tax::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
 use clap::{Args, ValueEnum};
@@ -42,6 +42,10 @@ pub struct ReportCommand {
     /// Output as CSV instead of formatted table
     #[arg(long)]
     csv: bool,
+
+    /// Show detailed CGT breakdown with per-rule cost basis and running totals
+    #[arg(long)]
+    detailed: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -87,7 +91,14 @@ impl ReportCommand {
         let report = calculate_cgt(events);
 
         if self.csv {
-            report.write_csv(io::stdout(), year)
+            if self.detailed {
+                report.write_detailed_csv(io::stdout(), year)
+            } else {
+                report.write_csv(io::stdout(), year)
+            }
+        } else if self.detailed {
+            self.print_detailed_cgt_report(&report, year);
+            Ok(())
         } else {
             self.print_cgt_report(&report, year);
             Ok(())
@@ -192,6 +203,89 @@ impl ReportCommand {
         println!("{}", summary_table);
     }
 
+    fn print_detailed_cgt_report(&self, report: &CgtReport, year: Option<TaxYear>) {
+        let year_str = year.map_or("All Years".to_string(), |y| y.display());
+
+        // Get disposals for the year
+        let disposals: Vec<_> = report
+            .disposals
+            .iter()
+            .filter(|d| year.is_none_or(|y| d.tax_year == y))
+            .collect();
+
+        // Calculate running gain
+        let mut running_gain = Decimal::ZERO;
+
+        println!("\nDETAILED CAPITAL GAINS TAX REPORT ({})\n", year_str);
+
+        if disposals.is_empty() {
+            println!("No disposals found\n");
+        } else {
+            // Build detailed rows - one row per matching component
+            let mut rows: Vec<DetailedDisposalRow> = Vec::new();
+
+            for disposal in &disposals {
+                // Calculate proportion of proceeds/gain for each component
+                let total_qty = disposal.quantity;
+
+                for component in &disposal.matching_components {
+                    let proportion = if total_qty.is_zero() {
+                        Decimal::ZERO
+                    } else {
+                        component.quantity / total_qty
+                    };
+
+                    let proceeds = (disposal.proceeds_gbp * proportion).round_dp(2);
+                    let gain = (proceeds - component.cost).round_dp(2);
+                    running_gain += gain;
+
+                    // Format matched date for B&B (compact UK format)
+                    let rule_display = match component.rule {
+                        MatchingRule::BedAndBreakfast => {
+                            if let Some(date) = component.matched_date {
+                                format!("B&B ({})", date.format("%-d/%m"))
+                            } else {
+                                "B&B".to_string()
+                            }
+                        }
+                        _ => component.rule.display().to_string(),
+                    };
+
+                    rows.push(DetailedDisposalRow {
+                        date: disposal.date.format("%-d/%-m/%y").to_string(),
+                        asset: disposal.asset.clone(),
+                        rule: rule_display,
+                        quantity: format!("{}", component.quantity),
+                        proceeds: format_gbp_compact(proceeds),
+                        cost: format_gbp_compact(component.cost),
+                        gain: format_gbp_signed_compact(gain),
+                        pool_qty: format!("{}", disposal.pool_after.quantity),
+                        pool_cost: format_gbp_compact(disposal.pool_after.cost_gbp),
+                        running_gain: format_gbp_signed_compact(running_gain),
+                    });
+                }
+            }
+
+            let table = Table::new(rows)
+                .with(Style::rounded())
+                .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+                .to_string();
+            println!("{}\n", table);
+
+            // Summary
+            let total_proceeds = report.total_proceeds(year);
+            let total_costs = report.total_allowable_costs(year);
+            let total_gain = report.total_gain(year);
+
+            println!(
+                "Totals: Proceeds {} | Cost {} | Gain/Loss {}\n",
+                format_gbp(total_proceeds),
+                format_gbp(total_costs),
+                format_gbp_signed(total_gain)
+            );
+        }
+    }
+
     fn report_income(
         &self,
         events: Vec<events::TaxableEvent>,
@@ -291,6 +385,31 @@ struct DisposalRow {
     gain: String,
 }
 
+/// Row for detailed CGT report showing per-rule breakdown
+#[derive(Tabled)]
+struct DetailedDisposalRow {
+    #[tabled(rename = "Date")]
+    date: String,
+    #[tabled(rename = "Asset")]
+    asset: String,
+    #[tabled(rename = "Rule")]
+    rule: String,
+    #[tabled(rename = "Qty")]
+    quantity: String,
+    #[tabled(rename = "Proceeds")]
+    proceeds: String,
+    #[tabled(rename = "Cost")]
+    cost: String,
+    #[tabled(rename = "Gain")]
+    gain: String,
+    #[tabled(rename = "Pool Qty")]
+    pool_qty: String,
+    #[tabled(rename = "Pool Cost")]
+    pool_cost: String,
+    #[tabled(rename = "Running Gain")]
+    running_gain: String,
+}
+
 #[derive(Tabled)]
 struct SummaryRow {
     #[tabled(rename = "")]
@@ -334,5 +453,19 @@ fn format_gbp_signed(amount: Decimal) -> String {
         format!("-£{:.2}", amount.abs())
     } else {
         format!("£{:.2}", amount)
+    }
+}
+
+/// Compact GBP format without pence (for detailed report table)
+fn format_gbp_compact(amount: Decimal) -> String {
+    format!("£{:.0}", amount)
+}
+
+/// Compact signed GBP format without pence (for detailed report table)
+fn format_gbp_signed_compact(amount: Decimal) -> String {
+    if amount < Decimal::ZERO {
+        format!("-£{:.0}", amount.abs())
+    } else {
+        format!("£{:.0}", amount)
     }
 }
