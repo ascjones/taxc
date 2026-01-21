@@ -1,9 +1,11 @@
+use crate::cmd::html_report;
 use crate::events::{self, OpeningPools};
 use crate::tax::cgt::{CgtReport, MatchingRule};
 use crate::tax::income::IncomeReport;
 use crate::tax::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
+use sha2::{Digest, Sha256};
 use std::io::BufReader;
 use std::path::Path;
 use std::{fs::File, io, path::PathBuf};
@@ -48,6 +50,10 @@ pub struct ReportCommand {
     /// Show detailed CGT breakdown with per-rule cost basis and running totals
     #[arg(long)]
     detailed: bool,
+
+    /// Generate HTML report (use "--html -" for stdout, otherwise opens in browser)
+    #[arg(long, value_name = "OUTPUT", num_args = 0..=1, default_missing_value = "")]
+    html: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -74,6 +80,16 @@ impl ReportCommand {
         let tax_year = self.year.map(TaxYear);
         let (all_events, opening_pools) = read_events(&self.events)?;
 
+        // Handle HTML output
+        if let Some(ref output) = self.html {
+            return self.generate_html_report(
+                &all_events,
+                opening_pools.as_ref(),
+                tax_year,
+                output,
+            );
+        }
+
         match self.report {
             ReportType::Cgt => self.report_cgt(all_events, opening_pools.as_ref(), tax_year),
             ReportType::Income => self.report_income(all_events, tax_year, tax_band),
@@ -83,6 +99,34 @@ impl ReportCommand {
                 self.report_income(all_events, tax_year, tax_band)
             }
         }
+    }
+
+    fn generate_html_report(
+        &self,
+        events: &[events::TaxableEvent],
+        opening_pools: Option<&OpeningPools>,
+        year: Option<TaxYear>,
+        output: &str,
+    ) -> color_eyre::Result<()> {
+        let cgt_report = calculate_cgt(events.to_vec(), opening_pools);
+        let income_report = calculate_income_tax(events.to_vec());
+
+        let html = html_report::generate(events, &cgt_report, &income_report, year);
+
+        if output == "-" {
+            // Write to stdout
+            print!("{}", html);
+        } else {
+            // Generate temp file path with hash and open in browser
+            let hash = short_hash(&self.events);
+            let path = std::env::temp_dir().join(format!("taxc-report-{}.html", hash));
+            std::fs::write(&path, &html)?;
+
+            opener::open(&path)?;
+            eprintln!("Opened: {}", path.display());
+        }
+
+        Ok(())
     }
 
     fn report_cgt(
@@ -488,4 +532,12 @@ fn read_events(
             Ok((events, None))
         }
     }
+}
+
+/// Generate a short hash of the file path for temp file naming
+fn short_hash(path: &Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    let result = hasher.finalize();
+    hex::encode(&result[..4]) // 8 hex chars
 }

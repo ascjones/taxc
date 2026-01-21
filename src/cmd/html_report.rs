@@ -1,0 +1,891 @@
+//! HTML report generation for tax data
+//!
+//! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
+
+use crate::events::{AssetClass, EventType, TaxableEvent};
+use crate::tax::cgt::{CgtReport, MatchingRule};
+use crate::tax::income::IncomeReport;
+use crate::tax::TaxYear;
+use rust_decimal::Decimal;
+use serde::Serialize;
+
+/// Data structure for embedding in HTML as JSON
+#[derive(Serialize)]
+pub struct HtmlReportData {
+    pub events: Vec<EventRow>,
+    pub disposals: Vec<DisposalRow>,
+    pub income: Vec<IncomeRow>,
+    pub summary: Summary,
+}
+
+#[derive(Serialize)]
+pub struct EventRow {
+    pub date: String,
+    pub tax_year: String,
+    pub event_type: String,
+    pub asset: String,
+    pub asset_class: String,
+    pub quantity: String,
+    pub value_gbp: String,
+    pub fees_gbp: String,
+    pub description: String,
+}
+
+#[derive(Serialize)]
+pub struct DisposalRow {
+    pub date: String,
+    pub tax_year: String,
+    pub asset: String,
+    pub quantity: String,
+    pub proceeds_gbp: String,
+    pub cost_gbp: String,
+    pub fees_gbp: String,
+    pub gain_gbp: String,
+    pub rule: String,
+    pub description: String,
+}
+
+#[derive(Serialize)]
+pub struct IncomeRow {
+    pub date: String,
+    pub tax_year: String,
+    pub income_type: String,
+    pub asset: String,
+    pub quantity: String,
+    pub value_gbp: String,
+    pub description: String,
+}
+
+#[derive(Serialize)]
+pub struct Summary {
+    pub total_proceeds: String,
+    pub total_costs: String,
+    pub total_gain: String,
+    pub total_staking: String,
+    pub total_dividends: String,
+    pub event_count: usize,
+    pub disposal_count: usize,
+    pub income_count: usize,
+    pub tax_years: Vec<String>,
+    pub assets: Vec<String>,
+}
+
+/// Generate HTML report content
+pub fn generate(
+    events: &[TaxableEvent],
+    cgt_report: &CgtReport,
+    income_report: &IncomeReport,
+    year: Option<TaxYear>,
+) -> String {
+    let data = build_report_data(events, cgt_report, income_report, year);
+    let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Tax Report</title>
+    <style>
+{css}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>UK Tax Report</h1>
+        <div class="filters">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Date Range</label>
+                    <div class="date-range">
+                        <input type="date" id="date-from" onchange="applyFilters()">
+                        <span>to</span>
+                        <input type="date" id="date-to" onchange="applyFilters()">
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="tax-year">Tax Year</label>
+                    <select id="tax-year" onchange="applyFilters()">
+                        <option value="">All Years</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="asset-search">Asset</label>
+                    <input type="text" id="asset-search" placeholder="Search assets..." oninput="applyFilters()">
+                </div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Event Type</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
+                        <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
+                        <label><input type="checkbox" id="type-staking" checked onchange="applyFilters()"> Staking</label>
+                        <label><input type="checkbox" id="type-dividend" checked onchange="applyFilters()"> Dividend</label>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Asset Class</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
+                        <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
+                    </div>
+                </div>
+                <button class="reset-btn" onclick="resetFilters()">Reset Filters</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="summary-cards">
+            <div class="card">
+                <h3>Total Proceeds</h3>
+                <p class="value" id="summary-proceeds">-</p>
+            </div>
+            <div class="card">
+                <h3>Total Costs</h3>
+                <p class="value" id="summary-costs">-</p>
+            </div>
+            <div class="card gain">
+                <h3>Total Gain/Loss</h3>
+                <p class="value" id="summary-gain">-</p>
+            </div>
+            <div class="card">
+                <h3>Staking Income</h3>
+                <p class="value" id="summary-staking">-</p>
+            </div>
+            <div class="card">
+                <h3>Dividend Income</h3>
+                <p class="value" id="summary-dividends">-</p>
+            </div>
+        </section>
+
+        <section class="data-section">
+            <h2>Taxable Events <span class="count" id="events-count"></span></h2>
+            <div class="table-container">
+                <table id="events-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Tax Year</th>
+                            <th>Type</th>
+                            <th>Asset</th>
+                            <th>Class</th>
+                            <th>Quantity</th>
+                            <th>Value</th>
+                            <th>Fees</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="events-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="data-section">
+            <h2>Capital Gains Disposals <span class="count" id="disposals-count"></span></h2>
+            <div class="table-container">
+                <table id="disposals-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Tax Year</th>
+                            <th>Asset</th>
+                            <th>Quantity</th>
+                            <th>Proceeds</th>
+                            <th>Cost</th>
+                            <th>Fees</th>
+                            <th>Gain/Loss</th>
+                            <th>Rule</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="disposals-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="data-section">
+            <h2>Income <span class="count" id="income-count"></span></h2>
+            <div class="table-container">
+                <table id="income-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Tax Year</th>
+                            <th>Type</th>
+                            <th>Asset</th>
+                            <th>Quantity</th>
+                            <th>Value</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="income-body"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+const DATA = {json_data};
+
+function init() {{
+    // Populate tax year dropdown
+    const taxYearSelect = document.getElementById('tax-year');
+    DATA.summary.tax_years.forEach(year => {{
+        const opt = document.createElement('option');
+        opt.value = year;
+        opt.textContent = year;
+        taxYearSelect.appendChild(opt);
+    }});
+
+    applyFilters();
+}}
+
+function getFilters() {{
+    return {{
+        dateFrom: document.getElementById('date-from').value,
+        dateTo: document.getElementById('date-to').value,
+        taxYear: document.getElementById('tax-year').value,
+        eventTypes: {{
+            Acquisition: document.getElementById('type-acquisition').checked,
+            Disposal: document.getElementById('type-disposal').checked,
+            StakingReward: document.getElementById('type-staking').checked,
+            Dividend: document.getElementById('type-dividend').checked,
+        }},
+        assetClasses: {{
+            Crypto: document.getElementById('class-crypto').checked,
+            Stock: document.getElementById('class-stock').checked,
+        }},
+        assetSearch: document.getElementById('asset-search').value.toLowerCase(),
+    }};
+}}
+
+function matchesFilters(item, filters, hasEventType = true, hasAssetClass = true) {{
+    // Date filter
+    if (filters.dateFrom && item.date < filters.dateFrom) return false;
+    if (filters.dateTo && item.date > filters.dateTo) return false;
+
+    // Tax year filter
+    if (filters.taxYear && item.tax_year !== filters.taxYear) return false;
+
+    // Event type filter (for events table)
+    if (hasEventType && item.event_type && !filters.eventTypes[item.event_type]) return false;
+
+    // Income type filter (for income table)
+    if (item.income_type) {{
+        const typeKey = item.income_type === 'Staking' ? 'StakingReward' : 'Dividend';
+        if (!filters.eventTypes[typeKey]) return false;
+    }}
+
+    // Asset class filter
+    if (hasAssetClass && item.asset_class && !filters.assetClasses[item.asset_class]) return false;
+
+    // Asset search
+    if (filters.assetSearch && !item.asset.toLowerCase().includes(filters.assetSearch)) return false;
+
+    return true;
+}}
+
+function filterEvents(events, filters) {{
+    return events.filter(e => matchesFilters(e, filters));
+}}
+
+function filterDisposals(disposals, filters) {{
+    // Disposals don't have event_type or asset_class directly, but should respect asset filter
+    return disposals.filter(d => {{
+        if (filters.dateFrom && d.date < filters.dateFrom) return false;
+        if (filters.dateTo && d.date > filters.dateTo) return false;
+        if (filters.taxYear && d.tax_year !== filters.taxYear) return false;
+        if (filters.assetSearch && !d.asset.toLowerCase().includes(filters.assetSearch)) return false;
+        // Only show disposals if Disposal type is checked
+        if (!filters.eventTypes.Disposal) return false;
+        return true;
+    }});
+}}
+
+function filterIncome(income, filters) {{
+    return income.filter(i => {{
+        if (filters.dateFrom && i.date < filters.dateFrom) return false;
+        if (filters.dateTo && i.date > filters.dateTo) return false;
+        if (filters.taxYear && i.tax_year !== filters.taxYear) return false;
+        if (filters.assetSearch && !i.asset.toLowerCase().includes(filters.assetSearch)) return false;
+        const typeKey = i.income_type === 'Staking' ? 'StakingReward' : 'Dividend';
+        if (!filters.eventTypes[typeKey]) return false;
+        return true;
+    }});
+}}
+
+function formatGbp(value) {{
+    const num = parseFloat(value.replace(/[£,]/g, ''));
+    if (isNaN(num)) return value;
+    const prefix = num < 0 ? '-£' : '£';
+    return prefix + Math.abs(num).toLocaleString('en-GB', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+}}
+
+function renderEventsTable(events) {{
+    const tbody = document.getElementById('events-body');
+    tbody.innerHTML = events.map(e => `
+        <tr>
+            <td>${{e.date}}</td>
+            <td>${{e.tax_year}}</td>
+            <td>${{e.event_type}}</td>
+            <td>${{e.asset}}</td>
+            <td>${{e.asset_class}}</td>
+            <td class="number">${{e.quantity}}</td>
+            <td class="number">${{formatGbp(e.value_gbp)}}</td>
+            <td class="number">${{e.fees_gbp ? formatGbp(e.fees_gbp) : '-'}}</td>
+            <td>${{e.description || ''}}</td>
+        </tr>
+    `).join('');
+    document.getElementById('events-count').textContent = `(${{events.length}})`;
+}}
+
+function renderDisposalsTable(disposals) {{
+    const tbody = document.getElementById('disposals-body');
+    tbody.innerHTML = disposals.map(d => {{
+        const gainNum = parseFloat(d.gain_gbp.replace(/[£,]/g, ''));
+        const gainClass = gainNum >= 0 ? 'gain' : 'loss';
+        return `
+            <tr>
+                <td>${{d.date}}</td>
+                <td>${{d.tax_year}}</td>
+                <td>${{d.asset}}</td>
+                <td class="number">${{d.quantity}}</td>
+                <td class="number">${{formatGbp(d.proceeds_gbp)}}</td>
+                <td class="number">${{formatGbp(d.cost_gbp)}}</td>
+                <td class="number">${{d.fees_gbp ? formatGbp(d.fees_gbp) : '-'}}</td>
+                <td class="number ${{gainClass}}">${{formatGbp(d.gain_gbp)}}</td>
+                <td>${{d.rule}}</td>
+                <td>${{d.description || ''}}</td>
+            </tr>
+        `;
+    }}).join('');
+    document.getElementById('disposals-count').textContent = `(${{disposals.length}})`;
+}}
+
+function renderIncomeTable(income) {{
+    const tbody = document.getElementById('income-body');
+    tbody.innerHTML = income.map(i => `
+        <tr>
+            <td>${{i.date}}</td>
+            <td>${{i.tax_year}}</td>
+            <td>${{i.income_type}}</td>
+            <td>${{i.asset}}</td>
+            <td class="number">${{i.quantity}}</td>
+            <td class="number">${{formatGbp(i.value_gbp)}}</td>
+            <td>${{i.description || ''}}</td>
+        </tr>
+    `).join('');
+    document.getElementById('income-count').textContent = `(${{income.length}})`;
+}}
+
+function calculateFilteredSummary(events, disposals, income) {{
+    let proceeds = 0, costs = 0, gain = 0, staking = 0, dividends = 0;
+
+    disposals.forEach(d => {{
+        proceeds += parseFloat(d.proceeds_gbp.replace(/[£,]/g, '')) || 0;
+        costs += parseFloat(d.cost_gbp.replace(/[£,]/g, '')) || 0;
+        costs += parseFloat((d.fees_gbp || '0').replace(/[£,]/g, '')) || 0;
+        gain += parseFloat(d.gain_gbp.replace(/[£,]/g, '')) || 0;
+    }});
+
+    income.forEach(i => {{
+        const val = parseFloat(i.value_gbp.replace(/[£,]/g, '')) || 0;
+        if (i.income_type === 'Staking') staking += val;
+        else dividends += val;
+    }});
+
+    return {{ proceeds, costs, gain, staking, dividends }};
+}}
+
+function updateSummary(events, disposals, income) {{
+    const summary = calculateFilteredSummary(events, disposals, income);
+
+    document.getElementById('summary-proceeds').textContent = formatGbp(summary.proceeds.toString());
+    document.getElementById('summary-costs').textContent = formatGbp(summary.costs.toString());
+
+    const gainEl = document.getElementById('summary-gain');
+    gainEl.textContent = formatGbp(summary.gain.toString());
+    gainEl.className = 'value ' + (summary.gain >= 0 ? 'gain' : 'loss');
+
+    document.getElementById('summary-staking').textContent = formatGbp(summary.staking.toString());
+    document.getElementById('summary-dividends').textContent = formatGbp(summary.dividends.toString());
+}}
+
+function applyFilters() {{
+    const filters = getFilters();
+
+    const filteredEvents = filterEvents(DATA.events, filters);
+    const filteredDisposals = filterDisposals(DATA.disposals, filters);
+    const filteredIncome = filterIncome(DATA.income, filters);
+
+    renderEventsTable(filteredEvents);
+    renderDisposalsTable(filteredDisposals);
+    renderIncomeTable(filteredIncome);
+    updateSummary(filteredEvents, filteredDisposals, filteredIncome);
+}}
+
+function resetFilters() {{
+    document.getElementById('date-from').value = '';
+    document.getElementById('date-to').value = '';
+    document.getElementById('tax-year').value = '';
+    document.getElementById('asset-search').value = '';
+    document.getElementById('type-acquisition').checked = true;
+    document.getElementById('type-disposal').checked = true;
+    document.getElementById('type-staking').checked = true;
+    document.getElementById('type-dividend').checked = true;
+    document.getElementById('class-crypto').checked = true;
+    document.getElementById('class-stock').checked = true;
+    applyFilters();
+}}
+
+document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>"##,
+        css = CSS,
+        json_data = json_data
+    )
+}
+
+fn build_report_data(
+    events: &[TaxableEvent],
+    cgt_report: &CgtReport,
+    income_report: &IncomeReport,
+    year: Option<TaxYear>,
+) -> HtmlReportData {
+    // Build events list
+    let event_rows: Vec<EventRow> = events
+        .iter()
+        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
+        .map(|e| EventRow {
+            date: e.date.format("%Y-%m-%d").to_string(),
+            tax_year: TaxYear::from_date(e.date).display(),
+            event_type: format_event_type(&e.event_type),
+            asset: e.asset.clone(),
+            asset_class: format_asset_class(&e.asset_class),
+            quantity: e.quantity.to_string(),
+            value_gbp: format!("{:.2}", e.value_gbp),
+            fees_gbp: e.fees_gbp.map(|f| format!("{:.2}", f)).unwrap_or_default(),
+            description: e.description.clone().unwrap_or_default(),
+        })
+        .collect();
+
+    // Build disposals list
+    let disposal_rows: Vec<DisposalRow> = cgt_report
+        .disposals
+        .iter()
+        .filter(|d| year.is_none_or(|y| d.tax_year == y))
+        .map(|d| {
+            // Determine primary matching rule
+            let rule = if d.matching_components.is_empty() {
+                "Pool".to_string()
+            } else if d.matching_components.len() == 1 {
+                format_matching_rule(&d.matching_components[0].rule)
+            } else {
+                "Mixed".to_string()
+            };
+
+            DisposalRow {
+                date: d.date.format("%Y-%m-%d").to_string(),
+                tax_year: d.tax_year.display(),
+                asset: d.asset.clone(),
+                quantity: d.quantity.to_string(),
+                proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
+                cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
+                fees_gbp: format!("{:.2}", d.fees_gbp),
+                gain_gbp: format!("{:.2}", d.gain_gbp),
+                rule,
+                description: d.description.clone().unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    // Build income list
+    let mut income_rows: Vec<IncomeRow> = Vec::new();
+    for e in &income_report.staking_events {
+        if year.is_none_or(|y| e.tax_year == y) {
+            income_rows.push(IncomeRow {
+                date: e.date.format("%Y-%m-%d").to_string(),
+                tax_year: e.tax_year.display(),
+                income_type: "Staking".to_string(),
+                asset: e.asset.clone(),
+                quantity: e.quantity.to_string(),
+                value_gbp: format!("{:.2}", e.value_gbp),
+                description: e.description.clone().unwrap_or_default(),
+            });
+        }
+    }
+    for e in &income_report.dividend_events {
+        if year.is_none_or(|y| e.tax_year == y) {
+            income_rows.push(IncomeRow {
+                date: e.date.format("%Y-%m-%d").to_string(),
+                tax_year: e.tax_year.display(),
+                income_type: "Dividend".to_string(),
+                asset: e.asset.clone(),
+                quantity: e.quantity.to_string(),
+                value_gbp: format!("{:.2}", e.value_gbp),
+                description: e.description.clone().unwrap_or_default(),
+            });
+        }
+    }
+    // Sort income by date
+    income_rows.sort_by(|a, b| a.date.cmp(&b.date));
+
+    // Calculate summary
+    let total_proceeds = cgt_report.total_proceeds(year);
+    let total_costs = cgt_report.total_allowable_costs(year);
+    let total_gain = cgt_report.total_gain(year);
+
+    let total_staking: Decimal = income_report
+        .staking_events
+        .iter()
+        .filter(|e| year.is_none_or(|y| e.tax_year == y))
+        .map(|e| e.value_gbp)
+        .sum();
+
+    let total_dividends: Decimal = income_report
+        .dividend_events
+        .iter()
+        .filter(|e| year.is_none_or(|y| e.tax_year == y))
+        .map(|e| e.value_gbp)
+        .sum();
+
+    // Collect unique tax years
+    let mut tax_years: Vec<String> = events
+        .iter()
+        .map(|e| TaxYear::from_date(e.date).display())
+        .collect();
+    tax_years.sort();
+    tax_years.dedup();
+
+    // Collect unique assets
+    let mut assets: Vec<String> = events.iter().map(|e| e.asset.clone()).collect();
+    assets.sort();
+    assets.dedup();
+
+    HtmlReportData {
+        events: event_rows,
+        disposals: disposal_rows,
+        income: income_rows,
+        summary: Summary {
+            total_proceeds: format!("{:.2}", total_proceeds),
+            total_costs: format!("{:.2}", total_costs),
+            total_gain: format!("{:.2}", total_gain),
+            total_staking: format!("{:.2}", total_staking),
+            total_dividends: format!("{:.2}", total_dividends),
+            event_count: events.len(),
+            disposal_count: cgt_report.disposals.len(),
+            income_count: income_report.staking_events.len() + income_report.dividend_events.len(),
+            tax_years,
+            assets,
+        },
+    }
+}
+
+fn format_event_type(et: &EventType) -> String {
+    match et {
+        EventType::Acquisition => "Acquisition",
+        EventType::Disposal => "Disposal",
+        EventType::StakingReward => "StakingReward",
+        EventType::Dividend => "Dividend",
+    }
+    .to_string()
+}
+
+fn format_asset_class(ac: &AssetClass) -> String {
+    match ac {
+        AssetClass::Crypto => "Crypto",
+        AssetClass::Stock => "Stock",
+    }
+    .to_string()
+}
+
+fn format_matching_rule(rule: &MatchingRule) -> String {
+    match rule {
+        MatchingRule::SameDay => "Same-Day",
+        MatchingRule::BedAndBreakfast => "B&B",
+        MatchingRule::Pool => "Pool",
+    }
+    .to_string()
+}
+
+const CSS: &str = r#"
+:root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-900);
+    line-height: 1.5;
+}
+
+header {
+    background: white;
+    border-bottom: 1px solid var(--gray-200);
+    padding: 1.5rem 2rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--gray-900);
+}
+
+.filters {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.filter-group label:first-child {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.date-range {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.date-range span {
+    color: var(--gray-500);
+    font-size: 0.875rem;
+}
+
+input[type="date"],
+input[type="text"],
+select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    background: white;
+    min-width: 140px;
+}
+
+input[type="date"]:focus,
+input[type="text"]:focus,
+select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.checkbox-group {
+    display: flex;
+    gap: 1rem;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    color: var(--gray-700);
+    cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+
+.reset-btn {
+    padding: 0.5rem 1rem;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-300);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    color: var(--gray-700);
+    transition: all 0.15s;
+}
+
+.reset-btn:hover {
+    background: var(--gray-200);
+}
+
+main {
+    padding: 2rem;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.card {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.card h3 {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.card .value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--gray-900);
+}
+
+.card .value.gain {
+    color: var(--success);
+}
+
+.card .value.loss {
+    color: var(--danger);
+}
+
+.data-section {
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+.data-section h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-50);
+}
+
+.data-section h2 .count {
+    font-weight: 400;
+    color: var(--gray-500);
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+thead {
+    background: var(--gray-50);
+    position: sticky;
+    top: 0;
+}
+
+th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    color: var(--gray-700);
+    border-bottom: 1px solid var(--gray-200);
+    white-space: nowrap;
+}
+
+td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--gray-100);
+    color: var(--gray-700);
+}
+
+tbody tr:hover {
+    background: var(--gray-50);
+}
+
+tbody tr:nth-child(even) {
+    background: var(--gray-50);
+}
+
+tbody tr:nth-child(even):hover {
+    background: var(--gray-100);
+}
+
+.number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.gain {
+    color: var(--success);
+    font-weight: 500;
+}
+
+.loss {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    header {
+        padding: 1rem;
+    }
+
+    .filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    main {
+        padding: 1rem;
+    }
+
+    .summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+"#;

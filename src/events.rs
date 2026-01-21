@@ -158,7 +158,9 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
 }
 
 /// Read taxable events from JSON with optional opening pools
-pub fn read_json<R: Read>(reader: R) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
+pub fn read_json<R: Read>(
+    reader: R,
+) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
     let input: TaxInput = serde_json::from_reader(reader)?;
     let mut events: Vec<TaxableEvent> = input.events.into_iter().map(Into::into).collect();
     events.sort_by_key(|e| e.date);
@@ -323,7 +325,13 @@ mod tests {
 
         assert_eq!(events.len(), 2);
         // Events should be sorted by date
-        assert_eq!(events[0].date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
-        assert_eq!(events[1].date, NaiveDate::from_ymd_opt(2024, 6, 15).unwrap());
+        assert_eq!(
+            events[0].date,
+            NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()
+        );
+        assert_eq!(
+            events[1].date,
+            NaiveDate::from_ymd_opt(2024, 6, 15).unwrap()
+        );
     }
 }
