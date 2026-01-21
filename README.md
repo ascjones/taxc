@@ -26,6 +26,7 @@ taxc report [OPTIONS] --events <EVENTS>
 | `-r, --report <TYPE>` | Report type: `cgt`, `income`, `all` (default: all) |
 | `--csv` | Output as CSV instead of formatted table |
 | `--detailed` | Show detailed CGT breakdown with per-rule cost basis |
+| `--html [OUTPUT]` | Generate interactive HTML report (opens in browser, or `-` for stdout) |
 
 ## Input Formats
 
@@ -139,6 +140,21 @@ DETAILED CAPITAL GAINS TAX REPORT (All Years)
 │ 15/6/24 │   BTC │ B&B (20/06) │   3 │   £36000 │ £30000 │ £6000 │       10 │   £100000 │       £10000 │
 ╰─────────┴───────┴─────────────┴─────┴──────────┴────────┴───────┴──────────┴───────────┴──────────────╯
 ```
+
+### Interactive HTML Report
+
+```
+taxc report -e events.csv --html
+```
+
+Generates a self-contained HTML file and opens it in your default browser. Features:
+
+- **Summary cards** - Total proceeds, costs, gains/losses, staking income, dividends
+- **Interactive filtering** - Filter by date range, tax year, event type, asset class, or search by asset
+- **Three data tables** - All taxable events, CGT disposals, and income events
+- **Color-coded gains/losses** - Green for gains, red for losses
+
+Use `--html -` to output HTML to stdout instead of opening in browser.
 
 ## HMRC Share Identification Rules
 
