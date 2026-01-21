@@ -1,4 +1,4 @@
-//! E2E tests for detailed CGT report functionality
+//! E2E tests for CGT report functionality
 
 use std::process::Command;
 
@@ -95,4 +95,39 @@ fn detailed_report_pool_tracking() {
     // (original 10 + same-day 2 matched + B&B 3 matched = 10 remaining in pool)
     assert!(stdout.contains("10"));
     assert!(stdout.contains("£100000"));
+}
+
+/// Test JSON input with opening pool balances
+#[test]
+fn json_input_with_opening_pools() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "-e",
+            "tests/data/opening_pools.json",
+            "-r",
+            "cgt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Verify the command succeeded
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    // Verify CGT report is generated
+    assert!(stdout.contains("CAPITAL GAINS TAX REPORT"));
+
+    // Verify the disposal is shown
+    assert!(stdout.contains("BTC"));
+    assert!(stdout.contains("£75000")); // Proceeds
+
+    // Verify the cost is calculated from opening pool (5/10 * 100000 = 50000)
+    assert!(stdout.contains("£50000")); // Cost
+
+    // Verify gain is calculated correctly (75000 - 50000 = 25000)
+    assert!(stdout.contains("£25000")); // Gain
 }

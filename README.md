@@ -2,7 +2,7 @@
 
 UK Tax Calculator for Capital Gains and Income.
 
-Calculates UK taxes from a CSV of taxable events, implementing HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
+Calculates UK taxes from CSV or JSON input, implementing HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
 
 ## Installation
 
@@ -20,14 +20,18 @@ taxc report [OPTIONS] --events <EVENTS>
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV file containing taxable events (required) |
+| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to report (e.g., 2025 for 2024/25) |
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
 | `-r, --report <TYPE>` | Report type: `cgt`, `income`, `all` (default: all) |
 | `--csv` | Output as CSV instead of formatted table |
 | `--detailed` | Show detailed CGT breakdown with per-rule cost basis |
 
-## Input Format
+## Input Formats
+
+Supports both CSV and JSON input. JSON format allows specifying opening pool balances.
+
+### CSV Format
 
 CSV file with the following columns:
 
@@ -42,7 +46,7 @@ CSV file with the following columns:
 | `fees_gbp` | Transaction fees in GBP (optional) |
 | `description` | Description (optional) |
 
-### Example CSV
+#### Example CSV
 
 ```csv
 date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
@@ -51,6 +55,42 @@ date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
 2024-04-01,StakingReward,ETH,Crypto,0.1,250.00,,Kraken
 2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
 ```
+
+### JSON Format
+
+JSON input supports opening pool balances for scenarios where historical transactions have already established pool state.
+
+```json
+{
+  "tax_year": "2024-25",
+  "opening_pools": {
+    "as_of_date": "2024-03-06",
+    "pools": {
+      "BTC": { "quantity": 10.0, "cost_gbp": 100000.00 },
+      "ETH": { "quantity": 50.0, "cost_gbp": 50000.00 }
+    }
+  },
+  "events": [
+    {
+      "date": "2024-04-15",
+      "event_type": "Disposal",
+      "asset": "BTC",
+      "asset_class": "Crypto",
+      "quantity": 5.0,
+      "value_gbp": 75000.00,
+      "fees_gbp": 10.00,
+      "description": "Partial sale"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `tax_year` | Optional metadata |
+| `opening_pools.as_of_date` | Date of pool snapshot (optional) |
+| `opening_pools.pools` | Map of asset to `{ quantity, cost_gbp }` |
+| `events` | Array of taxable events (same fields as CSV) |
 
 ## Example Output
 

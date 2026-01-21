@@ -1,7 +1,33 @@
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
+
+/// Pool balance at a point in time (for opening balances)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpeningPool {
+    pub quantity: Decimal,
+    pub cost_gbp: Decimal,
+}
+
+/// Opening pools section of JSON input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpeningPools {
+    #[serde(default)]
+    pub as_of_date: Option<String>,
+    pub pools: HashMap<String, OpeningPool>,
+}
+
+/// Unified JSON input format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaxInput {
+    #[serde(default)]
+    pub tax_year: Option<String>,
+    #[serde(default)]
+    pub opening_pools: Option<OpeningPools>,
+    pub events: Vec<TaxableEventRecord>,
+}
 
 /// Type of taxable event
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +157,14 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
     Ok(events)
 }
 
+/// Read taxable events from JSON with optional opening pools
+pub fn read_json<R: Read>(reader: R) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
+    let input: TaxInput = serde_json::from_reader(reader)?;
+    let mut events: Vec<TaxableEvent> = input.events.into_iter().map(Into::into).collect();
+    events.sort_by_key(|e| e.date);
+    Ok((events, input.opening_pools))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +237,93 @@ mod tests {
             description: None,
         };
         assert_eq!(event.total_cost_gbp(), dec!(1000));
+    }
+
+    #[test]
+    fn parse_json_with_opening_pools() {
+        let json_data = r#"{
+            "tax_year": "2024-25",
+            "opening_pools": {
+                "as_of_date": "2024-03-06",
+                "pools": {
+                    "BTC": { "quantity": 10.5, "cost_gbp": 100000.00 },
+                    "ETH": { "quantity": 50.0, "cost_gbp": 50000.00 }
+                }
+            },
+            "events": [
+                {
+                    "date": "2024-04-15",
+                    "event_type": "Disposal",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 5.0,
+                    "value_gbp": 75000.00
+                }
+            ]
+        }"#;
+
+        let (events, opening) = read_json(json_data.as_bytes()).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert!(opening.is_some());
+
+        let pools = opening.unwrap();
+        assert_eq!(pools.pools.len(), 2);
+        assert_eq!(pools.pools["BTC"].quantity, dec!(10.5));
+        assert_eq!(pools.pools["BTC"].cost_gbp, dec!(100000));
+        assert_eq!(pools.pools["ETH"].quantity, dec!(50));
+        assert_eq!(pools.pools["ETH"].cost_gbp, dec!(50000));
+    }
+
+    #[test]
+    fn parse_json_without_opening_pools() {
+        let json_data = r#"{
+            "events": [
+                {
+                    "date": "2024-04-15",
+                    "event_type": "Acquisition",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 1.0,
+                    "value_gbp": 50000.00
+                }
+            ]
+        }"#;
+
+        let (events, opening) = read_json(json_data.as_bytes()).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert!(opening.is_none());
+    }
+
+    #[test]
+    fn parse_json_events_sorted_by_date() {
+        let json_data = r#"{
+            "events": [
+                {
+                    "date": "2024-06-15",
+                    "event_type": "Disposal",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 1.0,
+                    "value_gbp": 60000.00
+                },
+                {
+                    "date": "2024-01-15",
+                    "event_type": "Acquisition",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 1.0,
+                    "value_gbp": 50000.00
+                }
+            ]
+        }"#;
+
+        let (events, _) = read_json(json_data.as_bytes()).unwrap();
+
+        assert_eq!(events.len(), 2);
+        // Events should be sorted by date
+        assert_eq!(events[0].date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        assert_eq!(events[1].date, NaiveDate::from_ymd_opt(2024, 6, 15).unwrap());
     }
 }

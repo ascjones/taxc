@@ -1,9 +1,11 @@
-use crate::events;
+use crate::events::{self, OpeningPools};
 use crate::tax::cgt::{CgtReport, MatchingRule};
 use crate::tax::income::IncomeReport;
 use crate::tax::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
+use std::io::BufReader;
+use std::path::Path;
 use std::{fs::File, io, path::PathBuf};
 use tabled::{
     settings::{object::Rows, Alignment, Modify, Style},
@@ -70,13 +72,13 @@ impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_band: TaxBand = self.tax_band.into();
         let tax_year = self.year.map(TaxYear);
-        let all_events = events::read_csv(File::open(&self.events)?)?;
+        let (all_events, opening_pools) = read_events(&self.events)?;
 
         match self.report {
-            ReportType::Cgt => self.report_cgt(all_events, tax_year),
+            ReportType::Cgt => self.report_cgt(all_events, opening_pools.as_ref(), tax_year),
             ReportType::Income => self.report_income(all_events, tax_year, tax_band),
             ReportType::All => {
-                self.report_cgt(all_events.clone(), tax_year)?;
+                self.report_cgt(all_events.clone(), opening_pools.as_ref(), tax_year)?;
                 println!();
                 self.report_income(all_events, tax_year, tax_band)
             }
@@ -86,9 +88,10 @@ impl ReportCommand {
     fn report_cgt(
         &self,
         events: Vec<events::TaxableEvent>,
+        opening_pools: Option<&OpeningPools>,
         year: Option<TaxYear>,
     ) -> color_eyre::Result<()> {
-        let report = calculate_cgt(events);
+        let report = calculate_cgt(events, opening_pools);
 
         if self.csv {
             if self.detailed {
@@ -467,5 +470,22 @@ fn format_gbp_signed_compact(amount: Decimal) -> String {
         format!("-£{:.0}", amount.abs())
     } else {
         format!("£{:.0}", amount)
+    }
+}
+
+/// Read events from CSV or JSON file based on extension
+fn read_events(
+    path: &Path,
+) -> color_eyre::Result<(Vec<events::TaxableEvent>, Option<OpeningPools>)> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    match path.extension().and_then(|s| s.to_str()) {
+        Some("json") => events::read_json(reader),
+        _ => {
+            // Default to CSV for .csv files and any other extension
+            let events = events::read_csv(reader)?;
+            Ok((events, None))
+        }
     }
 }
