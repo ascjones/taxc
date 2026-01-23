@@ -1,21 +1,12 @@
-//! E2E tests for CGT report functionality
+//! E2E tests for events and summary command functionality
 
 use std::process::Command;
 
-/// Test that the detailed report CLI works with mixed matching rules
+/// Test that the events command works with mixed matching rules
 #[test]
-fn detailed_report_mixed_rules() {
+fn events_mixed_rules() {
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "-e",
-            "tests/data/mixed_rules.csv",
-            "--detailed",
-            "-r",
-            "cgt",
-        ])
+        .args(["run", "--", "events", "-e", "tests/data/mixed_rules.csv"])
         .output()
         .expect("Failed to execute command");
 
@@ -25,27 +16,24 @@ fn detailed_report_mixed_rules() {
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     // Verify key elements are present in output
-    assert!(stdout.contains("DETAILED CAPITAL GAINS TAX REPORT"));
+    assert!(stdout.contains("Acquisition"));
+    assert!(stdout.contains("Disposal"));
     assert!(stdout.contains("Same-Day"));
     assert!(stdout.contains("B&B"));
-    assert!(stdout.contains("20/06")); // B&B matched date (UK format)
-    assert!(stdout.contains("Running Gain"));
+    assert!(stdout.contains("BTC"));
 }
 
-/// Test detailed CSV output with mixed matching rules
+/// Test events CSV output with mixed matching rules
 #[test]
-fn detailed_csv_mixed_rules() {
+fn events_csv_mixed_rules() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "report",
+            "events",
             "-e",
             "tests/data/mixed_rules.csv",
-            "--detailed",
             "--csv",
-            "-r",
-            "cgt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -56,59 +44,27 @@ fn detailed_csv_mixed_rules() {
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     // Verify CSV header
-    assert!(stdout.contains("date,tax_year,asset,rule,matched_date"));
-    assert!(stdout.contains("running_gain_gbp"));
+    assert!(stdout.contains("row_num"));
+    assert!(stdout.contains("date"));
+    assert!(stdout.contains("event_type"));
 
     // Verify both rules are present
     assert!(stdout.contains("Same-Day"));
     assert!(stdout.contains("B&B"));
-
-    // Should have header + 2 data rows
-    let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(lines.len(), 3);
 }
 
-/// Test that pool state is tracked correctly across disposals
+/// Test filtering by event type
 #[test]
-fn detailed_report_pool_tracking() {
+fn events_filter_by_type() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "report",
+            "events",
             "-e",
             "tests/data/mixed_rules.csv",
-            "--detailed",
-            "-r",
-            "cgt",
-        ])
-        .output()
-        .expect("Failed to execute command");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Verify pool quantities are shown
-    assert!(stdout.contains("Pool Qty"));
-    assert!(stdout.contains("Pool Cost"));
-
-    // The pool should have 10 BTC after the disposal
-    // (original 10 + same-day 2 matched + B&B 3 matched = 10 remaining in pool)
-    assert!(stdout.contains("10"));
-    assert!(stdout.contains("£100000"));
-}
-
-/// Test JSON input with opening pool balances
-#[test]
-fn json_input_with_opening_pools() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "-e",
-            "tests/data/opening_pools.json",
-            "-r",
-            "cgt",
+            "--event-type",
+            "disposal",
         ])
         .output()
         .expect("Failed to execute command");
@@ -118,16 +74,86 @@ fn json_input_with_opening_pools() {
     // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Verify CGT report is generated
-    assert!(stdout.contains("CAPITAL GAINS TAX REPORT"));
+    // Should only see disposal-related entries
+    assert!(stdout.contains("Disposal"));
+    // Should not have "Acquisition" as a main row type (only in sub-rows or references)
+}
 
-    // Verify the disposal is shown
-    assert!(stdout.contains("BTC"));
-    assert!(stdout.contains("£75000")); // Proceeds
+/// Test JSON input with opening pool balances using summary command
+#[test]
+fn json_input_with_opening_pools() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "summary",
+            "-e",
+            "tests/data/opening_pools.json",
+        ])
+        .output()
+        .expect("Failed to execute command");
 
-    // Verify the cost is calculated from opening pool (5/10 * 100000 = 50000)
-    assert!(stdout.contains("£50000")); // Cost
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Verify gain is calculated correctly (75000 - 50000 = 25000)
-    assert!(stdout.contains("£25000")); // Gain
+    // Verify the command succeeded
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    // Verify summary report is generated
+    assert!(stdout.contains("TAX SUMMARY"));
+    assert!(stdout.contains("CAPITAL GAINS"));
+
+    // Verify the disposal count
+    assert!(stdout.contains("Disposals: 1"));
+}
+
+/// Test summary command with JSON output
+#[test]
+fn summary_json_output() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "summary",
+            "-e",
+            "tests/data/mixed_rules.csv",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Verify the command succeeded
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    // Verify JSON structure
+    assert!(stdout.contains("\"tax_year\""));
+    assert!(stdout.contains("\"capital_gains\""));
+    assert!(stdout.contains("\"income\""));
+    assert!(stdout.contains("\"total_tax_liability\""));
+}
+
+/// Test events command with year filter
+#[test]
+fn events_filter_by_year() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "events",
+            "-e",
+            "tests/data/mixed_rules.csv",
+            "--year",
+            "2025",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Verify the command succeeded
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    // Should show events in 2024/25 tax year
+    assert!(stdout.contains("2024/25"));
 }

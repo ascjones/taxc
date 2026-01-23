@@ -8,6 +8,7 @@ use std::io::Write;
 
 /// Snapshot of pool state at a point in time
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct PoolSnapshot {
     pub quantity: Decimal,
     pub cost_gbp: Decimal,
@@ -141,8 +142,10 @@ pub struct DisposalRecord {
     pub gain_gbp: Decimal,
     #[allow(dead_code)]
     pub matching: DisposalMatching,
+    #[allow(dead_code)]
     pub description: Option<String>,
     /// Pool state after this disposal
+    #[allow(dead_code)]
     pub pool_after: PoolSnapshot,
     /// Breakdown by matching rule for detailed reporting
     pub matching_components: Vec<MatchingComponent>,
@@ -172,6 +175,7 @@ pub enum DisposalMatching {
 
 /// CSV record for disposal output
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct DisposalCsvRecord {
     pub date: String,
     pub tax_year: String,
@@ -202,6 +206,7 @@ impl From<&DisposalRecord> for DisposalCsvRecord {
 
 /// CSV record for detailed disposal output with per-rule breakdown
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct DetailedDisposalCsvRecord {
     pub date: String,
     pub tax_year: String,
@@ -255,6 +260,7 @@ impl CgtReport {
     }
 
     /// Write disposals to CSV
+    #[allow(dead_code)]
     pub fn write_csv<W: Write>(&self, writer: W, year: Option<TaxYear>) -> color_eyre::Result<()> {
         let mut wtr = csv::Writer::from_writer(writer);
         for disposal in self.filter_disposals(year) {
@@ -266,6 +272,7 @@ impl CgtReport {
     }
 
     /// Write detailed disposals to CSV with per-rule breakdown
+    #[allow(dead_code)]
     pub fn write_detailed_csv<W: Write>(
         &self,
         writer: W,
@@ -366,8 +373,12 @@ pub fn calculate_cgt(
     let mut acquisition_total_qty: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
 
     // First pass: record all acquisitions for matching purposes
+    // Include both Acquisition and StakingReward events - staking rewards are
+    // acquisitions at FMV and should be matchable via same-day/B&B rules
     for event in &events {
-        if event.event_type == EventType::Acquisition {
+        if event.event_type == EventType::Acquisition
+            || event.event_type == EventType::StakingReward
+        {
             let key = (event.date, event.asset.clone());
             *acquisition_remaining
                 .entry(key.clone())
@@ -385,7 +396,8 @@ pub fn calculate_cgt(
     // Second pass: process all events
     for event in &events {
         match event.event_type {
-            EventType::Acquisition => {
+            // Both Acquisition and StakingReward add to the pool (after matching)
+            EventType::Acquisition | EventType::StakingReward => {
                 let key = (event.date, event.asset.clone());
 
                 // Calculate how much of this day's acquisitions should go to pool
@@ -587,8 +599,8 @@ pub fn calculate_cgt(
                     matching_components,
                 });
             }
-            // Income events (staking, dividends) don't affect CGT
-            EventType::StakingReward | EventType::Dividend => {}
+            // Dividends don't affect CGT (StakingReward is handled above as an acquisition)
+            EventType::Dividend => {}
         }
     }
 
@@ -603,9 +615,14 @@ fn find_acquisition_cost(
     quantity: Decimal,
 ) -> Decimal {
     // Find acquisitions on this date for this asset
+    // Include both Acquisition and StakingReward events
     let day_acquisitions: Vec<&TaxableEvent> = events
         .iter()
-        .filter(|e| e.event_type == EventType::Acquisition && e.asset == asset && e.date == date)
+        .filter(|e| {
+            (e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward)
+                && e.asset == asset
+                && e.date == date
+        })
         .collect();
 
     if day_acquisitions.is_empty() {
@@ -667,6 +684,19 @@ mod tests {
         TaxableEvent {
             date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
             event_type: EventType::Disposal,
+            asset: asset.to_string(),
+            asset_class: AssetClass::Crypto,
+            quantity: qty,
+            value_gbp: value,
+            fees_gbp: None,
+            description: None,
+        }
+    }
+
+    fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
+        TaxableEvent {
+            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            event_type: EventType::StakingReward,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
             quantity: qty,
@@ -1121,6 +1151,75 @@ mod tests {
         assert_eq!(
             bnb.matched_date,
             Some(NaiveDate::parse_from_str("2024-06-20", "%Y-%m-%d").unwrap())
+        );
+    }
+
+    #[test]
+    fn staking_rewards_matched_same_day() {
+        // Staking rewards are acquisitions at FMV and should be matchable
+        // via same-day rule when there's a disposal on the same day
+        let events = vec![
+            staking("2024-03-08", "DOT", dec!(100), dec!(800)), // Staking reward
+            disp("2024-03-08", "DOT", dec!(10), dec!(85)),      // Fee disposal same day
+        ];
+
+        let report = calculate_cgt(events, None);
+        assert_eq!(report.disposals.len(), 1);
+
+        let disposal = &report.disposals[0];
+
+        // Should have same-day matching component
+        assert!(
+            !disposal.matching_components.is_empty(),
+            "Expected matching components but got none"
+        );
+
+        let same_day = disposal
+            .matching_components
+            .iter()
+            .find(|c| c.rule == MatchingRule::SameDay);
+        assert!(
+            same_day.is_some(),
+            "Expected Same-Day matching but got: {:?}",
+            disposal.matching_components
+        );
+
+        let same_day = same_day.unwrap();
+        assert_eq!(same_day.quantity, dec!(10));
+        // Cost should be proportional: 10/100 * 800 = 80
+        assert_eq!(same_day.cost, dec!(80));
+    }
+
+    #[test]
+    fn staking_rewards_matched_bnb() {
+        // Staking rewards should also be matchable via B&B rule
+        let events = vec![
+            disp("2024-03-08", "DOT", dec!(10), dec!(85)),       // Disposal
+            staking("2024-03-15", "DOT", dec!(100), dec!(800)),  // Staking reward within 30 days
+        ];
+
+        let report = calculate_cgt(events, None);
+        assert_eq!(report.disposals.len(), 1);
+
+        let disposal = &report.disposals[0];
+
+        let bnb = disposal
+            .matching_components
+            .iter()
+            .find(|c| c.rule == MatchingRule::BedAndBreakfast);
+        assert!(
+            bnb.is_some(),
+            "Expected B&B matching but got: {:?}",
+            disposal.matching_components
+        );
+
+        let bnb = bnb.unwrap();
+        assert_eq!(bnb.quantity, dec!(10));
+        // Cost should be proportional: 10/100 * 800 = 80
+        assert_eq!(bnb.cost, dec!(80));
+        assert_eq!(
+            bnb.matched_date,
+            Some(NaiveDate::parse_from_str("2024-03-15", "%Y-%m-%d").unwrap())
         );
     }
 

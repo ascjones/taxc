@@ -1,2 +1,3 @@
+pub mod events;
 pub mod html_report;
-pub mod report;
+pub mod summary;

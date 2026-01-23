@@ -3,7 +3,8 @@ mod events;
 mod tax;
 
 use clap::{Parser, Subcommand};
-use cmd::report::ReportCommand;
+use cmd::events::EventsCommand;
+use cmd::summary::SummaryCommand;
 
 #[derive(Parser, Debug)]
 #[command(name = "taxc")]
@@ -15,14 +16,19 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Calculate UK taxes from taxable events CSV
-    Report(ReportCommand),
+    /// Show all transactions/events in a detailed table
+    #[command(alias = "txs")]
+    Events(EventsCommand),
+
+    /// Show aggregated tax summary
+    Summary(SummaryCommand),
 }
 
 impl Command {
     fn exec(&self) -> color_eyre::Result<()> {
         match self {
-            Command::Report(report) => report.exec(),
+            Command::Events(events) => events.exec(),
+            Command::Summary(summary) => summary.exec(),
         }
     }
 }

@@ -9,8 +9,10 @@ use std::io::Write;
 #[derive(Debug)]
 pub struct IncomeReport {
     /// Staking rewards grouped by tax year
+    #[allow(dead_code)]
     pub staking_by_year: HashMap<TaxYear, Decimal>,
     /// Dividends grouped by tax year
+    #[allow(dead_code)]
     pub dividends_by_year: HashMap<TaxYear, Decimal>,
     /// Individual staking events
     pub staking_events: Vec<IncomeEvent>,
@@ -20,6 +22,7 @@ pub struct IncomeReport {
 
 /// Individual income event record
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct IncomeEvent {
     pub date: chrono::NaiveDate,
     pub tax_year: TaxYear,
@@ -38,6 +41,7 @@ pub enum IncomeType {
 
 /// Tax calculation for a specific year
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct YearlyIncomeTax {
     #[allow(dead_code)]
     pub tax_year: TaxYear,
@@ -54,6 +58,7 @@ pub struct YearlyIncomeTax {
 
 impl IncomeReport {
     /// Calculate tax liability for a specific year
+    #[allow(dead_code)]
     pub fn calculate_tax(&self, year: TaxYear, band: TaxBand) -> YearlyIncomeTax {
         let staking_income = self
             .staking_by_year
@@ -89,6 +94,7 @@ impl IncomeReport {
     }
 
     /// Get all tax years with income
+    #[allow(dead_code)]
     pub fn tax_years(&self) -> Vec<TaxYear> {
         let mut years: Vec<TaxYear> = self
             .staking_by_year
@@ -126,6 +132,7 @@ impl IncomeReport {
     }
 
     /// Write income events to CSV
+    #[allow(dead_code)]
     pub fn write_csv<W: Write>(&self, writer: W, year: Option<TaxYear>) -> color_eyre::Result<()> {
         let mut wtr = csv::Writer::from_writer(writer);
 
@@ -147,6 +154,7 @@ impl IncomeReport {
 
 /// CSV record for income output
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct IncomeCsvRecord {
     pub date: String,
     pub tax_year: String,

@@ -2,6 +2,8 @@
 //!
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
+#![allow(dead_code)]
+
 use crate::events::{AssetClass, EventType, TaxableEvent};
 use crate::tax::cgt::{CgtReport, MatchingRule};
 use crate::tax::income::IncomeReport;
