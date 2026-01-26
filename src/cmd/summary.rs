@@ -20,6 +20,10 @@ pub struct SummaryCommand {
     #[arg(short, long)]
     year: Option<i32>,
 
+    /// Filter by asset (e.g., BTC, ETH, DOT)
+    #[arg(short, long)]
+    asset: Option<String>,
+
     /// Tax band for income tax calculation
     #[arg(short, long, value_enum, default_value_t = TaxBandArg::Basic)]
     tax_band: TaxBandArg,
@@ -51,6 +55,8 @@ impl From<TaxBandArg> for TaxBand {
 #[derive(Debug, Serialize)]
 struct SummaryData {
     tax_year: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asset: Option<String>,
     tax_band: String,
     capital_gains: CapitalGainsSummary,
     income: IncomeSummary,
@@ -89,8 +95,18 @@ impl SummaryCommand {
         let tax_year = self.year.map(TaxYear);
         let (all_events, opening_pools) = read_events(&self.events)?;
 
-        let cgt_report = calculate_cgt(all_events.clone(), opening_pools.as_ref());
-        let income_report = calculate_income_tax(all_events);
+        // Filter by asset if specified
+        let filtered_events: Vec<_> = if let Some(ref asset) = self.asset {
+            all_events
+                .into_iter()
+                .filter(|e| e.asset.eq_ignore_ascii_case(asset))
+                .collect()
+        } else {
+            all_events
+        };
+
+        let cgt_report = calculate_cgt(filtered_events.clone(), opening_pools.as_ref());
+        let income_report = calculate_income_tax(filtered_events);
 
         if self.json {
             self.print_json(&cgt_report, &income_report, tax_year, tax_band)
@@ -115,7 +131,11 @@ impl SummaryCommand {
         };
 
         println!();
-        println!("TAX SUMMARY ({}) - {} rate", year_str, band_str);
+        if let Some(ref asset) = self.asset {
+            println!("TAX SUMMARY ({}, {}) - {} rate", year_str, asset.to_uppercase(), band_str);
+        } else {
+            println!("TAX SUMMARY ({}) - {} rate", year_str, band_str);
+        }
         println!();
 
         // Get tax year for rates (use provided year or default to current)
@@ -291,6 +311,7 @@ impl SummaryCommand {
 
         let data = SummaryData {
             tax_year: year_str,
+            asset: self.asset.as_ref().map(|a| a.to_uppercase()),
             tax_band: band_str.to_string(),
             capital_gains: CapitalGainsSummary {
                 disposal_count: disposals.len(),
