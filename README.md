@@ -10,23 +10,53 @@ Calculates UK taxes from CSV or JSON input, implementing HMRC share identificati
 cargo install --git https://github.com/ascjones/taxc
 ```
 
-## Usage
+## Commands
+
+### Events - Transaction View
+
+Show all transactions/events in a detailed table:
 
 ```
-taxc report [OPTIONS] --events <EVENTS>
+taxc events [OPTIONS] --events <EVENTS>
 ```
 
-### Options
+| Option | Description |
+|--------|-------------|
+| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
+| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking`, `dividend` |
+| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
+| `--csv` | Output as CSV instead of formatted table |
+
+### Summary - Tax Calculations
+
+Show aggregated tax summary with CGT and income calculations:
+
+```
+taxc summary [OPTIONS] --events <EVENTS>
+```
 
 | Option | Description |
 |--------|-------------|
 | `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to report (e.g., 2025 for 2024/25) |
+| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
-| `-r, --report <TYPE>` | Report type: `cgt`, `income`, `all` (default: all) |
-| `--csv` | Output as CSV instead of formatted table |
-| `--detailed` | Show detailed CGT breakdown with per-rule cost basis |
-| `--html [OUTPUT]` | Generate interactive HTML report (opens in browser, or `-` for stdout) |
+| `--json` | Output as JSON instead of formatted text |
+
+### HTML - Interactive Report
+
+Generate an interactive HTML report:
+
+```
+taxc html [OPTIONS] --events <EVENTS>
+```
+
+| Option | Description |
+|--------|-------------|
+| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
+| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `-o, --output <FILE>` | Output file path (default: opens in browser) |
 
 ## Input Formats
 
@@ -95,56 +125,40 @@ JSON input supports opening pool balances for scenarios where historical transac
 
 ## Example Output
 
-### Standard CGT Report
+### Events Command
 
 ```
-taxc report -e events.csv -r cgt
+taxc events -e events.csv
+```
+
+Shows a detailed table with all transactions, including sub-rows for disposals matched via multiple rules (Same-Day, B&B, Pool).
+
+### Summary Command
+
+```
+taxc summary -e events.csv -y 2025
 ```
 
 ```
-CAPITAL GAINS TAX REPORT (All Years)
+TAX SUMMARY (2024/25) - basic rate
 
-╭────────────┬───────┬───────────┬──────────┬────────┬───────────╮
-│ Date       │ Asset │ Proceeds  │ Cost     │ Fees   │ Gain/Loss │
-├────────────┼───────┼───────────┼──────────┼────────┼───────────┤
-│ 2024-03-20 │   BTC │ £12000.00 │ £7512.50 │ £15.00 │  £4472.50 │
-│ 2024-09-01 │   ETH │  £3000.00 │ £2505.00 │  £5.00 │   £490.00 │
-╰────────────┴───────┴───────────┴──────────┴────────┴───────────╯
+CAPITAL GAINS
+  Disposals: 2
+  Proceeds: £15,000.00 | Costs: £10,017.50 | Gain: £4,962.50
+  Exempt: £3,000.00 | Taxable: £1,962.50
+  CGT @ 18%: £353.25 | @ 24%: £471.00
 
-╭──────────────────────┬──────────╮
-│                      │ Amount   │
-├──────────────────────┼──────────┤
-│      Total Gain/Loss │ £4962.50 │
-│ Annual Exempt Amount │ £3000.00 │
-│         Taxable Gain │ £1962.50 │
-│  Tax @ 18.0% (basic) │  £353.25 │
-│ Tax @ 20.0% (higher) │  £392.50 │
-╰──────────────────────┴──────────╯
+INCOME
+  Staking: £250.00 (Tax @ 20%: £50.00)
+  Dividends: £150.00 (Allowance: £150.00, Tax @ 8.75%: £0.00)
+
+TOTAL TAX LIABILITY: £403.25 (basic)
 ```
 
-### Detailed CGT Report
+### HTML Report
 
 ```
-taxc report -e events.csv -r cgt --detailed
-```
-
-Shows per-rule cost basis breakdown with running totals:
-
-```
-DETAILED CAPITAL GAINS TAX REPORT (All Years)
-
-╭─────────┬───────┬─────────────┬─────┬──────────┬────────┬───────┬──────────┬───────────┬──────────────╮
-│ Date    │ Asset │ Rule        │ Qty │ Proceeds │ Cost   │ Gain  │ Pool Qty │ Pool Cost │ Running Gain │
-├─────────┼───────┼─────────────┼─────┼──────────┼────────┼───────┼──────────┼───────────┼──────────────┤
-│ 15/6/24 │   BTC │    Same-Day │   2 │   £24000 │ £20000 │ £4000 │       10 │   £100000 │        £4000 │
-│ 15/6/24 │   BTC │ B&B (20/06) │   3 │   £36000 │ £30000 │ £6000 │       10 │   £100000 │       £10000 │
-╰─────────┴───────┴─────────────┴─────┴──────────┴────────┴───────┴──────────┴───────────┴──────────────╯
-```
-
-### Interactive HTML Report
-
-```
-taxc report -e events.csv --html
+taxc html -e events.csv
 ```
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
@@ -152,9 +166,12 @@ Generates a self-contained HTML file and opens it in your default browser. Featu
 - **Summary cards** - Total proceeds, costs, gains/losses, staking income, dividends
 - **Interactive filtering** - Filter by date range, tax year, event type, asset class, or search by asset
 - **Three data tables** - All taxable events, CGT disposals, and income events
+- **Color-coded event types** - Badges for Acquisition (green), Disposal (red), Staking (purple), Dividend (teal)
+- **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
+- **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
 - **Color-coded gains/losses** - Green for gains, red for losses
 
-Use `--html -` to output HTML to stdout instead of opening in browser.
+Use `-o /path/to/file.html` to write to a specific file instead of opening in browser.
 
 ## HMRC Share Identification Rules
 

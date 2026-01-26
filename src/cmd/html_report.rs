@@ -2,14 +2,55 @@
 //!
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
-#![allow(dead_code)]
-
+use crate::cmd::events::read_events;
 use crate::events::{AssetClass, EventType, TaxableEvent};
-use crate::tax::cgt::{CgtReport, MatchingRule};
-use crate::tax::income::IncomeReport;
+use crate::tax::cgt::{calculate_cgt, CgtReport, MatchingRule};
+use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
+use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;
+use std::path::PathBuf;
+
+#[derive(Args, Debug)]
+pub struct HtmlCommand {
+    /// CSV or JSON file containing taxable events
+    #[arg(short, long)]
+    events: PathBuf,
+
+    /// Tax year to filter (e.g., 2025 for 2024/25)
+    #[arg(short, long)]
+    year: Option<i32>,
+
+    /// Output file path (default: opens in browser)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
+impl HtmlCommand {
+    pub fn exec(&self) -> color_eyre::Result<()> {
+        let tax_year = self.year.map(TaxYear);
+        let (events, opening_pools) = read_events(&self.events)?;
+
+        let cgt_report = calculate_cgt(events.clone(), opening_pools.as_ref());
+        let income_report = calculate_income_tax(events.clone());
+
+        let html = generate(&events, &cgt_report, &income_report, tax_year);
+
+        if let Some(ref output_path) = self.output {
+            std::fs::write(output_path, &html)?;
+            println!("HTML report written to: {}", output_path.display());
+        } else {
+            // Write to temp file and open in browser
+            let temp_path = std::env::temp_dir().join("taxc-report.html");
+            std::fs::write(&temp_path, &html)?;
+            opener::open(&temp_path)?;
+            println!("Opened HTML report in browser: {}", temp_path.display());
+        }
+
+        Ok(())
+    }
+}
 
 /// Data structure for embedding in HTML as JSON
 #[derive(Serialize)]
@@ -45,6 +86,17 @@ pub struct DisposalRow {
     pub gain_gbp: String,
     pub rule: String,
     pub description: String,
+    /// Breakdown of matching components for linked transaction display
+    pub matching_components: Vec<MatchingComponentRow>,
+}
+
+#[derive(Serialize)]
+pub struct MatchingComponentRow {
+    pub rule: String,
+    pub quantity: String,
+    pub cost_gbp: String,
+    /// For B&B: the linked acquisition date
+    pub matched_date: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -326,13 +378,43 @@ function formatGbp(value) {{
     return prefix + Math.abs(num).toLocaleString('en-GB', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
 }}
 
+function getEventTypeBadgeClass(eventType) {{
+    switch(eventType) {{
+        case 'Acquisition': return 'badge-acquisition';
+        case 'Disposal': return 'badge-disposal';
+        case 'StakingReward': return 'badge-staking';
+        case 'Dividend': return 'badge-dividend';
+        default: return '';
+    }}
+}}
+
+function getRuleBadgeClass(rule) {{
+    switch(rule) {{
+        case 'Same-Day': return 'badge-sameday';
+        case 'B&B': return 'badge-bnb';
+        case 'Pool': return 'badge-pool';
+        case 'Mixed': return 'badge-mixed';
+        default: return '';
+    }}
+}}
+
+function getEventTypeLabel(eventType) {{
+    switch(eventType) {{
+        case 'StakingReward': return 'Staking';
+        default: return eventType;
+    }}
+}}
+
 function renderEventsTable(events) {{
     const tbody = document.getElementById('events-body');
-    tbody.innerHTML = events.map(e => `
+    tbody.innerHTML = events.map(e => {{
+        const badgeClass = getEventTypeBadgeClass(e.event_type);
+        const label = getEventTypeLabel(e.event_type);
+        return `
         <tr>
             <td>${{e.date}}</td>
             <td>${{e.tax_year}}</td>
-            <td>${{e.event_type}}</td>
+            <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
             <td>${{e.asset}}</td>
             <td>${{e.asset_class}}</td>
             <td class="number">${{e.quantity}}</td>
@@ -340,18 +422,24 @@ function renderEventsTable(events) {{
             <td class="number">${{e.fees_gbp ? formatGbp(e.fees_gbp) : '-'}}</td>
             <td>${{e.description || ''}}</td>
         </tr>
-    `).join('');
+    `}}).join('');
     document.getElementById('events-count').textContent = `(${{events.length}})`;
 }}
 
 function renderDisposalsTable(disposals) {{
     const tbody = document.getElementById('disposals-body');
-    tbody.innerHTML = disposals.map(d => {{
+    let html = '';
+    disposals.forEach((d, idx) => {{
         const gainNum = parseFloat(d.gain_gbp.replace(/[£,]/g, ''));
         const gainClass = gainNum >= 0 ? 'gain' : 'loss';
-        return `
-            <tr>
-                <td>${{d.date}}</td>
+        const ruleBadgeClass = getRuleBadgeClass(d.rule);
+        const hasComponents = d.matching_components && d.matching_components.length > 0;
+        const expandIcon = hasComponents ? '<span class="expand-icon">▶</span>' : '';
+        const expandableClass = hasComponents ? 'expandable' : '';
+
+        html += `
+            <tr class="${{expandableClass}}" data-idx="${{idx}}" onclick="toggleMatchingDetails(${{idx}})">
+                <td>${{expandIcon}}${{d.date}}</td>
                 <td>${{d.tax_year}}</td>
                 <td>${{d.asset}}</td>
                 <td class="number">${{d.quantity}}</td>
@@ -359,27 +447,67 @@ function renderDisposalsTable(disposals) {{
                 <td class="number">${{formatGbp(d.cost_gbp)}}</td>
                 <td class="number">${{d.fees_gbp ? formatGbp(d.fees_gbp) : '-'}}</td>
                 <td class="number ${{gainClass}}">${{formatGbp(d.gain_gbp)}}</td>
-                <td>${{d.rule}}</td>
+                <td><span class="badge ${{ruleBadgeClass}}">${{d.rule}}</span></td>
                 <td>${{d.description || ''}}</td>
             </tr>
         `;
-    }}).join('');
+
+        // Add hidden matching component rows
+        if (hasComponents) {{
+            d.matching_components.forEach((mc, mcIdx) => {{
+                const mcBadgeClass = getRuleBadgeClass(mc.rule);
+                const linkedDate = mc.matched_date ? `<span class="linked-date">→ ${{mc.matched_date}}</span>` : '';
+                html += `
+                    <tr class="matching-row" data-parent="${{idx}}" style="display: none;">
+                        <td colspan="10">
+                            <div class="matching-detail">
+                                <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span>
+                                <span><span class="label">Qty:</span> <span class="value">${{mc.quantity}}</span></span>
+                                <span><span class="label">Cost:</span> <span class="value">${{formatGbp(mc.cost_gbp)}}</span></span>
+                                ${{linkedDate}}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }});
+        }}
+    }});
+    tbody.innerHTML = html;
     document.getElementById('disposals-count').textContent = `(${{disposals.length}})`;
+}}
+
+function toggleMatchingDetails(idx) {{
+    const parentRow = document.querySelector(`tr[data-idx="${{idx}}"]`);
+    const childRows = document.querySelectorAll(`tr[data-parent="${{idx}}"]`);
+
+    if (childRows.length === 0) return;
+
+    const isExpanded = parentRow.classList.contains('expanded');
+
+    if (isExpanded) {{
+        parentRow.classList.remove('expanded');
+        childRows.forEach(row => row.style.display = 'none');
+    }} else {{
+        parentRow.classList.add('expanded');
+        childRows.forEach(row => row.style.display = '');
+    }}
 }}
 
 function renderIncomeTable(income) {{
     const tbody = document.getElementById('income-body');
-    tbody.innerHTML = income.map(i => `
+    tbody.innerHTML = income.map(i => {{
+        const badgeClass = i.income_type === 'Staking' ? 'badge-staking' : 'badge-dividend';
+        return `
         <tr>
             <td>${{i.date}}</td>
             <td>${{i.tax_year}}</td>
-            <td>${{i.income_type}}</td>
+            <td><span class="badge ${{badgeClass}}">${{i.income_type}}</span></td>
             <td>${{i.asset}}</td>
             <td class="number">${{i.quantity}}</td>
             <td class="number">${{formatGbp(i.value_gbp)}}</td>
             <td>${{i.description || ''}}</td>
         </tr>
-    `).join('');
+    `}}).join('');
     document.getElementById('income-count').textContent = `(${{income.length}})`;
 }}
 
@@ -490,6 +618,18 @@ fn build_report_data(
                 "Mixed".to_string()
             };
 
+            // Build matching components for linked transaction display
+            let matching_components: Vec<MatchingComponentRow> = d
+                .matching_components
+                .iter()
+                .map(|mc| MatchingComponentRow {
+                    rule: format_matching_rule(&mc.rule),
+                    quantity: mc.quantity.to_string(),
+                    cost_gbp: format!("{:.2}", mc.cost),
+                    matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                })
+                .collect();
+
             DisposalRow {
                 date: d.date.format("%Y-%m-%d").to_string(),
                 tax_year: d.tax_year.display(),
@@ -501,6 +641,7 @@ fn build_report_data(
                 gain_gbp: format!("{:.2}", d.gain_gbp),
                 rule,
                 description: d.description.clone().unwrap_or_default(),
+                matching_components,
             }
         })
         .collect();
@@ -627,6 +768,24 @@ const CSS: &str = r#"
     --gray-500: #6b7280;
     --gray-700: #374151;
     --gray-900: #111827;
+    /* Event type colors */
+    --type-acquisition: #059669;
+    --type-acquisition-bg: #d1fae5;
+    --type-disposal: #dc2626;
+    --type-disposal-bg: #fee2e2;
+    --type-staking: #7c3aed;
+    --type-staking-bg: #ede9fe;
+    --type-dividend: #0891b2;
+    --type-dividend-bg: #cffafe;
+    /* Matching rule colors */
+    --rule-sameday: #2563eb;
+    --rule-sameday-bg: #dbeafe;
+    --rule-bnb: #d97706;
+    --rule-bnb-bg: #fef3c7;
+    --rule-pool: #6b7280;
+    --rule-pool-bg: #f3f4f6;
+    --rule-mixed: #7c3aed;
+    --rule-mixed-bg: #ede9fe;
 }
 
 * {
@@ -889,5 +1048,112 @@ tbody tr:nth-child(even):hover {
     .summary-cards {
         grid-template-columns: repeat(2, 1fr);
     }
+}
+
+/* Badge styles for event types and rules */
+.badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.badge-acquisition {
+    background: var(--type-acquisition-bg);
+    color: var(--type-acquisition);
+}
+
+.badge-disposal {
+    background: var(--type-disposal-bg);
+    color: var(--type-disposal);
+}
+
+.badge-staking {
+    background: var(--type-staking-bg);
+    color: var(--type-staking);
+}
+
+.badge-dividend {
+    background: var(--type-dividend-bg);
+    color: var(--type-dividend);
+}
+
+.badge-sameday {
+    background: var(--rule-sameday-bg);
+    color: var(--rule-sameday);
+}
+
+.badge-bnb {
+    background: var(--rule-bnb-bg);
+    color: var(--rule-bnb);
+}
+
+.badge-pool {
+    background: var(--rule-pool-bg);
+    color: var(--rule-pool);
+}
+
+.badge-mixed {
+    background: var(--rule-mixed-bg);
+    color: var(--rule-mixed);
+}
+
+/* Expandable row styles */
+.expandable {
+    cursor: pointer;
+}
+
+.expandable:hover {
+    background: var(--gray-100) !important;
+}
+
+.expand-icon {
+    display: inline-block;
+    width: 1rem;
+    margin-right: 0.25rem;
+    text-align: center;
+    transition: transform 0.15s;
+}
+
+.expanded .expand-icon {
+    transform: rotate(90deg);
+}
+
+/* Matching component sub-rows */
+.matching-row {
+    background: var(--gray-50) !important;
+}
+
+.matching-row td {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--gray-500);
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.matching-row td:first-child {
+    padding-left: 2.5rem;
+}
+
+.matching-detail {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.matching-detail .label {
+    font-weight: 500;
+    color: var(--gray-500);
+}
+
+.matching-detail .value {
+    color: var(--gray-700);
+}
+
+.linked-date {
+    color: var(--rule-bnb);
+    font-weight: 500;
 }
 "#;
