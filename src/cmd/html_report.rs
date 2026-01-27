@@ -406,11 +406,7 @@ function renderEventsTable(events) {{
             html += `
                 <tr class="matching-row cgt-summary-row" data-parent="${{idx}}" style="display: none;">
                     <td class="expand-cell"></td>
-                    <td colspan="3" class="cgt-summary-label">Cost Basis</td>
-                    <td class="number ref-text">${{formatGbp(e.cgt.cost_gbp)}}</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <td colspan="7" class="cgt-summary-label">Cost Basis</td>
                 </tr>
             `;
 
