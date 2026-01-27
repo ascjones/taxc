@@ -108,11 +108,16 @@ pub struct Summary {
     pub total_proceeds: String,
     pub total_costs: String,
     pub total_gain: String,
+    /// Totals including unclassified events (for conservative estimates)
+    pub total_proceeds_with_unclassified: String,
+    pub total_costs_with_unclassified: String,
+    pub total_gain_with_unclassified: String,
     pub total_staking: String,
     pub total_dividends: String,
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
+    pub unclassified_count: usize,
     pub tax_years: Vec<String>,
     pub assets: Vec<String>,
     pub min_date: Option<String>,
@@ -191,14 +196,17 @@ pub fn generate(
             <div class="card">
                 <h3>Total Proceeds</h3>
                 <p class="value" id="summary-proceeds">-</p>
+                <p class="sub-value" id="summary-proceeds-inc">-</p>
             </div>
             <div class="card">
                 <h3>Total Costs</h3>
                 <p class="value" id="summary-costs">-</p>
+                <p class="sub-value" id="summary-costs-inc">-</p>
             </div>
             <div class="card gain">
                 <h3>Total Gain/Loss</h3>
                 <p class="value" id="summary-gain">-</p>
+                <p class="sub-value" id="summary-gain-inc">-</p>
             </div>
             <div class="card">
                 <h3>Staking Income</h3>
@@ -209,6 +217,10 @@ pub fn generate(
                 <p class="value" id="summary-dividends">-</p>
             </div>
         </section>
+        <div class="unclassified-warning" id="unclassified-warning" style="display: none;">
+            <span class="warning-icon">⚠</span>
+            <span id="unclassified-count">0</span> unclassified transaction(s) - totals may be incomplete
+        </div>
 
         <section class="data-section">
             <h2>Transactions <span class="count" id="events-count"></span></h2>
@@ -253,6 +265,12 @@ function init() {{
         document.getElementById('date-to').value = DATA.summary.max_date;
     }}
 
+    // Show unclassified warning if needed
+    if (DATA.summary.unclassified_count > 0) {{
+        document.getElementById('unclassified-warning').style.display = 'flex';
+        document.getElementById('unclassified-count').textContent = DATA.summary.unclassified_count;
+    }}
+
     applyFilters();
 }}
 
@@ -266,6 +284,9 @@ function getFilters() {{
             Disposal: document.getElementById('type-disposal').checked,
             StakingReward: document.getElementById('type-staking').checked,
             Dividend: document.getElementById('type-dividend').checked,
+            // Unclassified events always shown (they need attention)
+            UnclassifiedIn: true,
+            UnclassifiedOut: true,
         }},
         assetClasses: {{
             Crypto: document.getElementById('class-crypto').checked,
@@ -311,6 +332,8 @@ function getEventTypeBadgeClass(eventType) {{
         case 'Disposal': return 'badge-disposal';
         case 'StakingReward': return 'badge-staking';
         case 'Dividend': return 'badge-dividend';
+        case 'UnclassifiedIn': return 'badge-unclassified';
+        case 'UnclassifiedOut': return 'badge-unclassified';
         default: return '';
     }}
 }}
@@ -328,6 +351,8 @@ function getRuleBadgeClass(rule) {{
 function getEventTypeLabel(eventType) {{
     switch(eventType) {{
         case 'StakingReward': return 'Staking';
+        case 'UnclassifiedIn': return '? In';
+        case 'UnclassifiedOut': return '? Out';
         default: return eventType;
     }}
 }}
@@ -466,13 +491,32 @@ function navigateToRow(rowIdx) {{
 }}
 
 function calculateFilteredSummary(events) {{
-    let proceeds = 0, costs = 0, gain = 0, staking = 0, dividends = 0;
+    // Track classified and all (including unclassified) totals separately
+    let proceeds = 0, costs = 0, gain = 0;
+    let proceedsInc = 0, costsInc = 0, gainInc = 0;
+    let staking = 0, dividends = 0;
+    let unclassifiedCount = 0;
 
     events.forEach(e => {{
+        const isUnclassified = e.event_type === 'UnclassifiedIn' || e.event_type === 'UnclassifiedOut';
+        if (isUnclassified) unclassifiedCount++;
+
         if (e.cgt) {{
-            proceeds += parseFloat(e.cgt.proceeds_gbp.replace(/[£,]/g, '')) || 0;
-            costs += parseFloat(e.cgt.cost_gbp.replace(/[£,]/g, '')) || 0;
-            gain += parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, '')) || 0;
+            const p = parseFloat(e.cgt.proceeds_gbp.replace(/[£,]/g, '')) || 0;
+            const c = parseFloat(e.cgt.cost_gbp.replace(/[£,]/g, '')) || 0;
+            const g = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, '')) || 0;
+
+            // Always add to "including unclassified" totals
+            proceedsInc += p;
+            costsInc += c;
+            gainInc += g;
+
+            // Only add to classified totals if not unclassified
+            if (!isUnclassified) {{
+                proceeds += p;
+                costs += c;
+                gain += g;
+            }}
         }}
         if (e.event_type === 'StakingReward') {{
             staking += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
@@ -482,7 +526,7 @@ function calculateFilteredSummary(events) {{
         }}
     }});
 
-    return {{ proceeds, costs, gain, staking, dividends }};
+    return {{ proceeds, costs, gain, proceedsInc, costsInc, gainInc, staking, dividends, unclassifiedCount }};
 }}
 
 function updateSummary(events) {{
@@ -494,6 +538,26 @@ function updateSummary(events) {{
     const gainEl = document.getElementById('summary-gain');
     gainEl.textContent = formatGbp(summary.gain.toString());
     gainEl.className = 'value ' + (summary.gain >= 0 ? 'gain' : 'loss');
+
+    // Show "inc. unclassified" sub-values only if there are unclassified events
+    const hasUnclassified = summary.unclassifiedCount > 0;
+    const proceedsIncEl = document.getElementById('summary-proceeds-inc');
+    const costsIncEl = document.getElementById('summary-costs-inc');
+    const gainIncEl = document.getElementById('summary-gain-inc');
+
+    if (hasUnclassified) {{
+        proceedsIncEl.textContent = `(${{formatGbp(summary.proceedsInc.toString())}} inc. unclassified)`;
+        proceedsIncEl.style.display = 'block';
+        costsIncEl.textContent = `(${{formatGbp(summary.costsInc.toString())}} inc. unclassified)`;
+        costsIncEl.style.display = 'block';
+        gainIncEl.textContent = `(${{formatGbp(summary.gainInc.toString())}} inc. unclassified)`;
+        gainIncEl.style.display = 'block';
+        gainIncEl.className = 'sub-value ' + (summary.gainInc >= 0 ? 'gain' : 'loss');
+    }} else {{
+        proceedsIncEl.style.display = 'none';
+        costsIncEl.style.display = 'none';
+        gainIncEl.style.display = 'none';
+    }}
 
     document.getElementById('summary-staking').textContent = formatGbp(summary.staking.toString());
     document.getElementById('summary-dividends').textContent = formatGbp(summary.dividends.toString());
@@ -670,10 +734,16 @@ fn build_report_data(
         })
         .collect();
 
-    // Calculate summary
+    // Calculate summary (classified events only)
     let total_proceeds = cgt_report.total_proceeds(year);
     let total_costs = cgt_report.total_allowable_costs(year);
     let total_gain = cgt_report.total_gain(year);
+
+    // Calculate totals including unclassified events
+    let total_proceeds_with_unclassified = cgt_report.total_proceeds_with_unclassified(year);
+    let total_costs_with_unclassified = cgt_report.total_allowable_costs_with_unclassified(year);
+    let total_gain_with_unclassified = cgt_report.total_gain_with_unclassified(year);
+    let unclassified_count = cgt_report.unclassified_count(year);
 
     let total_staking: Decimal = income_report
         .staking_events
@@ -718,11 +788,15 @@ fn build_report_data(
             total_proceeds: format!("{:.2}", total_proceeds),
             total_costs: format!("{:.2}", total_costs),
             total_gain: format!("{:.2}", total_gain),
+            total_proceeds_with_unclassified: format!("{:.2}", total_proceeds_with_unclassified),
+            total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
+            total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
             total_staking: format!("{:.2}", total_staking),
             total_dividends: format!("{:.2}", total_dividends),
             event_count: events.len(),
             disposal_count,
             income_count,
+            unclassified_count,
             tax_years,
             assets,
             min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
@@ -737,6 +811,8 @@ fn format_event_type(et: &EventType) -> String {
         EventType::Disposal => "Disposal",
         EventType::StakingReward => "StakingReward",
         EventType::Dividend => "Dividend",
+        EventType::UnclassifiedIn => "UnclassifiedIn",
+        EventType::UnclassifiedOut => "UnclassifiedOut",
     }
     .to_string()
 }
@@ -789,6 +865,9 @@ const CSS: &str = r#"
     --rule-pool-bg: #f3f4f6;
     --rule-mixed: #7c3aed;
     --rule-mixed-bg: #ede9fe;
+    /* Unclassified colors */
+    --type-unclassified: #b45309;
+    --type-unclassified-bg: #fef3c7;
 }
 
 * {
@@ -955,6 +1034,37 @@ main {
     color: var(--danger);
 }
 
+.card .sub-value {
+    font-size: 0.75rem;
+    color: var(--gray-500);
+    margin-top: 0.25rem;
+}
+
+.card .sub-value.gain {
+    color: var(--success);
+}
+
+.card .sub-value.loss {
+    color: var(--danger);
+}
+
+.unclassified-warning {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--type-unclassified-bg);
+    color: var(--type-unclassified);
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.warning-icon {
+    font-size: 1rem;
+}
+
 .data-section {
     background: white;
     border-radius: 0.5rem;
@@ -1095,6 +1205,11 @@ tbody tr:nth-child(even):hover {
 .badge-dividend {
     background: var(--type-dividend-bg);
     color: var(--type-dividend);
+}
+
+.badge-unclassified {
+    background: var(--type-unclassified-bg);
+    color: var(--type-unclassified);
 }
 
 .badge-sameday {

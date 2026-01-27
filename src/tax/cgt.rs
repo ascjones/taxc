@@ -149,6 +149,8 @@ pub struct DisposalRecord {
     pub pool_after: PoolSnapshot,
     /// Breakdown by matching rule for detailed reporting
     pub matching_components: Vec<MatchingComponent>,
+    /// Whether this disposal came from an UnclassifiedOut event
+    pub is_unclassified: bool,
 }
 
 /// How the disposal was matched for cost basis
@@ -231,39 +233,65 @@ pub struct CgtReport {
 }
 
 impl CgtReport {
-    /// Total proceeds for a tax year
+    /// Total proceeds for a tax year (classified events only)
     pub fn total_proceeds(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year).map(|d| d.proceeds_gbp).sum()
+        self.filter_disposals(year, true).map(|d| d.proceeds_gbp).sum()
     }
 
-    /// Total allowable costs for a tax year
+    /// Total proceeds including unclassified events
+    pub fn total_proceeds_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
+        self.filter_disposals(year, false).map(|d| d.proceeds_gbp).sum()
+    }
+
+    /// Total allowable costs for a tax year (classified events only)
     pub fn total_allowable_costs(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year)
+        self.filter_disposals(year, true)
             .map(|d| d.allowable_cost_gbp + d.fees_gbp)
             .sum()
     }
 
-    /// Total gain/loss for a tax year
+    /// Total allowable costs including unclassified events
+    pub fn total_allowable_costs_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
+        self.filter_disposals(year, false)
+            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
+            .sum()
+    }
+
+    /// Total gain/loss for a tax year (classified events only)
     pub fn total_gain(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year).map(|d| d.gain_gbp).sum()
+        self.filter_disposals(year, true).map(|d| d.gain_gbp).sum()
+    }
+
+    /// Total gain/loss including unclassified events
+    pub fn total_gain_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
+        self.filter_disposals(year, false).map(|d| d.gain_gbp).sum()
+    }
+
+    /// Count of unclassified disposal events
+    pub fn unclassified_count(&self, year: Option<TaxYear>) -> usize {
+        self.disposals
+            .iter()
+            .filter(|d| d.is_unclassified && year.is_none_or(|y| d.tax_year == y))
+            .count()
     }
 
     #[cfg(test)]
     pub fn disposal_count(&self, year: Option<TaxYear>) -> usize {
-        self.filter_disposals(year).count()
+        self.filter_disposals(year, false).count()
     }
 
-    fn filter_disposals(&self, year: Option<TaxYear>) -> impl Iterator<Item = &DisposalRecord> {
+    fn filter_disposals(&self, year: Option<TaxYear>, classified_only: bool) -> impl Iterator<Item = &DisposalRecord> {
         self.disposals
             .iter()
             .filter(move |d| year.is_none_or(|y| d.tax_year == y))
+            .filter(move |d| !classified_only || !d.is_unclassified)
     }
 
     /// Write disposals to CSV
     #[allow(dead_code)]
     pub fn write_csv<W: Write>(&self, writer: W, year: Option<TaxYear>) -> color_eyre::Result<()> {
         let mut wtr = csv::Writer::from_writer(writer);
-        for disposal in self.filter_disposals(year) {
+        for disposal in self.filter_disposals(year, false) {
             let record: DisposalCsvRecord = disposal.into();
             wtr.serialize(record)?;
         }
@@ -281,7 +309,7 @@ impl CgtReport {
         let mut wtr = csv::Writer::from_writer(writer);
         let mut running_gain = Decimal::ZERO;
 
-        for disposal in self.filter_disposals(year) {
+        for disposal in self.filter_disposals(year, false) {
             let total_qty = disposal.quantity;
 
             for component in &disposal.matching_components {
@@ -356,8 +384,8 @@ pub fn calculate_cgt(
         match a.date().cmp(&b.date()) {
             std::cmp::Ordering::Equal => {
                 // Disposals come before acquisitions on same day
-                let a_is_disposal = a.event_type == EventType::Disposal;
-                let b_is_disposal = b.event_type == EventType::Disposal;
+                let a_is_disposal = a.event_type.is_disposal_like();
+                let b_is_disposal = b.event_type.is_disposal_like();
                 b_is_disposal.cmp(&a_is_disposal) // true (disposal) comes first
             }
             other => other,
@@ -373,12 +401,10 @@ pub fn calculate_cgt(
     let mut acquisition_total_qty: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
 
     // First pass: record all acquisitions for matching purposes
-    // Include both Acquisition and StakingReward events - staking rewards are
-    // acquisitions at FMV and should be matchable via same-day/B&B rules
+    // Include Acquisition, StakingReward, and UnclassifiedIn events
+    // UnclassifiedIn is treated as acquisition for conservative estimates
     for event in &events {
-        if event.event_type == EventType::Acquisition
-            || event.event_type == EventType::StakingReward
-        {
+        if event.event_type.is_acquisition_like() {
             let key = (event.date(), event.asset.clone());
             *acquisition_remaining
                 .entry(key.clone())
@@ -396,8 +422,8 @@ pub fn calculate_cgt(
     // Second pass: process all events
     for event in &events {
         match event.event_type {
-            // Both Acquisition and StakingReward add to the pool (after matching)
-            EventType::Acquisition | EventType::StakingReward => {
+            // Acquisition-like events add to the pool (after matching)
+            EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn => {
                 let key = (event.date(), event.asset.clone());
 
                 // Calculate how much of this day's acquisitions should go to pool
@@ -435,9 +461,10 @@ pub fn calculate_cgt(
                     }
                 }
             }
-            EventType::Disposal => {
+            EventType::Disposal | EventType::UnclassifiedOut => {
                 let fees = event.fees_gbp.unwrap_or(Decimal::ZERO);
                 let tax_year = TaxYear::from_date(event.date());
+                let is_unclassified = event.event_type == EventType::UnclassifiedOut;
 
                 let mut remaining_to_match = event.quantity;
                 let mut total_allowable_cost = Decimal::ZERO;
@@ -597,9 +624,10 @@ pub fn calculate_cgt(
                     description: event.description.clone(),
                     pool_after,
                     matching_components,
+                    is_unclassified,
                 });
             }
-            // Dividends don't affect CGT (StakingReward is handled above as an acquisition)
+            // Dividends don't affect CGT
             EventType::Dividend => {}
         }
     }
@@ -615,14 +643,10 @@ fn find_acquisition_cost(
     quantity: Decimal,
 ) -> Decimal {
     // Find acquisitions on this date for this asset
-    // Include both Acquisition and StakingReward events
+    // Include Acquisition, StakingReward, and UnclassifiedIn events
     let day_acquisitions: Vec<&TaxableEvent> = events
         .iter()
-        .filter(|e| {
-            (e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward)
-                && e.asset == asset
-                && e.date() == date
-        })
+        .filter(|e| e.event_type.is_acquisition_like() && e.asset == asset && e.date() == date)
         .collect();
 
     if day_acquisitions.is_empty() {

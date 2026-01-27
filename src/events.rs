@@ -36,12 +36,32 @@ pub enum EventType {
     Disposal,
     StakingReward,
     Dividend,
+    /// Unclassified inbound - treated as Acquisition for conservative estimates
+    UnclassifiedIn,
+    /// Unclassified outbound - treated as Disposal for conservative estimates
+    UnclassifiedOut,
 }
 
 impl EventType {
     #[cfg(test)]
     pub fn is_income(&self) -> bool {
         matches!(self, EventType::StakingReward | EventType::Dividend)
+    }
+
+    /// Check if this is an unclassified event type
+    #[allow(dead_code)]
+    pub fn is_unclassified(&self) -> bool {
+        matches!(self, EventType::UnclassifiedIn | EventType::UnclassifiedOut)
+    }
+
+    /// Check if this event type represents an acquisition (or acts like one)
+    pub fn is_acquisition_like(&self) -> bool {
+        matches!(self, EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn)
+    }
+
+    /// Check if this event type represents a disposal (or acts like one)
+    pub fn is_disposal_like(&self) -> bool {
+        matches!(self, EventType::Disposal | EventType::UnclassifiedOut)
     }
 }
 
@@ -122,6 +142,8 @@ impl From<TaxableEventRecord> for TaxableEvent {
             "Disposal" => EventType::Disposal,
             "StakingReward" => EventType::StakingReward,
             "Dividend" => EventType::Dividend,
+            "UnclassifiedIn" => EventType::UnclassifiedIn,
+            "UnclassifiedOut" => EventType::UnclassifiedOut,
             _ => panic!("Invalid event type: {}", record.event_type),
         };
 
@@ -151,6 +173,8 @@ impl From<&TaxableEvent> for TaxableEventRecord {
             EventType::Disposal => "Disposal",
             EventType::StakingReward => "StakingReward",
             EventType::Dividend => "Dividend",
+            EventType::UnclassifiedIn => "UnclassifiedIn",
+            EventType::UnclassifiedOut => "UnclassifiedOut",
         }
         .to_string();
 
