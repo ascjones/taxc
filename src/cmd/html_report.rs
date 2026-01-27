@@ -218,10 +218,9 @@ pub fn generate(
                         <tr>
                             <th></th>
                             <th>Date/Time</th>
-                            <th>Tax Year</th>
                             <th>Type</th>
+                            <th>Qty</th>
                             <th>Asset</th>
-                            <th>Quantity</th>
                             <th>Value</th>
                             <th>Gain/Loss</th>
                             <th>Description</th>
@@ -366,10 +365,9 @@ function renderEventsTable(events) {{
             <tr class="${{expandableClass}}" data-idx="${{idx}}" id="row-${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
                 <td class="expand-cell">${{expandIcon}}</td>
                 <td>${{formatDateTime(e.datetime)}}</td>
-                <td>${{e.tax_year}}</td>
                 <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
-                <td>${{e.asset}}</td>
                 <td class="number">${{e.quantity}}</td>
+                <td>${{e.asset}}</td>
                 <td class="number">${{formatGbp(e.value_gbp)}}</td>
                 ${{gainCell}}
                 <td>${{e.description || ''}}</td>
@@ -383,7 +381,7 @@ function renderEventsTable(events) {{
             html += `
                 <tr class="matching-row cgt-summary-row" data-parent="${{idx}}" style="display: none;">
                     <td class="expand-cell"></td>
-                    <td colspan="4" class="cgt-summary-label">Cost Basis</td>
+                    <td colspan="3" class="cgt-summary-label">Cost Basis</td>
                     <td class="number ref-text">${{formatGbp(e.cgt.cost_gbp)}}</td>
                     <td></td>
                     <td></td>
@@ -407,10 +405,9 @@ function renderEventsTable(events) {{
                             <tr class="matching-row ref-row ${{clickableClass}}" data-parent="${{idx}}" style="display: none;" ${{clickHandler}}>
                                 <td class="expand-cell"><span class="ref-arrow">↳</span></td>
                                 <td class="ref-text">${{mc.matched_date}}</td>
-                                <td class="ref-text">${{mc.matched_tax_year || ''}}</td>
                                 <td><span class="badge ${{linkedBadgeClass}} ref-badge">${{linkedLabel}}</span> <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
-                                <td class="ref-text">${{mc.matched_asset || ''}}</td>
                                 <td class="number ref-text">${{mc.quantity}} <span class="ref-original">of ${{mc.matched_original_qty}}</span></td>
+                                <td class="ref-text">${{mc.matched_asset || ''}}</td>
                                 <td class="number ref-text">${{formatGbp(mc.cost_gbp)}} <span class="ref-original">of ${{formatGbp(mc.matched_original_value || '0')}}</span></td>
                                 <td></td>
                                 <td class="ref-text">${{mc.matched_description || ''}}</td>
@@ -422,10 +419,9 @@ function renderEventsTable(events) {{
                             <tr class="matching-row ref-row" data-parent="${{idx}}" style="display: none;">
                                 <td class="expand-cell"><span class="ref-arrow">↳</span></td>
                                 <td class="ref-text">-</td>
-                                <td class="ref-text">-</td>
                                 <td><span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
-                                <td class="ref-text">${{e.asset}}</td>
                                 <td class="number ref-text">${{mc.quantity}}</td>
+                                <td class="ref-text">${{e.asset}}</td>
                                 <td class="number ref-text">${{formatGbp(mc.cost_gbp)}}</td>
                                 <td></td>
                                 <td class="ref-text">Section 104 Pool</td>
