@@ -122,6 +122,8 @@ pub struct Summary {
     pub income_count: usize,
     pub tax_years: Vec<String>,
     pub assets: Vec<String>,
+    pub min_date: Option<String>,
+    pub max_date: Option<String>,
 }
 
 /// Generate HTML report content
@@ -293,6 +295,14 @@ function init() {{
         opt.textContent = year;
         taxYearSelect.appendChild(opt);
     }});
+
+    // Set date range to match data
+    if (DATA.summary.min_date) {{
+        document.getElementById('date-from').value = DATA.summary.min_date;
+    }}
+    if (DATA.summary.max_date) {{
+        document.getElementById('date-to').value = DATA.summary.max_date;
+    }}
 
     applyFilters();
 }}
@@ -709,6 +719,14 @@ fn build_report_data(
     assets.sort();
     assets.dedup();
 
+    // Calculate date range from filtered events
+    let filtered_events: Vec<_> = events
+        .iter()
+        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
+        .collect();
+    let min_date = filtered_events.iter().map(|e| e.date).min();
+    let max_date = filtered_events.iter().map(|e| e.date).max();
+
     HtmlReportData {
         events: event_rows,
         disposals: disposal_rows,
@@ -724,6 +742,8 @@ fn build_report_data(
             income_count: income_report.staking_events.len() + income_report.dividend_events.len(),
             tax_years,
             assets,
+            min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            max_date: max_date.map(|d| d.format("%Y-%m-%d").to_string()),
         },
     }
 }
