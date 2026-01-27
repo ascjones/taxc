@@ -161,7 +161,7 @@ fn build_event_rows(
 
     // First pass: assign row numbers to acquisitions
     for event in events {
-        let event_year = TaxYear::from_date(event.date);
+        let event_year = TaxYear::from_date(event.date());
         if year.is_some_and(|y| event_year != y) {
             continue;
         }
@@ -177,7 +177,7 @@ fn build_event_rows(
         }
 
         if event.event_type == EventType::Acquisition {
-            acquisition_row_nums.insert((event.date, event.asset.clone()), row_num);
+            acquisition_row_nums.insert((event.date(), event.asset.clone()), row_num);
         }
         row_num += 1;
     }
@@ -185,7 +185,7 @@ fn build_event_rows(
     // Second pass: build the actual rows
     row_num = 1;
     for event in events {
-        let event_year = TaxYear::from_date(event.date);
+        let event_year = TaxYear::from_date(event.date());
 
         // Apply filters
         if year.is_some_and(|y| event_year != y) {
@@ -206,7 +206,7 @@ fn build_event_rows(
             EventType::Acquisition => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
-                    date: event.date.format("%Y-%m-%d").to_string(),
+                    date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Acquisition".to_string(),
                     asset: event.asset.clone(),
@@ -222,7 +222,7 @@ fn build_event_rows(
             }
             EventType::Disposal => {
                 // Find the disposal record for detailed info
-                if let Some(disposal) = disposal_map.get(&(event.date, event.asset.clone())) {
+                if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
                     // Check if this is a multi-rule disposal
                     if disposal.matching_components.len() <= 1 {
                         // Single rule - show inline
@@ -230,7 +230,7 @@ fn build_event_rows(
                             format_single_rule(disposal, &acquisition_row_nums);
                         rows.push(EventRow {
                             row_num: format!("#{}", row_num),
-                            date: event.date.format("%Y-%m-%d").to_string(),
+                            date: event.date().format("%Y-%m-%d").to_string(),
                             tax_year: event_year.display(),
                             event_type: rule_name,
                             asset: event.asset.clone(),
@@ -247,7 +247,7 @@ fn build_event_rows(
                         // Multi-rule - show disposal row plus sub-rows
                         rows.push(EventRow {
                             row_num: format!("#{}", row_num),
-                            date: event.date.format("%Y-%m-%d").to_string(),
+                            date: event.date().format("%Y-%m-%d").to_string(),
                             tax_year: event_year.display(),
                             event_type: "Disposal".to_string(),
                             asset: event.asset.clone(),
@@ -300,7 +300,7 @@ fn build_event_rows(
                     // No disposal record found (shouldn't happen)
                     rows.push(EventRow {
                         row_num: format!("#{}", row_num),
-                        date: event.date.format("%Y-%m-%d").to_string(),
+                        date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
                         event_type: "Disposal".to_string(),
                         asset: event.asset.clone(),
@@ -318,7 +318,7 @@ fn build_event_rows(
             EventType::StakingReward => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
-                    date: event.date.format("%Y-%m-%d").to_string(),
+                    date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Staking".to_string(),
                     asset: event.asset.clone(),
@@ -335,7 +335,7 @@ fn build_event_rows(
             EventType::Dividend => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
-                    date: event.date.format("%Y-%m-%d").to_string(),
+                    date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Dividend".to_string(),
                     asset: event.asset.clone(),

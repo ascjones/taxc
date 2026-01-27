@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ pub enum AssetClass {
 /// A taxable event (acquisition, disposal, or income)
 #[derive(Debug, Clone)]
 pub struct TaxableEvent {
-    pub date: NaiveDate,
+    pub datetime: NaiveDateTime,
     pub event_type: EventType,
     pub asset: String,
     pub asset_class: AssetClass,
@@ -66,9 +66,36 @@ pub struct TaxableEvent {
 }
 
 impl TaxableEvent {
+    /// Get just the date portion for tax calculations
+    pub fn date(&self) -> NaiveDate {
+        self.datetime.date()
+    }
+}
+
+impl TaxableEvent {
     pub fn total_cost_gbp(&self) -> Decimal {
         self.value_gbp + self.fees_gbp.unwrap_or(Decimal::ZERO)
     }
+}
+
+/// Parse a date string that may be date-only or datetime format
+fn parse_datetime(s: &str) -> NaiveDateTime {
+    // Try datetime format first: "2024-01-15T10:30:00" or "2024-01-15 10:30:00"
+    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        return dt;
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return dt;
+    }
+    // Try with milliseconds
+    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+        return dt;
+    }
+    // Fall back to date-only format, defaulting to midnight
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    }
+    panic!("Invalid date/datetime format: {}", s);
 }
 
 /// CSV record format for taxable events
@@ -88,8 +115,7 @@ pub struct TaxableEventRecord {
 
 impl From<TaxableEventRecord> for TaxableEvent {
     fn from(record: TaxableEventRecord) -> Self {
-        let date = NaiveDate::parse_from_str(&record.date, "%Y-%m-%d")
-            .unwrap_or_else(|_| panic!("Invalid date format: {}", record.date));
+        let datetime = parse_datetime(&record.date);
 
         let event_type = match record.event_type.as_str() {
             "Acquisition" => EventType::Acquisition,
@@ -106,7 +132,7 @@ impl From<TaxableEventRecord> for TaxableEvent {
         };
 
         TaxableEvent {
-            date,
+            datetime,
             event_type,
             asset: record.asset,
             asset_class,
@@ -135,7 +161,7 @@ impl From<&TaxableEvent> for TaxableEventRecord {
         .to_string();
 
         TaxableEventRecord {
-            date: event.date.format("%Y-%m-%d").to_string(),
+            date: event.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
             event_type,
             asset: event.asset.clone(),
             asset_class,
@@ -153,7 +179,7 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
     let records: Result<Vec<TaxableEventRecord>, _> =
         rdr.deserialize::<TaxableEventRecord>().collect();
     let mut events: Vec<TaxableEvent> = records?.into_iter().map(Into::into).collect();
-    events.sort_by_key(|e| e.date);
+    events.sort_by_key(|e| e.datetime);
     Ok(events)
 }
 
@@ -163,7 +189,7 @@ pub fn read_json<R: Read>(
 ) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
     let input: TaxInput = serde_json::from_reader(reader)?;
     let mut events: Vec<TaxableEvent> = input.events.into_iter().map(Into::into).collect();
-    events.sort_by_key(|e| e.date);
+    events.sort_by_key(|e| e.datetime);
     Ok((events, input.opening_pools))
 }
 
@@ -185,7 +211,7 @@ mod tests {
 
         // Check first event (Acquisition)
         assert_eq!(
-            events[0].date,
+            events[0].date(),
             NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()
         );
         assert_eq!(events[0].event_type, EventType::Acquisition);
@@ -214,7 +240,10 @@ mod tests {
     #[test]
     fn total_cost_includes_fees() {
         let event = TaxableEvent {
-            date: NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+            datetime: NaiveDate::from_ymd_opt(2024, 1, 15)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Acquisition,
             asset: "BTC".to_string(),
             asset_class: AssetClass::Crypto,
@@ -229,7 +258,10 @@ mod tests {
     #[test]
     fn total_cost_without_fees() {
         let event = TaxableEvent {
-            date: NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+            datetime: NaiveDate::from_ymd_opt(2024, 1, 15)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Acquisition,
             asset: "BTC".to_string(),
             asset_class: AssetClass::Crypto,
@@ -326,11 +358,11 @@ mod tests {
         assert_eq!(events.len(), 2);
         // Events should be sorted by date
         assert_eq!(
-            events[0].date,
+            events[0].date(),
             NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()
         );
         assert_eq!(
-            events[1].date,
+            events[1].date(),
             NaiveDate::from_ymd_opt(2024, 6, 15).unwrap()
         );
     }

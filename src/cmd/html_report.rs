@@ -61,7 +61,7 @@ pub struct HtmlReportData {
 
 #[derive(Serialize)]
 pub struct EventRow {
-    pub date: String,
+    pub datetime: String,
     pub tax_year: String,
     pub event_type: String,
     pub asset: String,
@@ -217,7 +217,7 @@ pub fn generate(
                     <thead>
                         <tr>
                             <th></th>
-                            <th>Date</th>
+                            <th>Date/Time</th>
                             <th>Tax Year</th>
                             <th>Type</th>
                             <th>Asset</th>
@@ -278,9 +278,10 @@ function getFilters() {{
 
 function filterEvents(events, filters) {{
     return events.filter(e => {{
-        // Date filter
-        if (filters.dateFrom && e.date < filters.dateFrom) return false;
-        if (filters.dateTo && e.date > filters.dateTo) return false;
+        // Date filter - extract date part from datetime
+        const eventDate = e.datetime.substring(0, 10);
+        if (filters.dateFrom && eventDate < filters.dateFrom) return false;
+        if (filters.dateTo && eventDate > filters.dateTo) return false;
 
         // Tax year filter
         if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
@@ -332,6 +333,16 @@ function getEventTypeLabel(eventType) {{
     }}
 }}
 
+function formatDateTime(dt) {{
+    // Format "2024-01-15T10:30:00" as "2024-01-15 10:30"
+    const date = dt.substring(0, 10);
+    const time = dt.substring(11, 16);
+    if (time === '00:00') {{
+        return date;  // Don't show midnight time
+    }}
+    return `${{date}} ${{time}}`;
+}}
+
 function renderEventsTable(events) {{
     const tbody = document.getElementById('events-body');
     let html = '';
@@ -354,7 +365,7 @@ function renderEventsTable(events) {{
         html += `
             <tr class="${{expandableClass}}" data-idx="${{idx}}" id="row-${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
                 <td class="expand-cell">${{expandIcon}}</td>
-                <td>${{e.date}}</td>
+                <td>${{formatDateTime(e.datetime)}}</td>
                 <td>${{e.tax_year}}</td>
                 <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
                 <td>${{e.asset}}</td>
@@ -534,7 +545,7 @@ fn build_report_data(
     // Filter events for the target year
     let filtered_events: Vec<_> = events
         .iter()
-        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
+        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
         .collect();
 
     // Build index of acquisitions by (date, asset) -> row index for navigation
@@ -542,7 +553,7 @@ fn build_report_data(
     let mut acquisition_row_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
     for (idx, e) in filtered_events.iter().enumerate() {
         if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
-            let key = (e.date, e.asset.clone());
+            let key = (e.date(), e.asset.clone());
             acquisition_row_index.entry(key).or_insert(idx);
         }
     }
@@ -553,11 +564,11 @@ fn build_report_data(
         HashMap::new();
     for e in &filtered_events {
         if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
-            let key = (e.date, e.asset.clone());
+            let key = (e.date(), e.asset.clone());
             let entry = acquisition_details.entry(key).or_insert_with(|| {
                 (
                     format_event_type(&e.event_type),
-                    TaxYear::from_date(e.date).display(),
+                    TaxYear::from_date(e.date()).display(),
                     Decimal::ZERO,
                     Decimal::ZERO,
                     e.description.clone().unwrap_or_default(),
@@ -649,8 +660,8 @@ fn build_report_data(
             };
 
             EventRow {
-                date: e.date.format("%Y-%m-%d").to_string(),
-                tax_year: TaxYear::from_date(e.date).display(),
+                datetime: e.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                tax_year: TaxYear::from_date(e.date()).display(),
                 event_type: format_event_type(&e.event_type),
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
@@ -685,7 +696,7 @@ fn build_report_data(
     // Collect unique tax years
     let mut tax_years: Vec<String> = filtered_events
         .iter()
-        .map(|e| TaxYear::from_date(e.date).display())
+        .map(|e| TaxYear::from_date(e.date()).display())
         .collect();
     tax_years.sort();
     tax_years.dedup();
@@ -696,8 +707,8 @@ fn build_report_data(
     assets.dedup();
 
     // Calculate date range from filtered events
-    let min_date = filtered_events.iter().map(|e| e.date).min();
-    let max_date = filtered_events.iter().map(|e| e.date).max();
+    let min_date = filtered_events.iter().map(|e| e.date()).min();
+    let max_date = filtered_events.iter().map(|e| e.date()).max();
 
     let disposal_count = event_rows.iter().filter(|e| e.cgt.is_some()).count();
     let income_count = event_rows

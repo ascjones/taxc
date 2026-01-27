@@ -353,7 +353,7 @@ pub fn calculate_cgt(
     // before those acquisitions are added to the pool
     let mut events = events;
     events.sort_by(|a, b| {
-        match a.date.cmp(&b.date) {
+        match a.date().cmp(&b.date()) {
             std::cmp::Ordering::Equal => {
                 // Disposals come before acquisitions on same day
                 let a_is_disposal = a.event_type == EventType::Disposal;
@@ -379,7 +379,7 @@ pub fn calculate_cgt(
         if event.event_type == EventType::Acquisition
             || event.event_type == EventType::StakingReward
         {
-            let key = (event.date, event.asset.clone());
+            let key = (event.date(), event.asset.clone());
             *acquisition_remaining
                 .entry(key.clone())
                 .or_insert(Decimal::ZERO) += event.quantity;
@@ -398,7 +398,7 @@ pub fn calculate_cgt(
         match event.event_type {
             // Both Acquisition and StakingReward add to the pool (after matching)
             EventType::Acquisition | EventType::StakingReward => {
-                let key = (event.date, event.asset.clone());
+                let key = (event.date(), event.asset.clone());
 
                 // Calculate how much of this day's acquisitions should go to pool
                 let total_qty = acquisition_total_qty
@@ -437,7 +437,7 @@ pub fn calculate_cgt(
             }
             EventType::Disposal => {
                 let fees = event.fees_gbp.unwrap_or(Decimal::ZERO);
-                let tax_year = TaxYear::from_date(event.date);
+                let tax_year = TaxYear::from_date(event.date());
 
                 let mut remaining_to_match = event.quantity;
                 let mut total_allowable_cost = Decimal::ZERO;
@@ -446,13 +446,13 @@ pub fn calculate_cgt(
                 let mut pool_match: Option<(Decimal, Decimal)> = None;
 
                 // 1. Same-day rule: match with same-day acquisitions
-                let same_day_key = (event.date, event.asset.clone());
+                let same_day_key = (event.date(), event.asset.clone());
                 if let Some(available) = acquisition_remaining.get_mut(&same_day_key) {
                     if *available > Decimal::ZERO {
                         let match_qty = remaining_to_match.min(*available);
                         // Find the acquisition to get its cost
                         let same_day_cost =
-                            find_acquisition_cost(&events, &event.asset, event.date, match_qty);
+                            find_acquisition_cost(&events, &event.asset, event.date(), match_qty);
                         total_allowable_cost += same_day_cost;
                         same_day_match = Some((match_qty, same_day_cost));
                         remaining_to_match -= match_qty;
@@ -472,7 +472,7 @@ pub fn calculate_cgt(
                         if remaining_to_match <= Decimal::ZERO {
                             break;
                         }
-                        let future_date = event.date + Duration::days(days_ahead);
+                        let future_date = event.date() + Duration::days(days_ahead);
                         let future_key = (future_date, event.asset.clone());
                         if let Some(available) = acquisition_remaining.get_mut(&future_key) {
                             if *available > Decimal::ZERO {
@@ -564,7 +564,7 @@ pub fn calculate_cgt(
                         rule: MatchingRule::SameDay,
                         quantity: qty,
                         cost,
-                        matched_date: Some(event.date),
+                        matched_date: Some(event.date()),
                     });
                 }
                 for (date, qty, cost) in &bnb_matches {
@@ -585,7 +585,7 @@ pub fn calculate_cgt(
                 }
 
                 disposals.push(DisposalRecord {
-                    date: event.date,
+                    date: event.date(),
                     tax_year,
                     asset: event.asset.clone(),
                     quantity: event.quantity,
@@ -621,7 +621,7 @@ fn find_acquisition_cost(
         .filter(|e| {
             (e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward)
                 && e.asset == asset
-                && e.date == date
+                && e.date() == date
         })
         .collect();
 
@@ -650,7 +650,10 @@ mod tests {
 
     fn acq(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Acquisition,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
@@ -669,7 +672,10 @@ mod tests {
         fee: Decimal,
     ) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Acquisition,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
@@ -682,7 +688,10 @@ mod tests {
 
     fn disp(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Disposal,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
@@ -695,7 +704,10 @@ mod tests {
 
     fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::StakingReward,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
@@ -714,7 +726,10 @@ mod tests {
         fee: Decimal,
     ) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Disposal,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,

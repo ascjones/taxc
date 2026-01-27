@@ -191,13 +191,13 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
     let mut dividend_events: Vec<IncomeEvent> = Vec::new();
 
     for event in events {
-        let tax_year = TaxYear::from_date(event.date);
+        let tax_year = TaxYear::from_date(event.date());
 
         match event.event_type {
             EventType::StakingReward => {
                 *staking_by_year.entry(tax_year).or_insert(Decimal::ZERO) += event.value_gbp;
                 staking_events.push(IncomeEvent {
-                    date: event.date,
+                    date: event.date(),
                     tax_year,
                     asset: event.asset,
                     quantity: event.quantity,
@@ -209,7 +209,7 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
             EventType::Dividend => {
                 *dividends_by_year.entry(tax_year).or_insert(Decimal::ZERO) += event.value_gbp;
                 dividend_events.push(IncomeEvent {
-                    date: event.date,
+                    date: event.date(),
                     tax_year,
                     asset: event.asset,
                     quantity: event.quantity,
@@ -240,7 +240,10 @@ mod tests {
 
     fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::StakingReward,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
@@ -253,7 +256,10 @@ mod tests {
 
     fn dividend(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             event_type: EventType::Dividend,
             asset: asset.to_string(),
             asset_class: AssetClass::Stock,
@@ -394,7 +400,10 @@ mod tests {
 
         let events = vec![
             TaxableEvent {
-                date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+                datetime: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
                 event_type: EventType::Acquisition,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
@@ -404,7 +413,10 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                date: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
+                datetime: NaiveDate::from_ymd_opt(2024, 7, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
                 event_type: EventType::Disposal,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
