@@ -392,9 +392,6 @@ pub fn calculate_cgt(
         }
     });
 
-    // Track which acquisitions have been used for matching
-    // Key: (date, asset), Value: remaining quantity available for matching
-    let mut acquisition_remaining: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
     // Track total acquisition cost per (date, asset) for cost calculations
     let mut acquisition_total_cost: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
     // Track total acquisition quantity per (date, asset)
@@ -406,9 +403,6 @@ pub fn calculate_cgt(
     for event in &events {
         if event.event_type.is_acquisition_like() {
             let key = (event.date(), event.asset.clone());
-            *acquisition_remaining
-                .entry(key.clone())
-                .or_insert(Decimal::ZERO) += event.quantity;
             *acquisition_total_qty
                 .entry(key.clone())
                 .or_insert(Decimal::ZERO) += event.quantity;
@@ -416,10 +410,44 @@ pub fn calculate_cgt(
         }
     }
 
+    // Second pass: Calculate same-day matching requirements
+    // Same-day rule has priority over B&B, so we must reserve acquisitions for same-day
+    // matching BEFORE allowing B&B from earlier disposals to consume them.
+    let mut same_day_reserved: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
+    for event in &events {
+        if event.event_type.is_disposal_like() {
+            let key = (event.date(), event.asset.clone());
+            let available = acquisition_total_qty
+                .get(&key)
+                .copied()
+                .unwrap_or(Decimal::ZERO);
+            let already_reserved = same_day_reserved.get(&key).copied().unwrap_or(Decimal::ZERO);
+            let remaining_available = available - already_reserved;
+
+            if remaining_available > Decimal::ZERO {
+                let to_reserve = event.quantity.min(remaining_available);
+                *same_day_reserved.entry(key).or_insert(Decimal::ZERO) += to_reserve;
+            }
+        }
+    }
+
+    // Now create the tracking maps:
+    // - same_day_remaining: acquisitions reserved for same-day matching
+    // - bnb_remaining: acquisitions available for B&B (total minus same-day reserved)
+    let mut same_day_remaining: HashMap<(NaiveDate, String), Decimal> = same_day_reserved.clone();
+    let mut bnb_remaining: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
+    for (key, total) in &acquisition_total_qty {
+        let reserved = same_day_reserved.get(key).copied().unwrap_or(Decimal::ZERO);
+        let available_for_bnb = *total - reserved;
+        if available_for_bnb > Decimal::ZERO {
+            bnb_remaining.insert(key.clone(), available_for_bnb);
+        }
+    }
+
     // Track how much has been added to pool per (date, asset)
     let mut pool_added: HashMap<(NaiveDate, String), Decimal> = HashMap::new();
 
-    // Second pass: process all events
+    // Third pass: process all events
     for event in &events {
         match event.event_type {
             // Acquisition-like events add to the pool (after matching)
@@ -427,14 +455,19 @@ pub fn calculate_cgt(
                 let key = (event.date(), event.asset.clone());
 
                 // Calculate how much of this day's acquisitions should go to pool
+                // Pool gets what's left after same-day and B&B matching
                 let total_qty = acquisition_total_qty
                     .get(&key)
                     .copied()
                     .unwrap_or(Decimal::ZERO);
-                let remaining = acquisition_remaining
-                    .get(&key)
-                    .copied()
-                    .unwrap_or(Decimal::ZERO);
+                let same_day_used = same_day_reserved.get(&key).copied().unwrap_or(Decimal::ZERO)
+                    - same_day_remaining.get(&key).copied().unwrap_or(Decimal::ZERO);
+                let bnb_originally = acquisition_total_qty.get(&key).copied().unwrap_or(Decimal::ZERO)
+                    - same_day_reserved.get(&key).copied().unwrap_or(Decimal::ZERO);
+                let bnb_used = bnb_originally - bnb_remaining.get(&key).copied().unwrap_or(Decimal::ZERO);
+                let total_used = same_day_used + bnb_used;
+                let remaining = total_qty - total_used;
+
                 let total_cost = acquisition_total_cost
                     .get(&key)
                     .copied()
@@ -443,7 +476,7 @@ pub fn calculate_cgt(
 
                 // The amount that should go to pool is what's left for matching
                 // We spread this across all acquisitions proportionally
-                if total_qty > Decimal::ZERO {
+                if total_qty > Decimal::ZERO && remaining > Decimal::ZERO {
                     // What portion of remaining should this acquisition contribute?
                     let this_proportion = event.quantity / total_qty;
                     let this_share_of_remaining = (remaining * this_proportion).round_dp(8);
@@ -472,9 +505,9 @@ pub fn calculate_cgt(
                 let mut bnb_matches: Vec<(NaiveDate, Decimal, Decimal)> = Vec::new();
                 let mut pool_match: Option<(Decimal, Decimal)> = None;
 
-                // 1. Same-day rule: match with same-day acquisitions
+                // 1. Same-day rule: match with same-day acquisitions (reserved for this)
                 let same_day_key = (event.date(), event.asset.clone());
-                if let Some(available) = acquisition_remaining.get_mut(&same_day_key) {
+                if let Some(available) = same_day_remaining.get_mut(&same_day_key) {
                     if *available > Decimal::ZERO {
                         let match_qty = remaining_to_match.min(*available);
                         // Find the acquisition to get its cost
@@ -494,6 +527,7 @@ pub fn calculate_cgt(
                 }
 
                 // 2. Bed & breakfast rule: match with acquisitions in next 30 days
+                // Uses bnb_remaining which excludes amounts reserved for same-day matching
                 if remaining_to_match > Decimal::ZERO {
                     for days_ahead in 1..=30 {
                         if remaining_to_match <= Decimal::ZERO {
@@ -501,7 +535,7 @@ pub fn calculate_cgt(
                         }
                         let future_date = event.date() + Duration::days(days_ahead);
                         let future_key = (future_date, event.asset.clone());
-                        if let Some(available) = acquisition_remaining.get_mut(&future_key) {
+                        if let Some(available) = bnb_remaining.get_mut(&future_key) {
                             if *available > Decimal::ZERO {
                                 let match_qty = remaining_to_match.min(*available);
                                 let bnb_cost = find_acquisition_cost(
@@ -1408,5 +1442,84 @@ mod tests {
         // ETH: 25/50 * 50000 = 25000 cost
         let eth = report.disposals.iter().find(|d| d.asset == "ETH").unwrap();
         assert_eq!(eth.allowable_cost_gbp, dec!(25000));
+    }
+
+    #[test]
+    fn same_day_has_priority_over_bnb() {
+        // Scenario: Same-day rule should have priority over B&B
+        // - April 8: Disposal of 100 BTC (will try to B&B with April 11 acquisition)
+        // - April 11: Acquisition of 80 BTC at £40000
+        // - April 11: Disposal of 50 BTC at £30000
+        //
+        // Expected: April 11 disposal should get same-day match FIRST (50 BTC at £25000 cost)
+        // Then April 8 disposal can B&B with remaining 30 BTC from April 11
+        //
+        // Bug: Without the fix, April 8 disposal consumes all 80 BTC via B&B,
+        // leaving nothing for April 11's same-day match.
+
+        // Need some initial pool for the April 8 disposal that can't fully B&B match
+        let events = vec![
+            // Initial acquisition to seed the pool
+            acq("2024-01-01", "BTC", dec!(100), dec!(50000)), // 100 BTC at £500 each
+            // April 8: Disposal - should use B&B with leftover from April 11, plus pool
+            disp("2024-04-08", "BTC", dec!(100), dec!(60000)), // Sell 100 BTC at £600 each
+            // April 11: Acquisition - should be reserved for same-day first
+            acq("2024-04-11", "BTC", dec!(80), dec!(40000)), // 80 BTC at £500 each
+            // April 11: Disposal - MUST get same-day match with April 11 acquisition
+            disp("2024-04-11", "BTC", dec!(50), dec!(30000)), // Sell 50 BTC at £600 each
+        ];
+
+        let report = calculate_cgt(events, None);
+        assert_eq!(report.disposals.len(), 2);
+
+        // Find the April 11 disposal
+        let apr11_disposal = report
+            .disposals
+            .iter()
+            .find(|d| d.date == NaiveDate::from_ymd_opt(2024, 4, 11).unwrap())
+            .unwrap();
+
+        // The April 11 disposal should use same-day matching
+        // 50 BTC at £500 each = £25000 cost
+        assert_eq!(
+            apr11_disposal.allowable_cost_gbp,
+            dec!(25000),
+            "April 11 disposal should use same-day matching at £500/BTC"
+        );
+
+        // Check matching components - should be Same-Day
+        assert!(
+            apr11_disposal
+                .matching_components
+                .iter()
+                .any(|mc| mc.rule == MatchingRule::SameDay),
+            "April 11 disposal should have Same-Day matching component"
+        );
+
+        // Find the April 8 disposal
+        let apr8_disposal = report
+            .disposals
+            .iter()
+            .find(|d| d.date == NaiveDate::from_ymd_opt(2024, 4, 8).unwrap())
+            .unwrap();
+
+        // April 8 disposal (100 BTC) should:
+        // - B&B match with remaining 30 BTC from April 11 (80 - 50 used for same-day) at £500 each = £15000
+        // - Pool match with 70 BTC from Jan 1 at £500 each = £35000
+        // Total cost: £50000
+        assert_eq!(
+            apr8_disposal.allowable_cost_gbp,
+            dec!(50000),
+            "April 8 disposal should use B&B (30 BTC) + Pool (70 BTC)"
+        );
+
+        // Check that April 8 has B&B component
+        assert!(
+            apr8_disposal
+                .matching_components
+                .iter()
+                .any(|mc| mc.rule == MatchingRule::BedAndBreakfast),
+            "April 8 disposal should have B&B matching component"
+        );
     }
 }
