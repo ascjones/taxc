@@ -103,6 +103,16 @@ pub struct MatchingComponentRow {
     pub matched_description: Option<String>,
 }
 
+/// Aggregated acquisition details for a (date, asset) key
+#[derive(Default)]
+struct AcquisitionDetail {
+    event_type: String,
+    tax_year: String,
+    quantity: Decimal,
+    value_gbp: Decimal,
+    description: String,
+}
+
 #[derive(Serialize)]
 pub struct Summary {
     pub total_proceeds: String,
@@ -616,22 +626,18 @@ fn build_report_data(
 
     // Build a map of acquisition details by (date, asset) for lookup
     // Aggregates multiple acquisitions on the same day
-    let mut acquisition_details: HashMap<(NaiveDate, String), (String, String, Decimal, Decimal, String)> =
-        HashMap::new();
+    let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
     for e in &filtered_events {
         if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
             let key = (e.date(), e.asset.clone());
-            let entry = acquisition_details.entry(key).or_insert_with(|| {
-                (
-                    format_event_type(&e.event_type),
-                    TaxYear::from_date(e.date()).display(),
-                    Decimal::ZERO,
-                    Decimal::ZERO,
-                    e.description.clone().unwrap_or_default(),
-                )
+            let detail = acquisition_details.entry(key).or_insert_with(|| AcquisitionDetail {
+                event_type: format_event_type(&e.event_type),
+                tax_year: TaxYear::from_date(e.date()).display(),
+                description: e.description.clone().unwrap_or_default(),
+                ..Default::default()
             });
-            entry.2 += e.quantity;
-            entry.3 += e.value_gbp;
+            detail.quantity += e.quantity;
+            detail.value_gbp += e.value_gbp;
         }
     }
 
@@ -649,36 +655,45 @@ fn build_report_data(
         .map(|e| {
             // Look up CGT details for disposal events
             let cgt = if e.event_type == EventType::Disposal {
-                e.description.as_ref().and_then(|desc| cgt_map.get(desc)).map(|d| {
-                    // Determine primary matching rule
-                    let rule = if d.matching_components.is_empty() {
-                        "Pool".to_string()
-                    } else if d.matching_components.len() == 1 {
-                        format_matching_rule(&d.matching_components[0].rule)
-                    } else {
-                        "Mixed".to_string()
-                    };
+                e.description
+                    .as_ref()
+                    .and_then(|desc| cgt_map.get(desc))
+                    .map(|d| {
+                        // Determine primary matching rule
+                        let rule = if d.matching_components.is_empty() {
+                            "Pool".to_string()
+                        } else if d.matching_components.len() == 1 {
+                            format_matching_rule(&d.matching_components[0].rule)
+                        } else {
+                            "Mixed".to_string()
+                        };
 
-                    // Build matching components with acquisition details
-                    let matching_components: Vec<MatchingComponentRow> = d
-                        .matching_components
-                        .iter()
-                        .map(|mc| {
-                            // Look up acquisition details for Same-Day and B&B matches
-                            let (matched_row_id, matched_event_type, matched_tax_year, matched_asset, matched_original_qty, matched_original_value, matched_description) =
-                                if let Some(date) = mc.matched_date {
+                        // Build matching components with acquisition details
+                        let matching_components: Vec<MatchingComponentRow> = d
+                            .matching_components
+                            .iter()
+                            .map(|mc| {
+                                // Look up acquisition details for Same-Day and B&B matches
+                                let (
+                                    matched_row_id,
+                                    matched_event_type,
+                                    matched_tax_year,
+                                    matched_asset,
+                                    matched_original_qty,
+                                    matched_original_value,
+                                    matched_description,
+                                ) = if let Some(date) = mc.matched_date {
                                     let key = (date, d.asset.clone());
                                     let row_id = acquisition_row_index.get(&key).copied();
-                                    let details = acquisition_details.get(&key);
-                                    if let Some((event_type, tax_year, qty, value, desc)) = details {
+                                    if let Some(detail) = acquisition_details.get(&key) {
                                         (
                                             row_id,
-                                            Some(event_type.clone()),
-                                            Some(tax_year.clone()),
+                                            Some(detail.event_type.clone()),
+                                            Some(detail.tax_year.clone()),
                                             Some(d.asset.clone()),
-                                            Some(qty.to_string()),
-                                            Some(format!("{:.2}", value)),
-                                            Some(desc.clone()),
+                                            Some(detail.quantity.to_string()),
+                                            Some(format!("{:.2}", detail.value_gbp)),
+                                            Some(detail.description.clone()),
                                         )
                                     } else {
                                         (None, None, None, None, None, None, None)
@@ -687,30 +702,32 @@ fn build_report_data(
                                     (None, None, None, None, None, None, None)
                                 };
 
-                            MatchingComponentRow {
-                                rule: format_matching_rule(&mc.rule),
-                                quantity: mc.quantity.to_string(),
-                                cost_gbp: format!("{:.2}", mc.cost),
-                                matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
-                                matched_row_id,
-                                matched_event_type,
-                                matched_tax_year,
-                                matched_asset,
-                                matched_original_qty,
-                                matched_original_value,
-                                matched_description,
-                            }
-                        })
-                        .collect();
+                                MatchingComponentRow {
+                                    rule: format_matching_rule(&mc.rule),
+                                    quantity: mc.quantity.to_string(),
+                                    cost_gbp: format!("{:.2}", mc.cost),
+                                    matched_date: mc
+                                        .matched_date
+                                        .map(|d| d.format("%Y-%m-%d").to_string()),
+                                    matched_row_id,
+                                    matched_event_type,
+                                    matched_tax_year,
+                                    matched_asset,
+                                    matched_original_qty,
+                                    matched_original_value,
+                                    matched_description,
+                                }
+                            })
+                            .collect();
 
-                    CgtDetails {
-                        proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
-                        cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
-                        gain_gbp: format!("{:.2}", d.gain_gbp),
-                        rule,
-                        matching_components,
-                    }
-                })
+                        CgtDetails {
+                            proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
+                            cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
+                            gain_gbp: format!("{:.2}", d.gain_gbp),
+                            rule,
+                            matching_components,
+                        }
+                    })
             } else {
                 None
             };

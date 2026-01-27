@@ -56,7 +56,10 @@ impl EventType {
 
     /// Check if this event type represents an acquisition (or acts like one)
     pub fn is_acquisition_like(&self) -> bool {
-        matches!(self, EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn)
+        matches!(
+            self,
+            EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn
+        )
     }
 
     /// Check if this event type represents a disposal (or acts like one)

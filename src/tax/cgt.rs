@@ -211,12 +211,16 @@ pub struct CgtReport {
 impl CgtReport {
     /// Total proceeds for a tax year (classified events only)
     pub fn total_proceeds(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, true).map(|d| d.proceeds_gbp).sum()
+        self.filter_disposals(year, true)
+            .map(|d| d.proceeds_gbp)
+            .sum()
     }
 
     /// Total proceeds including unclassified events
     pub fn total_proceeds_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, false).map(|d| d.proceeds_gbp).sum()
+        self.filter_disposals(year, false)
+            .map(|d| d.proceeds_gbp)
+            .sum()
     }
 
     /// Total allowable costs for a tax year (classified events only)
@@ -256,7 +260,11 @@ impl CgtReport {
         self.filter_disposals(year, false).count()
     }
 
-    fn filter_disposals(&self, year: Option<TaxYear>, classified_only: bool) -> impl Iterator<Item = &DisposalRecord> {
+    fn filter_disposals(
+        &self,
+        year: Option<TaxYear>,
+        classified_only: bool,
+    ) -> impl Iterator<Item = &DisposalRecord> {
         self.disposals
             .iter()
             .filter(move |d| year.is_none_or(|y| d.tax_year == y))
@@ -468,7 +476,12 @@ pub fn calculate_cgt(
                         same_day_match = Some((match_qty, cost));
                         remaining_to_match -= match_qty;
                         tracker.same_day_remaining -= match_qty;
-                        log::debug!("Same-day match: {} {} at cost {}", match_qty, event.asset, cost);
+                        log::debug!(
+                            "Same-day match: {} {} at cost {}",
+                            match_qty,
+                            event.asset,
+                            cost
+                        );
                     }
                 }
 
@@ -488,7 +501,13 @@ pub fn calculate_cgt(
                                 bnb_matches.push((future_date, match_qty, cost));
                                 remaining_to_match -= match_qty;
                                 tracker.bnb_remaining -= match_qty;
-                                log::debug!("B&B match: {} {} on {} at cost {}", match_qty, event.asset, future_date, cost);
+                                log::debug!(
+                                    "B&B match: {} {} on {} at cost {}",
+                                    match_qty,
+                                    event.asset,
+                                    future_date,
+                                    cost
+                                );
                             }
                         }
                     }
@@ -601,7 +620,13 @@ mod tests {
         event(EventType::Acquisition, date, asset, qty, value, None)
     }
 
-    fn acq_with_fee(date: &str, asset: &str, qty: Decimal, value: Decimal, fee: Decimal) -> TaxableEvent {
+    fn acq_with_fee(
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        value: Decimal,
+        fee: Decimal,
+    ) -> TaxableEvent {
         event(EventType::Acquisition, date, asset, qty, value, Some(fee))
     }
 
@@ -609,7 +634,13 @@ mod tests {
         event(EventType::Disposal, date, asset, qty, value, None)
     }
 
-    fn disp_with_fee(date: &str, asset: &str, qty: Decimal, value: Decimal, fee: Decimal) -> TaxableEvent {
+    fn disp_with_fee(
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        value: Decimal,
+        fee: Decimal,
+    ) -> TaxableEvent {
         event(EventType::Disposal, date, asset, qty, value, Some(fee))
     }
 
@@ -750,7 +781,10 @@ mod tests {
 
         // Should be pure B&B match
         assert_eq!(disposal.matching_components.len(), 1);
-        assert_eq!(disposal.matching_components[0].rule, MatchingRule::BedAndBreakfast);
+        assert_eq!(
+            disposal.matching_components[0].rule,
+            MatchingRule::BedAndBreakfast
+        );
 
         // Pool should still have original 10 BTC
         let pool = report.pools.get("BTC").unwrap();
@@ -1087,8 +1121,8 @@ mod tests {
     fn staking_rewards_matched_bnb() {
         // Staking rewards should also be matchable via B&B rule
         let events = vec![
-            disp("2024-03-08", "DOT", dec!(10), dec!(85)),       // Disposal
-            staking("2024-03-15", "DOT", dec!(100), dec!(800)),  // Staking reward within 30 days
+            disp("2024-03-08", "DOT", dec!(10), dec!(85)), // Disposal
+            staking("2024-03-15", "DOT", dec!(100), dec!(800)), // Staking reward within 30 days
         ];
 
         let report = calculate_cgt(events, None);

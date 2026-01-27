@@ -132,7 +132,12 @@ impl SummaryCommand {
 
         println!();
         if let Some(ref asset) = self.asset {
-            println!("TAX SUMMARY ({}, {}) - {} rate", year_str, asset.to_uppercase(), band_str);
+            println!(
+                "TAX SUMMARY ({}, {}) - {} rate",
+                year_str,
+                asset.to_uppercase(),
+                band_str
+            );
         } else {
             println!("TAX SUMMARY ({}) - {} rate", year_str, band_str);
         }
@@ -240,7 +245,11 @@ impl SummaryCommand {
         };
         let total_tax = cgt_tax + staking_tax + dividend_tax;
 
-        println!("TOTAL TAX LIABILITY: {} ({})", format_gbp(total_tax), band_str);
+        println!(
+            "TOTAL TAX LIABILITY: {} ({})",
+            format_gbp(total_tax),
+            band_str
+        );
         println!();
     }
 

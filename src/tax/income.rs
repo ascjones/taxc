@@ -219,7 +219,10 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
                 });
             }
             // Non-income events are ignored
-            EventType::Acquisition | EventType::Disposal | EventType::UnclassifiedIn | EventType::UnclassifiedOut => {}
+            EventType::Acquisition
+            | EventType::Disposal
+            | EventType::UnclassifiedIn
+            | EventType::UnclassifiedOut => {}
         }
     }
 

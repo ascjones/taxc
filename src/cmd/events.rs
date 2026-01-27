@@ -269,8 +269,7 @@ fn build_event_rows(
                             } else {
                                 component.quantity / total_qty
                             };
-                            let proceeds_portion =
-                                (disposal.proceeds_gbp * proportion).round_dp(2);
+                            let proceeds_portion = (disposal.proceeds_gbp * proportion).round_dp(2);
                             let gain_portion = (proceeds_portion - component.cost).round_dp(2);
 
                             let matched_ref = format_component_ref(
@@ -432,8 +431,12 @@ fn format_single_rule(
         MatchingRule::Pool => "Disposal (Pool)".to_string(),
     };
 
-    let matched_ref =
-        format_component_ref(&component.rule, component.matched_date, acquisition_row_nums, &disposal.asset);
+    let matched_ref = format_component_ref(
+        &component.rule,
+        component.matched_date,
+        acquisition_row_nums,
+        &disposal.asset,
+    );
 
     (rule_name, matched_ref)
 }
@@ -487,9 +490,7 @@ fn format_quantity(qty: Decimal) -> String {
 }
 
 /// Read events from CSV or JSON file based on extension
-pub fn read_events(
-    path: &Path,
-) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
+pub fn read_events(path: &Path) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
