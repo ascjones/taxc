@@ -863,6 +863,8 @@ main {
 
 .table-container {
     overflow-x: auto;
+    max-height: calc(100vh - 320px);
+    overflow-y: auto;
 }
 
 table {
@@ -875,6 +877,11 @@ thead {
     background: var(--gray-50);
     position: sticky;
     top: 0;
+    z-index: 10;
+}
+
+thead th {
+    background: var(--gray-50);
 }
 
 th {
