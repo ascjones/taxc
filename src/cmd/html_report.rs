@@ -56,8 +56,6 @@ impl HtmlCommand {
 #[derive(Serialize)]
 pub struct HtmlReportData {
     pub events: Vec<EventRow>,
-    pub disposals: Vec<DisposalRow>,
-    pub income: Vec<IncomeRow>,
     pub summary: Summary,
 }
 
@@ -72,21 +70,18 @@ pub struct EventRow {
     pub value_gbp: String,
     pub fees_gbp: String,
     pub description: String,
+    /// CGT details for disposal events (None for other event types)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cgt: Option<CgtDetails>,
 }
 
+/// CGT details for disposal events
 #[derive(Serialize)]
-pub struct DisposalRow {
-    pub date: String,
-    pub tax_year: String,
-    pub asset: String,
-    pub quantity: String,
+pub struct CgtDetails {
     pub proceeds_gbp: String,
     pub cost_gbp: String,
-    pub fees_gbp: String,
     pub gain_gbp: String,
     pub rule: String,
-    pub description: String,
-    /// Breakdown of matching components for linked transaction display
     pub matching_components: Vec<MatchingComponentRow>,
 }
 
@@ -97,17 +92,6 @@ pub struct MatchingComponentRow {
     pub cost_gbp: String,
     /// For B&B: the linked acquisition date
     pub matched_date: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct IncomeRow {
-    pub date: String,
-    pub tax_year: String,
-    pub income_type: String,
-    pub asset: String,
-    pub quantity: String,
-    pub value_gbp: String,
-    pub description: String,
 }
 
 #[derive(Serialize)]
@@ -218,66 +202,23 @@ pub fn generate(
         </section>
 
         <section class="data-section">
-            <h2>Taxable Events <span class="count" id="events-count"></span></h2>
+            <h2>Transactions <span class="count" id="events-count"></span></h2>
             <div class="table-container">
                 <table id="events-table">
                     <thead>
                         <tr>
+                            <th></th>
                             <th>Date</th>
                             <th>Tax Year</th>
                             <th>Type</th>
                             <th>Asset</th>
-                            <th>Class</th>
                             <th>Quantity</th>
                             <th>Value</th>
-                            <th>Fees</th>
+                            <th>Gain/Loss</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody id="events-body"></tbody>
-                </table>
-            </div>
-        </section>
-
-        <section class="data-section">
-            <h2>Capital Gains Disposals <span class="count" id="disposals-count"></span></h2>
-            <div class="table-container">
-                <table id="disposals-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Tax Year</th>
-                            <th>Asset</th>
-                            <th>Quantity</th>
-                            <th>Proceeds</th>
-                            <th>Cost</th>
-                            <th>Fees</th>
-                            <th>Gain/Loss</th>
-                            <th>Rule</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody id="disposals-body"></tbody>
-                </table>
-            </div>
-        </section>
-
-        <section class="data-section">
-            <h2>Income <span class="count" id="income-count"></span></h2>
-            <div class="table-container">
-                <table id="income-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Tax Year</th>
-                            <th>Type</th>
-                            <th>Asset</th>
-                            <th>Quantity</th>
-                            <th>Value</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody id="income-body"></tbody>
                 </table>
             </div>
         </section>
@@ -326,57 +267,24 @@ function getFilters() {{
     }};
 }}
 
-function matchesFilters(item, filters, hasEventType = true, hasAssetClass = true) {{
-    // Date filter
-    if (filters.dateFrom && item.date < filters.dateFrom) return false;
-    if (filters.dateTo && item.date > filters.dateTo) return false;
-
-    // Tax year filter
-    if (filters.taxYear && item.tax_year !== filters.taxYear) return false;
-
-    // Event type filter (for events table)
-    if (hasEventType && item.event_type && !filters.eventTypes[item.event_type]) return false;
-
-    // Income type filter (for income table)
-    if (item.income_type) {{
-        const typeKey = item.income_type === 'Staking' ? 'StakingReward' : 'Dividend';
-        if (!filters.eventTypes[typeKey]) return false;
-    }}
-
-    // Asset class filter
-    if (hasAssetClass && item.asset_class && !filters.assetClasses[item.asset_class]) return false;
-
-    // Asset search
-    if (filters.assetSearch && !item.asset.toLowerCase().includes(filters.assetSearch)) return false;
-
-    return true;
-}}
-
 function filterEvents(events, filters) {{
-    return events.filter(e => matchesFilters(e, filters));
-}}
+    return events.filter(e => {{
+        // Date filter
+        if (filters.dateFrom && e.date < filters.dateFrom) return false;
+        if (filters.dateTo && e.date > filters.dateTo) return false;
 
-function filterDisposals(disposals, filters) {{
-    // Disposals don't have event_type or asset_class directly, but should respect asset filter
-    return disposals.filter(d => {{
-        if (filters.dateFrom && d.date < filters.dateFrom) return false;
-        if (filters.dateTo && d.date > filters.dateTo) return false;
-        if (filters.taxYear && d.tax_year !== filters.taxYear) return false;
-        if (filters.assetSearch && !d.asset.toLowerCase().includes(filters.assetSearch)) return false;
-        // Only show disposals if Disposal type is checked
-        if (!filters.eventTypes.Disposal) return false;
-        return true;
-    }});
-}}
+        // Tax year filter
+        if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
 
-function filterIncome(income, filters) {{
-    return income.filter(i => {{
-        if (filters.dateFrom && i.date < filters.dateFrom) return false;
-        if (filters.dateTo && i.date > filters.dateTo) return false;
-        if (filters.taxYear && i.tax_year !== filters.taxYear) return false;
-        if (filters.assetSearch && !i.asset.toLowerCase().includes(filters.assetSearch)) return false;
-        const typeKey = i.income_type === 'Staking' ? 'StakingReward' : 'Dividend';
-        if (!filters.eventTypes[typeKey]) return false;
+        // Event type filter
+        if (e.event_type && !filters.eventTypes[e.event_type]) return false;
+
+        // Asset class filter
+        if (e.asset_class && !filters.assetClasses[e.asset_class]) return false;
+
+        // Asset search
+        if (filters.assetSearch && !e.asset.toLowerCase().includes(filters.assetSearch)) return false;
+
         return true;
     }});
 }}
@@ -417,76 +325,80 @@ function getEventTypeLabel(eventType) {{
 
 function renderEventsTable(events) {{
     const tbody = document.getElementById('events-body');
-    tbody.innerHTML = events.map(e => {{
+    let html = '';
+
+    events.forEach((e, idx) => {{
         const badgeClass = getEventTypeBadgeClass(e.event_type);
         const label = getEventTypeLabel(e.event_type);
-        return `
-        <tr>
-            <td>${{e.date}}</td>
-            <td>${{e.tax_year}}</td>
-            <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
-            <td>${{e.asset}}</td>
-            <td>${{e.asset_class}}</td>
-            <td class="number">${{e.quantity}}</td>
-            <td class="number">${{formatGbp(e.value_gbp)}}</td>
-            <td class="number">${{e.fees_gbp ? formatGbp(e.fees_gbp) : '-'}}</td>
-            <td>${{e.description || ''}}</td>
-        </tr>
-    `}}).join('');
-    document.getElementById('events-count').textContent = `(${{events.length}})`;
-}}
+        const hasCgt = e.cgt != null;
+        const expandIcon = hasCgt ? '<span class="expand-icon">▶</span>' : '';
+        const expandableClass = hasCgt ? 'expandable' : '';
 
-function renderDisposalsTable(disposals) {{
-    const tbody = document.getElementById('disposals-body');
-    let html = '';
-    disposals.forEach((d, idx) => {{
-        const gainNum = parseFloat(d.gain_gbp.replace(/[£,]/g, ''));
-        const gainClass = gainNum >= 0 ? 'gain' : 'loss';
-        const ruleBadgeClass = getRuleBadgeClass(d.rule);
-        const hasComponents = d.matching_components && d.matching_components.length > 0;
-        const expandIcon = hasComponents ? '<span class="expand-icon">▶</span>' : '';
-        const expandableClass = hasComponents ? 'expandable' : '';
+        // Gain/Loss column - show CGT gain for disposals, empty for others
+        let gainCell = '<td class="number">-</td>';
+        if (hasCgt) {{
+            const gainNum = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, ''));
+            const gainClass = gainNum >= 0 ? 'gain' : 'loss';
+            gainCell = `<td class="number ${{gainClass}}">${{formatGbp(e.cgt.gain_gbp)}}</td>`;
+        }}
 
         html += `
-            <tr class="${{expandableClass}}" data-idx="${{idx}}" onclick="toggleMatchingDetails(${{idx}})">
-                <td>${{expandIcon}}${{d.date}}</td>
-                <td>${{d.tax_year}}</td>
-                <td>${{d.asset}}</td>
-                <td class="number">${{d.quantity}}</td>
-                <td class="number">${{formatGbp(d.proceeds_gbp)}}</td>
-                <td class="number">${{formatGbp(d.cost_gbp)}}</td>
-                <td class="number">${{d.fees_gbp ? formatGbp(d.fees_gbp) : '-'}}</td>
-                <td class="number ${{gainClass}}">${{formatGbp(d.gain_gbp)}}</td>
-                <td><span class="badge ${{ruleBadgeClass}}">${{d.rule}}</span></td>
-                <td>${{d.description || ''}}</td>
+            <tr class="${{expandableClass}}" data-idx="${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
+                <td>${{expandIcon}}</td>
+                <td>${{e.date}}</td>
+                <td>${{e.tax_year}}</td>
+                <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
+                <td>${{e.asset}}</td>
+                <td class="number">${{e.quantity}}</td>
+                <td class="number">${{formatGbp(e.value_gbp)}}</td>
+                ${{gainCell}}
+                <td>${{e.description || ''}}</td>
             </tr>
         `;
 
-        // Add hidden matching component rows
-        if (hasComponents) {{
-            d.matching_components.forEach((mc, mcIdx) => {{
-                const mcBadgeClass = getRuleBadgeClass(mc.rule);
-                const linkedDate = mc.matched_date ? `<span class="linked-date">→ ${{mc.matched_date}}</span>` : '';
-                html += `
-                    <tr class="matching-row" data-parent="${{idx}}" style="display: none;">
-                        <td colspan="10">
-                            <div class="matching-detail">
-                                <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span>
-                                <span><span class="label">Qty:</span> <span class="value">${{mc.quantity}}</span></span>
-                                <span><span class="label">Cost:</span> <span class="value">${{formatGbp(mc.cost_gbp)}}</span></span>
-                                ${{linkedDate}}
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }});
+        // Add hidden CGT detail rows for disposals
+        if (hasCgt) {{
+            const ruleBadgeClass = getRuleBadgeClass(e.cgt.rule);
+            html += `
+                <tr class="matching-row cgt-summary" data-parent="${{idx}}" style="display: none;">
+                    <td colspan="9">
+                        <div class="matching-detail">
+                            <span class="badge ${{ruleBadgeClass}}">${{e.cgt.rule}}</span>
+                            <span><span class="label">Proceeds:</span> <span class="value">${{formatGbp(e.cgt.proceeds_gbp)}}</span></span>
+                            <span><span class="label">Cost:</span> <span class="value">${{formatGbp(e.cgt.cost_gbp)}}</span></span>
+                            <span><span class="label">Gain:</span> <span class="value">${{formatGbp(e.cgt.gain_gbp)}}</span></span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+
+            // Add matching component rows
+            if (e.cgt.matching_components && e.cgt.matching_components.length > 0) {{
+                e.cgt.matching_components.forEach(mc => {{
+                    const mcBadgeClass = getRuleBadgeClass(mc.rule);
+                    const linkedDate = mc.matched_date ? `<span class="linked-date">→ ${{mc.matched_date}}</span>` : '';
+                    html += `
+                        <tr class="matching-row" data-parent="${{idx}}" style="display: none;">
+                            <td colspan="9">
+                                <div class="matching-detail">
+                                    <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span>
+                                    <span><span class="label">Qty:</span> <span class="value">${{mc.quantity}}</span></span>
+                                    <span><span class="label">Cost:</span> <span class="value">${{formatGbp(mc.cost_gbp)}}</span></span>
+                                    ${{linkedDate}}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }});
+            }}
         }}
     }});
+
     tbody.innerHTML = html;
-    document.getElementById('disposals-count').textContent = `(${{disposals.length}})`;
+    document.getElementById('events-count').textContent = `(${{events.length}})`;
 }}
 
-function toggleMatchingDetails(idx) {{
+function toggleCgtDetails(idx) {{
     const parentRow = document.querySelector(`tr[data-idx="${{idx}}"]`);
     const childRows = document.querySelectorAll(`tr[data-parent="${{idx}}"]`);
 
@@ -503,45 +415,28 @@ function toggleMatchingDetails(idx) {{
     }}
 }}
 
-function renderIncomeTable(income) {{
-    const tbody = document.getElementById('income-body');
-    tbody.innerHTML = income.map(i => {{
-        const badgeClass = i.income_type === 'Staking' ? 'badge-staking' : 'badge-dividend';
-        return `
-        <tr>
-            <td>${{i.date}}</td>
-            <td>${{i.tax_year}}</td>
-            <td><span class="badge ${{badgeClass}}">${{i.income_type}}</span></td>
-            <td>${{i.asset}}</td>
-            <td class="number">${{i.quantity}}</td>
-            <td class="number">${{formatGbp(i.value_gbp)}}</td>
-            <td>${{i.description || ''}}</td>
-        </tr>
-    `}}).join('');
-    document.getElementById('income-count').textContent = `(${{income.length}})`;
-}}
-
-function calculateFilteredSummary(events, disposals, income) {{
+function calculateFilteredSummary(events) {{
     let proceeds = 0, costs = 0, gain = 0, staking = 0, dividends = 0;
 
-    disposals.forEach(d => {{
-        proceeds += parseFloat(d.proceeds_gbp.replace(/[£,]/g, '')) || 0;
-        costs += parseFloat(d.cost_gbp.replace(/[£,]/g, '')) || 0;
-        costs += parseFloat((d.fees_gbp || '0').replace(/[£,]/g, '')) || 0;
-        gain += parseFloat(d.gain_gbp.replace(/[£,]/g, '')) || 0;
-    }});
-
-    income.forEach(i => {{
-        const val = parseFloat(i.value_gbp.replace(/[£,]/g, '')) || 0;
-        if (i.income_type === 'Staking') staking += val;
-        else dividends += val;
+    events.forEach(e => {{
+        if (e.cgt) {{
+            proceeds += parseFloat(e.cgt.proceeds_gbp.replace(/[£,]/g, '')) || 0;
+            costs += parseFloat(e.cgt.cost_gbp.replace(/[£,]/g, '')) || 0;
+            gain += parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, '')) || 0;
+        }}
+        if (e.event_type === 'StakingReward') {{
+            staking += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
+        }}
+        if (e.event_type === 'Dividend') {{
+            dividends += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
+        }}
     }});
 
     return {{ proceeds, costs, gain, staking, dividends }};
 }}
 
-function updateSummary(events, disposals, income) {{
-    const summary = calculateFilteredSummary(events, disposals, income);
+function updateSummary(events) {{
+    const summary = calculateFilteredSummary(events);
 
     document.getElementById('summary-proceeds').textContent = formatGbp(summary.proceeds.toString());
     document.getElementById('summary-costs').textContent = formatGbp(summary.costs.toString());
@@ -556,20 +451,14 @@ function updateSummary(events, disposals, income) {{
 
 function applyFilters() {{
     const filters = getFilters();
-
     const filteredEvents = filterEvents(DATA.events, filters);
-    const filteredDisposals = filterDisposals(DATA.disposals, filters);
-    const filteredIncome = filterIncome(DATA.income, filters);
-
     renderEventsTable(filteredEvents);
-    renderDisposalsTable(filteredDisposals);
-    renderIncomeTable(filteredIncome);
-    updateSummary(filteredEvents, filteredDisposals, filteredIncome);
+    updateSummary(filteredEvents);
 }}
 
 function resetFilters() {{
-    document.getElementById('date-from').value = '';
-    document.getElementById('date-to').value = '';
+    document.getElementById('date-from').value = DATA.summary.min_date || '';
+    document.getElementById('date-to').value = DATA.summary.max_date || '';
     document.getElementById('tax-year').value = '';
     document.getElementById('asset-search').value = '';
     document.getElementById('type-acquisition').checked = true;
@@ -596,96 +485,71 @@ fn build_report_data(
     income_report: &IncomeReport,
     year: Option<TaxYear>,
 ) -> HtmlReportData {
-    // Build events list
+    use std::collections::HashMap;
+
+    // Build a map of CGT data keyed by description for disposal lookup
+    let mut cgt_map: HashMap<String, &crate::tax::cgt::DisposalRecord> = HashMap::new();
+    for d in &cgt_report.disposals {
+        if let Some(ref desc) = d.description {
+            cgt_map.insert(desc.clone(), d);
+        }
+    }
+
+    // Build events list with CGT details for disposals
     let event_rows: Vec<EventRow> = events
         .iter()
         .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
-        .map(|e| EventRow {
-            date: e.date.format("%Y-%m-%d").to_string(),
-            tax_year: TaxYear::from_date(e.date).display(),
-            event_type: format_event_type(&e.event_type),
-            asset: e.asset.clone(),
-            asset_class: format_asset_class(&e.asset_class),
-            quantity: e.quantity.to_string(),
-            value_gbp: format!("{:.2}", e.value_gbp),
-            fees_gbp: e.fees_gbp.map(|f| format!("{:.2}", f)).unwrap_or_default(),
-            description: e.description.clone().unwrap_or_default(),
-        })
-        .collect();
+        .map(|e| {
+            // Look up CGT details for disposal events
+            let cgt = if e.event_type == EventType::Disposal {
+                e.description.as_ref().and_then(|desc| cgt_map.get(desc)).map(|d| {
+                    // Determine primary matching rule
+                    let rule = if d.matching_components.is_empty() {
+                        "Pool".to_string()
+                    } else if d.matching_components.len() == 1 {
+                        format_matching_rule(&d.matching_components[0].rule)
+                    } else {
+                        "Mixed".to_string()
+                    };
 
-    // Build disposals list
-    let disposal_rows: Vec<DisposalRow> = cgt_report
-        .disposals
-        .iter()
-        .filter(|d| year.is_none_or(|y| d.tax_year == y))
-        .map(|d| {
-            // Determine primary matching rule
-            let rule = if d.matching_components.is_empty() {
-                "Pool".to_string()
-            } else if d.matching_components.len() == 1 {
-                format_matching_rule(&d.matching_components[0].rule)
+                    // Build matching components
+                    let matching_components: Vec<MatchingComponentRow> = d
+                        .matching_components
+                        .iter()
+                        .map(|mc| MatchingComponentRow {
+                            rule: format_matching_rule(&mc.rule),
+                            quantity: mc.quantity.to_string(),
+                            cost_gbp: format!("{:.2}", mc.cost),
+                            matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                        })
+                        .collect();
+
+                    CgtDetails {
+                        proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
+                        cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
+                        gain_gbp: format!("{:.2}", d.gain_gbp),
+                        rule,
+                        matching_components,
+                    }
+                })
             } else {
-                "Mixed".to_string()
+                None
             };
 
-            // Build matching components for linked transaction display
-            let matching_components: Vec<MatchingComponentRow> = d
-                .matching_components
-                .iter()
-                .map(|mc| MatchingComponentRow {
-                    rule: format_matching_rule(&mc.rule),
-                    quantity: mc.quantity.to_string(),
-                    cost_gbp: format!("{:.2}", mc.cost),
-                    matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
-                })
-                .collect();
-
-            DisposalRow {
-                date: d.date.format("%Y-%m-%d").to_string(),
-                tax_year: d.tax_year.display(),
-                asset: d.asset.clone(),
-                quantity: d.quantity.to_string(),
-                proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
-                cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
-                fees_gbp: format!("{:.2}", d.fees_gbp),
-                gain_gbp: format!("{:.2}", d.gain_gbp),
-                rule,
-                description: d.description.clone().unwrap_or_default(),
-                matching_components,
+            EventRow {
+                date: e.date.format("%Y-%m-%d").to_string(),
+                tax_year: TaxYear::from_date(e.date).display(),
+                event_type: format_event_type(&e.event_type),
+                asset: e.asset.clone(),
+                asset_class: format_asset_class(&e.asset_class),
+                quantity: e.quantity.to_string(),
+                value_gbp: format!("{:.2}", e.value_gbp),
+                fees_gbp: e.fees_gbp.map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                description: e.description.clone().unwrap_or_default(),
+                cgt,
             }
         })
         .collect();
-
-    // Build income list
-    let mut income_rows: Vec<IncomeRow> = Vec::new();
-    for e in &income_report.staking_events {
-        if year.is_none_or(|y| e.tax_year == y) {
-            income_rows.push(IncomeRow {
-                date: e.date.format("%Y-%m-%d").to_string(),
-                tax_year: e.tax_year.display(),
-                income_type: "Staking".to_string(),
-                asset: e.asset.clone(),
-                quantity: e.quantity.to_string(),
-                value_gbp: format!("{:.2}", e.value_gbp),
-                description: e.description.clone().unwrap_or_default(),
-            });
-        }
-    }
-    for e in &income_report.dividend_events {
-        if year.is_none_or(|y| e.tax_year == y) {
-            income_rows.push(IncomeRow {
-                date: e.date.format("%Y-%m-%d").to_string(),
-                tax_year: e.tax_year.display(),
-                income_type: "Dividend".to_string(),
-                asset: e.asset.clone(),
-                quantity: e.quantity.to_string(),
-                value_gbp: format!("{:.2}", e.value_gbp),
-                description: e.description.clone().unwrap_or_default(),
-            });
-        }
-    }
-    // Sort income by date
-    income_rows.sort_by(|a, b| a.date.cmp(&b.date));
 
     // Calculate summary
     let total_proceeds = cgt_report.total_proceeds(year);
@@ -727,10 +591,14 @@ fn build_report_data(
     let min_date = filtered_events.iter().map(|e| e.date).min();
     let max_date = filtered_events.iter().map(|e| e.date).max();
 
+    let disposal_count = event_rows.iter().filter(|e| e.cgt.is_some()).count();
+    let income_count = event_rows
+        .iter()
+        .filter(|e| e.event_type == "StakingReward" || e.event_type == "Dividend")
+        .count();
+
     HtmlReportData {
         events: event_rows,
-        disposals: disposal_rows,
-        income: income_rows,
         summary: Summary {
             total_proceeds: format!("{:.2}", total_proceeds),
             total_costs: format!("{:.2}", total_costs),
@@ -738,8 +606,8 @@ fn build_report_data(
             total_staking: format!("{:.2}", total_staking),
             total_dividends: format!("{:.2}", total_dividends),
             event_count: events.len(),
-            disposal_count: cgt_report.disposals.len(),
-            income_count: income_report.staking_events.len() + income_report.dividend_events.len(),
+            disposal_count,
+            income_count,
             tax_years,
             assets,
             min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
