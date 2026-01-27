@@ -90,8 +90,17 @@ pub struct MatchingComponentRow {
     pub rule: String,
     pub quantity: String,
     pub cost_gbp: String,
-    /// For B&B: the linked acquisition date
+    /// For Same-Day/B&B: the linked acquisition date
     pub matched_date: Option<String>,
+    /// Row ID of the matched acquisition (for navigation)
+    pub matched_row_id: Option<usize>,
+    /// Details of the matched acquisition for display
+    pub matched_event_type: Option<String>,
+    pub matched_tax_year: Option<String>,
+    pub matched_asset: Option<String>,
+    pub matched_original_qty: Option<String>,
+    pub matched_original_value: Option<String>,
+    pub matched_description: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -343,8 +352,8 @@ function renderEventsTable(events) {{
         }}
 
         html += `
-            <tr class="${{expandableClass}}" data-idx="${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
-                <td>${{expandIcon}}</td>
+            <tr class="${{expandableClass}}" data-idx="${{idx}}" id="row-${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
+                <td class="expand-cell">${{expandIcon}}</td>
                 <td>${{e.date}}</td>
                 <td>${{e.tax_year}}</td>
                 <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
@@ -358,37 +367,60 @@ function renderEventsTable(events) {{
 
         // Add hidden CGT detail rows for disposals
         if (hasCgt) {{
+            // CGT summary row
             const ruleBadgeClass = getRuleBadgeClass(e.cgt.rule);
             html += `
-                <tr class="matching-row cgt-summary" data-parent="${{idx}}" style="display: none;">
-                    <td colspan="9">
-                        <div class="matching-detail">
-                            <span class="badge ${{ruleBadgeClass}}">${{e.cgt.rule}}</span>
-                            <span><span class="label">Proceeds:</span> <span class="value">${{formatGbp(e.cgt.proceeds_gbp)}}</span></span>
-                            <span><span class="label">Cost:</span> <span class="value">${{formatGbp(e.cgt.cost_gbp)}}</span></span>
-                            <span><span class="label">Gain:</span> <span class="value">${{formatGbp(e.cgt.gain_gbp)}}</span></span>
-                        </div>
-                    </td>
+                <tr class="matching-row cgt-summary-row" data-parent="${{idx}}" style="display: none;">
+                    <td class="expand-cell"></td>
+                    <td colspan="4" class="cgt-summary-label">Cost Basis</td>
+                    <td class="number ref-text">${{formatGbp(e.cgt.cost_gbp)}}</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
                 </tr>
             `;
 
-            // Add matching component rows
+            // Add matching component rows as full table rows
             if (e.cgt.matching_components && e.cgt.matching_components.length > 0) {{
                 e.cgt.matching_components.forEach(mc => {{
                     const mcBadgeClass = getRuleBadgeClass(mc.rule);
-                    const linkedDate = mc.matched_date ? `<span class="linked-date">→ ${{mc.matched_date}}</span>` : '';
-                    html += `
-                        <tr class="matching-row" data-parent="${{idx}}" style="display: none;">
-                            <td colspan="9">
-                                <div class="matching-detail">
-                                    <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span>
-                                    <span><span class="label">Qty:</span> <span class="value">${{mc.quantity}}</span></span>
-                                    <span><span class="label">Cost:</span> <span class="value">${{formatGbp(mc.cost_gbp)}}</span></span>
-                                    ${{linkedDate}}
-                                </div>
-                            </td>
-                        </tr>
-                    `;
+                    const hasLinkedRow = mc.matched_row_id != null && mc.rule !== 'Pool';
+                    const clickHandler = hasLinkedRow ? `onclick="navigateToRow(${{mc.matched_row_id}}); event.stopPropagation();"` : '';
+                    const clickableClass = hasLinkedRow ? 'clickable-ref' : '';
+
+                    // For Same-Day/B&B, show the linked acquisition row with partial qty/value
+                    if (mc.matched_event_type) {{
+                        const linkedBadgeClass = getEventTypeBadgeClass(mc.matched_event_type);
+                        const linkedLabel = getEventTypeLabel(mc.matched_event_type);
+                        html += `
+                            <tr class="matching-row ref-row ${{clickableClass}}" data-parent="${{idx}}" style="display: none;" ${{clickHandler}}>
+                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
+                                <td class="ref-text">${{mc.matched_date}}</td>
+                                <td class="ref-text">${{mc.matched_tax_year || ''}}</td>
+                                <td><span class="badge ${{linkedBadgeClass}} ref-badge">${{linkedLabel}}</span> <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
+                                <td class="ref-text">${{mc.matched_asset || ''}}</td>
+                                <td class="number ref-text">${{mc.quantity}} <span class="ref-original">of ${{mc.matched_original_qty}}</span></td>
+                                <td class="number ref-text">${{formatGbp(mc.cost_gbp)}} <span class="ref-original">of ${{formatGbp(mc.matched_original_value || '0')}}</span></td>
+                                <td></td>
+                                <td class="ref-text">${{mc.matched_description || ''}}</td>
+                            </tr>
+                        `;
+                    }} else {{
+                        // Pool matching - no linked acquisition
+                        html += `
+                            <tr class="matching-row ref-row" data-parent="${{idx}}" style="display: none;">
+                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
+                                <td class="ref-text">-</td>
+                                <td class="ref-text">-</td>
+                                <td><span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
+                                <td class="ref-text">${{e.asset}}</td>
+                                <td class="number ref-text">${{mc.quantity}}</td>
+                                <td class="number ref-text">${{formatGbp(mc.cost_gbp)}}</td>
+                                <td></td>
+                                <td class="ref-text">Section 104 Pool</td>
+                            </tr>
+                        `;
+                    }}
                 }});
             }}
         }}
@@ -412,6 +444,17 @@ function toggleCgtDetails(idx) {{
     }} else {{
         parentRow.classList.add('expanded');
         childRows.forEach(row => row.style.display = '');
+    }}
+}}
+
+function navigateToRow(rowIdx) {{
+    const targetRow = document.getElementById(`row-${{rowIdx}}`);
+    if (targetRow) {{
+        // Scroll to the row
+        targetRow.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+        // Highlight briefly
+        targetRow.classList.add('highlight-flash');
+        setTimeout(() => targetRow.classList.remove('highlight-flash'), 1500);
     }}
 }}
 
@@ -485,7 +528,45 @@ fn build_report_data(
     income_report: &IncomeReport,
     year: Option<TaxYear>,
 ) -> HtmlReportData {
+    use chrono::NaiveDate;
     use std::collections::HashMap;
+
+    // Filter events for the target year
+    let filtered_events: Vec<_> = events
+        .iter()
+        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
+        .collect();
+
+    // Build index of acquisitions by (date, asset) -> row index for navigation
+    // Multiple acquisitions on the same day for the same asset share a row index (first one)
+    let mut acquisition_row_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
+    for (idx, e) in filtered_events.iter().enumerate() {
+        if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
+            let key = (e.date, e.asset.clone());
+            acquisition_row_index.entry(key).or_insert(idx);
+        }
+    }
+
+    // Build a map of acquisition details by (date, asset) for lookup
+    // Aggregates multiple acquisitions on the same day
+    let mut acquisition_details: HashMap<(NaiveDate, String), (String, String, Decimal, Decimal, String)> =
+        HashMap::new();
+    for e in &filtered_events {
+        if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
+            let key = (e.date, e.asset.clone());
+            let entry = acquisition_details.entry(key).or_insert_with(|| {
+                (
+                    format_event_type(&e.event_type),
+                    TaxYear::from_date(e.date).display(),
+                    Decimal::ZERO,
+                    Decimal::ZERO,
+                    e.description.clone().unwrap_or_default(),
+                )
+            });
+            entry.2 += e.quantity;
+            entry.3 += e.value_gbp;
+        }
+    }
 
     // Build a map of CGT data keyed by description for disposal lookup
     let mut cgt_map: HashMap<String, &crate::tax::cgt::DisposalRecord> = HashMap::new();
@@ -496,9 +577,8 @@ fn build_report_data(
     }
 
     // Build events list with CGT details for disposals
-    let event_rows: Vec<EventRow> = events
+    let event_rows: Vec<EventRow> = filtered_events
         .iter()
-        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
         .map(|e| {
             // Look up CGT details for disposal events
             let cgt = if e.event_type == EventType::Disposal {
@@ -512,15 +592,47 @@ fn build_report_data(
                         "Mixed".to_string()
                     };
 
-                    // Build matching components
+                    // Build matching components with acquisition details
                     let matching_components: Vec<MatchingComponentRow> = d
                         .matching_components
                         .iter()
-                        .map(|mc| MatchingComponentRow {
-                            rule: format_matching_rule(&mc.rule),
-                            quantity: mc.quantity.to_string(),
-                            cost_gbp: format!("{:.2}", mc.cost),
-                            matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                        .map(|mc| {
+                            // Look up acquisition details for Same-Day and B&B matches
+                            let (matched_row_id, matched_event_type, matched_tax_year, matched_asset, matched_original_qty, matched_original_value, matched_description) =
+                                if let Some(date) = mc.matched_date {
+                                    let key = (date, d.asset.clone());
+                                    let row_id = acquisition_row_index.get(&key).copied();
+                                    let details = acquisition_details.get(&key);
+                                    if let Some((event_type, tax_year, qty, value, desc)) = details {
+                                        (
+                                            row_id,
+                                            Some(event_type.clone()),
+                                            Some(tax_year.clone()),
+                                            Some(d.asset.clone()),
+                                            Some(qty.to_string()),
+                                            Some(format!("{:.2}", value)),
+                                            Some(desc.clone()),
+                                        )
+                                    } else {
+                                        (None, None, None, None, None, None, None)
+                                    }
+                                } else {
+                                    (None, None, None, None, None, None, None)
+                                };
+
+                            MatchingComponentRow {
+                                rule: format_matching_rule(&mc.rule),
+                                quantity: mc.quantity.to_string(),
+                                cost_gbp: format!("{:.2}", mc.cost),
+                                matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                                matched_row_id,
+                                matched_event_type,
+                                matched_tax_year,
+                                matched_asset,
+                                matched_original_qty,
+                                matched_original_value,
+                                matched_description,
+                            }
                         })
                         .collect();
 
@@ -571,7 +683,7 @@ fn build_report_data(
         .sum();
 
     // Collect unique tax years
-    let mut tax_years: Vec<String> = events
+    let mut tax_years: Vec<String> = filtered_events
         .iter()
         .map(|e| TaxYear::from_date(e.date).display())
         .collect();
@@ -579,15 +691,11 @@ fn build_report_data(
     tax_years.dedup();
 
     // Collect unique assets
-    let mut assets: Vec<String> = events.iter().map(|e| e.asset.clone()).collect();
+    let mut assets: Vec<String> = filtered_events.iter().map(|e| e.asset.clone()).collect();
     assets.sort();
     assets.dedup();
 
     // Calculate date range from filtered events
-    let filtered_events: Vec<_> = events
-        .iter()
-        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date) == y))
-        .collect();
     let min_date = filtered_events.iter().map(|e| e.date).min();
     let max_date = filtered_events.iter().map(|e| e.date).max();
 
@@ -884,6 +992,13 @@ thead th {
     background: var(--gray-50);
 }
 
+thead th:first-child {
+    width: 1.5rem;
+    min-width: 1.5rem;
+    max-width: 1.5rem;
+    padding: 0.75rem 0.25rem 0.75rem 0.5rem;
+}
+
 th {
     text-align: left;
     padding: 0.75rem 1rem;
@@ -1004,11 +1119,18 @@ tbody tr:nth-child(even):hover {
     background: var(--gray-100) !important;
 }
 
+.expand-cell {
+    width: 1.5rem;
+    min-width: 1.5rem;
+    max-width: 1.5rem;
+    padding: 0.5rem 0.25rem 0.5rem 0.5rem !important;
+    text-align: center;
+}
+
 .expand-icon {
     display: inline-block;
-    width: 1rem;
-    margin-right: 0.25rem;
-    text-align: center;
+    font-size: 0.625rem;
+    color: var(--gray-400);
     transition: transform 0.15s;
 }
 
@@ -1016,39 +1138,77 @@ tbody tr:nth-child(even):hover {
     transform: rotate(90deg);
 }
 
-/* Matching component sub-rows */
+/* Referenced row styles */
+.ref-row {
+    background: var(--gray-50) !important;
+}
+
+.ref-row td {
+    font-size: 0.8125rem;
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+}
+
+.ref-text {
+    color: var(--gray-500) !important;
+}
+
+.ref-arrow {
+    color: var(--gray-400);
+    font-size: 0.875rem;
+}
+
+.ref-original {
+    color: var(--gray-400);
+    font-size: 0.75rem;
+}
+
+.ref-badge {
+    opacity: 0.7;
+}
+
+/* CGT summary row */
+.cgt-summary-row td {
+    font-size: 0.8125rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: none;
+}
+
+.cgt-summary-label {
+    font-weight: 500;
+    color: var(--gray-500);
+}
+
+/* Clickable reference rows */
+.clickable-ref {
+    cursor: pointer;
+}
+
+.clickable-ref:hover {
+    background: var(--gray-100) !important;
+}
+
+.clickable-ref:hover .ref-text {
+    color: var(--primary) !important;
+}
+
+/* Navigation highlight animation */
+@keyframes highlight-flash {
+    0% { background: var(--rule-sameday-bg); }
+    100% { background: transparent; }
+}
+
+.highlight-flash {
+    animation: highlight-flash 1.5s ease-out;
+}
+
+/* Matching row base styles */
 .matching-row {
     background: var(--gray-50) !important;
 }
 
 .matching-row td {
-    padding: 0.5rem 1rem;
-    font-size: 0.8125rem;
-    color: var(--gray-500);
     border-bottom: 1px solid var(--gray-100);
-}
-
-.matching-row td:first-child {
-    padding-left: 2.5rem;
-}
-
-.matching-detail {
-    display: flex;
-    gap: 1.5rem;
-    align-items: center;
-}
-
-.matching-detail .label {
-    font-weight: 500;
-    color: var(--gray-500);
-}
-
-.matching-detail .value {
-    color: var(--gray-700);
-}
-
-.linked-date {
-    color: var(--rule-bnb);
-    font-weight: 500;
 }
 "#;
