@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
-pub struct HtmlCommand {
+pub struct ReportCommand {
     /// CSV or JSON file containing taxable events
     #[arg(short, long)]
     events: PathBuf,
@@ -25,9 +25,13 @@ pub struct HtmlCommand {
     /// Output file path (default: opens in browser)
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Output as JSON instead of HTML
+    #[arg(long)]
+    json: bool,
 }
 
-impl HtmlCommand {
+impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_year = self.year.map(TaxYear);
         let (events, opening_pools) = read_events(&self.events)?;
@@ -35,17 +39,29 @@ impl HtmlCommand {
         let cgt_report = calculate_cgt(events.clone(), opening_pools.as_ref());
         let income_report = calculate_income_tax(events.clone());
 
-        let html = generate(&events, &cgt_report, &income_report, tax_year);
+        if self.json {
+            let data = build_report_data(&events, &cgt_report, &income_report, tax_year);
+            let json = serde_json::to_string_pretty(&data)?;
 
-        if let Some(ref output_path) = self.output {
-            std::fs::write(output_path, &html)?;
-            println!("HTML report written to: {}", output_path.display());
+            if let Some(ref output_path) = self.output {
+                std::fs::write(output_path, &json)?;
+                eprintln!("JSON report written to: {}", output_path.display());
+            } else {
+                println!("{}", json);
+            }
         } else {
-            // Write to temp file and open in browser
-            let temp_path = std::env::temp_dir().join("taxc-report.html");
-            std::fs::write(&temp_path, &html)?;
-            opener::open(&temp_path)?;
-            println!("Opened HTML report in browser: {}", temp_path.display());
+            let html = generate(&events, &cgt_report, &income_report, tax_year);
+
+            if let Some(ref output_path) = self.output {
+                std::fs::write(output_path, &html)?;
+                println!("HTML report written to: {}", output_path.display());
+            } else {
+                // Write to temp file and open in browser
+                let temp_path = std::env::temp_dir().join("taxc-report.html");
+                std::fs::write(&temp_path, &html)?;
+                opener::open(&temp_path)?;
+                println!("Opened HTML report in browser: {}", temp_path.display());
+            }
         }
 
         Ok(())

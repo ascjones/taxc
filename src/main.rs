@@ -4,7 +4,7 @@ mod tax;
 
 use clap::{Parser, Subcommand};
 use cmd::events::EventsCommand;
-use cmd::html_report::HtmlCommand;
+use cmd::html_report::ReportCommand;
 use cmd::summary::SummaryCommand;
 
 #[derive(Parser, Debug)]
@@ -24,8 +24,8 @@ enum Command {
     /// Show aggregated tax summary
     Summary(SummaryCommand),
 
-    /// Generate interactive HTML report
-    Html(HtmlCommand),
+    /// Generate tax report (HTML by default, or JSON with --json)
+    Report(ReportCommand),
 }
 
 impl Command {
@@ -33,7 +33,7 @@ impl Command {
         match self {
             Command::Events(events) => events.exec(),
             Command::Summary(summary) => summary.exec(),
-            Command::Html(html) => html.exec(),
+            Command::Report(report) => report.exec(),
         }
     }
 }
