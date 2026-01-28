@@ -961,9 +961,6 @@ header {
     background: white;
     border-bottom: 1px solid var(--gray-200);
     padding: 1.5rem 2rem;
-    position: sticky;
-    top: 0;
-    z-index: 100;
 }
 
 header h1 {
@@ -1144,7 +1141,6 @@ main {
     border-radius: 0.5rem;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     margin-bottom: 1.5rem;
-    overflow: hidden;
 }
 
 .data-section h2 {
@@ -1161,9 +1157,7 @@ main {
 }
 
 .table-container {
-    overflow-x: auto;
-    max-height: calc(100vh - 320px);
-    overflow-y: auto;
+    /* No overflow here - let thead stick to viewport */
 }
 
 table {
