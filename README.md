@@ -44,19 +44,20 @@ taxc summary [OPTIONS] --events <EVENTS>
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
 | `--json` | Output as JSON instead of formatted text |
 
-### HTML - Interactive Report
+### Report - Tax Report
 
-Generate an interactive HTML report:
+Generate a tax report (HTML by default, or JSON):
 
 ```
-taxc html [OPTIONS] --events <EVENTS>
+taxc report [OPTIONS] --events <EVENTS>
 ```
 
 | Option | Description |
 |--------|-------------|
 | `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
-| `-o, --output <FILE>` | Output file path (default: opens in browser) |
+| `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
+| `--json` | Output as JSON instead of HTML |
 
 ## Input Formats
 
@@ -155,10 +156,10 @@ INCOME
 TOTAL TAX LIABILITY: £403.25 (basic)
 ```
 
-### HTML Report
+### Report Command
 
 ```
-taxc html -e events.csv
+taxc report -e events.csv
 ```
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
@@ -171,7 +172,13 @@ Generates a self-contained HTML file and opens it in your default browser. Featu
 - **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
 - **Color-coded gains/losses** - Green for gains, red for losses
 
-Use `-o /path/to/file.html` to write to a specific file instead of opening in browser.
+Use `-o report.html` to write to a specific file instead of opening in browser.
+
+Use `--json` to output the report data as JSON (for integration with other tools):
+
+```
+taxc report -e events.csv --json > report.json
+```
 
 ## HMRC Share Identification Rules
 
