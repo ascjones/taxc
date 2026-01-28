@@ -4,7 +4,7 @@
 
 use crate::cmd::events::read_events;
 use crate::events::{AssetClass, EventType, TaxableEvent};
-use crate::tax::cgt::{calculate_cgt, CgtReport, MatchingRule};
+use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
 use clap::Args;
@@ -99,6 +99,8 @@ pub struct CgtDetails {
     pub gain_gbp: String,
     pub rule: String,
     pub matching_components: Vec<MatchingComponentRow>,
+    /// Warnings for this disposal (e.g., "Unclassified", "NoCostBasis", "InsufficientPool")
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -143,7 +145,12 @@ pub struct Summary {
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
+    /// Count of disposals with any warning
+    pub warning_count: usize,
+    /// Count of unclassified disposal events (derived from warnings)
     pub unclassified_count: usize,
+    /// Count of disposals with cost basis issues (NoCostBasis or InsufficientPool)
+    pub cost_basis_warning_count: usize,
     pub tax_years: Vec<String>,
     pub assets: Vec<String>,
     pub min_date: Option<String>,
@@ -243,9 +250,9 @@ pub fn generate(
                 <p class="value" id="summary-dividends">-</p>
             </div>
         </section>
-        <div class="unclassified-warning" id="unclassified-warning" style="display: none;">
+        <div class="warnings-banner" id="warnings-banner" style="display: none;">
             <span class="warning-icon">⚠</span>
-            <span id="unclassified-count">0</span> unclassified transaction(s) - totals may be incomplete
+            <span id="warning-summary"></span>
         </div>
 
         <section class="data-section">
@@ -291,10 +298,18 @@ function init() {{
         document.getElementById('date-to').value = DATA.summary.max_date;
     }}
 
-    // Show unclassified warning if needed
-    if (DATA.summary.unclassified_count > 0) {{
-        document.getElementById('unclassified-warning').style.display = 'flex';
-        document.getElementById('unclassified-count').textContent = DATA.summary.unclassified_count;
+    // Show warnings banner if there are any warnings
+    if (DATA.summary.warning_count > 0) {{
+        const parts = [];
+        if (DATA.summary.unclassified_count > 0) {{
+            parts.push(`${{DATA.summary.unclassified_count}} unclassified`);
+        }}
+        if (DATA.summary.cost_basis_warning_count > 0) {{
+            parts.push(`${{DATA.summary.cost_basis_warning_count}} missing cost basis`);
+        }}
+        const summary = `${{DATA.summary.warning_count}} disposal(s) with warnings: ${{parts.join(', ')}}`;
+        document.getElementById('warnings-banner').style.display = 'flex';
+        document.getElementById('warning-summary').textContent = summary;
     }}
 
     applyFilters();
@@ -404,6 +419,10 @@ function renderEventsTable(events) {{
         const expandIcon = hasCgt ? '<span class="expand-icon">▶</span>' : '';
         const expandableClass = hasCgt ? 'expandable' : '';
 
+        // Check for warnings
+        const hasWarnings = hasCgt && e.cgt.warnings && e.cgt.warnings.length > 0;
+        const warningIndicator = hasWarnings ? '<span class="warning-indicator" title="' + e.cgt.warnings.join(', ') + '">⚠</span> ' : '';
+
         // Gain/Loss column - show CGT gain for disposals, empty for others
         let gainCell = '<td class="number">-</td>';
         if (hasCgt) {{
@@ -416,7 +435,7 @@ function renderEventsTable(events) {{
             <tr class="${{expandableClass}}" data-idx="${{idx}}" id="row-${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
                 <td class="expand-cell">${{expandIcon}}</td>
                 <td>${{formatDateTime(e.datetime)}}</td>
-                <td><span class="badge ${{badgeClass}}">${{label}}</span></td>
+                <td>${{warningIndicator}}<span class="badge ${{badgeClass}}">${{label}}</span></td>
                 <td class="number">${{e.quantity}}</td>
                 <td>${{e.asset}}</td>
                 <td class="number">${{formatGbp(e.value_gbp)}}</td>
@@ -646,12 +665,14 @@ fn build_report_data(
     for e in &filtered_events {
         if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
             let key = (e.date(), e.asset.clone());
-            let detail = acquisition_details.entry(key).or_insert_with(|| AcquisitionDetail {
-                event_type: format_event_type(&e.event_type),
-                tax_year: TaxYear::from_date(e.date()).display(),
-                description: e.description.clone().unwrap_or_default(),
-                ..Default::default()
-            });
+            let detail = acquisition_details
+                .entry(key)
+                .or_insert_with(|| AcquisitionDetail {
+                    event_type: format_event_type(&e.event_type),
+                    tax_year: TaxYear::from_date(e.date()).display(),
+                    description: e.description.clone().unwrap_or_default(),
+                    ..Default::default()
+                });
             detail.quantity += e.quantity;
             detail.value_gbp += e.value_gbp;
         }
@@ -736,12 +757,17 @@ fn build_report_data(
                             })
                             .collect();
 
+                        // Convert warnings to display strings
+                        let warnings: Vec<String> =
+                            d.warnings.iter().map(format_disposal_warning).collect();
+
                         CgtDetails {
                             proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
                             cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
                             gain_gbp: format!("{:.2}", d.gain_gbp),
                             rule,
                             matching_components,
+                            warnings,
                         }
                     })
             } else {
@@ -772,7 +798,11 @@ fn build_report_data(
     let total_proceeds_with_unclassified = cgt_report.total_proceeds_with_unclassified(year);
     let total_costs_with_unclassified = cgt_report.total_allowable_costs_with_unclassified(year);
     let total_gain_with_unclassified = cgt_report.total_gain_with_unclassified(year);
+
+    // Warning counts
+    let warning_count = cgt_report.warning_count(year);
     let unclassified_count = cgt_report.unclassified_count(year);
+    let cost_basis_warning_count = cgt_report.cost_basis_warning_count(year);
 
     let total_staking: Decimal = income_report
         .staking_events
@@ -825,7 +855,9 @@ fn build_report_data(
             event_count: events.len(),
             disposal_count,
             income_count,
+            warning_count,
             unclassified_count,
+            cost_basis_warning_count,
             tax_years,
             assets,
             min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
@@ -861,6 +893,19 @@ fn format_matching_rule(rule: &MatchingRule) -> String {
         MatchingRule::Pool => "Pool",
     }
     .to_string()
+}
+
+fn format_disposal_warning(warning: &DisposalWarning) -> String {
+    match warning {
+        DisposalWarning::Unclassified => "Unclassified".to_string(),
+        DisposalWarning::NoCostBasis => "NoCostBasis".to_string(),
+        DisposalWarning::InsufficientPool {
+            available,
+            required,
+        } => {
+            format!("InsufficientPool({}/{})", available, required)
+        }
+    }
 }
 
 const CSS: &str = r#"
@@ -1077,7 +1122,7 @@ main {
     color: var(--danger);
 }
 
-.unclassified-warning {
+.warnings-banner {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -1259,6 +1304,11 @@ tbody tr:nth-child(even):hover {
 .badge-mixed {
     background: var(--rule-mixed-bg);
     color: var(--rule-mixed);
+}
+
+.warning-indicator {
+    color: var(--type-unclassified);
+    cursor: help;
 }
 
 /* Expandable row styles */

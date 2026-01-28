@@ -245,11 +245,12 @@ fn build_event_rows(
                         row_num += 1;
                     } else {
                         // Multi-rule - show disposal row plus sub-rows
+                        let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                         rows.push(EventRow {
                             row_num: format!("#{}", row_num),
                             date: event.date().format("%Y-%m-%d").to_string(),
                             tax_year: event_year.display(),
-                            event_type: "Disposal".to_string(),
+                            event_type: format!("{}Disposal", warning_prefix),
                             asset: event.asset.clone(),
                             quantity: format_quantity(event.quantity),
                             acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
@@ -368,11 +369,13 @@ fn build_event_rows(
             EventType::UnclassifiedOut => {
                 // Find the disposal record for detailed info (same as Disposal)
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
+                    // UnclassifiedOut always has at least the Unclassified warning
+                    let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                     rows.push(EventRow {
                         row_num: format!("#{}", row_num),
                         date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
-                        event_type: "Unclassified Out".to_string(),
+                        event_type: format!("{}Unclassified Out", warning_prefix),
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
@@ -387,7 +390,7 @@ fn build_event_rows(
                         row_num: format!("#{}", row_num),
                         date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
-                        event_type: "Unclassified Out".to_string(),
+                        event_type: "⚠ Unclassified Out".to_string(),
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: "-".to_string(),
@@ -420,15 +423,17 @@ fn format_single_rule(
     disposal: &DisposalRecord,
     acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), usize>,
 ) -> (String, String) {
+    let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
+
     if disposal.matching_components.is_empty() {
-        return ("Disposal (Pool)".to_string(), String::new());
+        return (format!("{}Disposal (Pool)", warning_prefix), String::new());
     }
 
     let component = &disposal.matching_components[0];
     let rule_name = match component.rule {
-        MatchingRule::SameDay => "Disposal (Same-Day)".to_string(),
-        MatchingRule::BedAndBreakfast => "Disposal (B&B)".to_string(),
-        MatchingRule::Pool => "Disposal (Pool)".to_string(),
+        MatchingRule::SameDay => format!("{}Disposal (Same-Day)", warning_prefix),
+        MatchingRule::BedAndBreakfast => format!("{}Disposal (B&B)", warning_prefix),
+        MatchingRule::Pool => format!("{}Disposal (Pool)", warning_prefix),
     };
 
     let matched_ref = format_component_ref(

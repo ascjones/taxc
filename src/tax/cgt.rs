@@ -31,6 +31,21 @@ pub enum MatchingRule {
     Pool,
 }
 
+/// Warning types for disposal records
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type")]
+pub enum DisposalWarning {
+    /// Event was UnclassifiedOut - may need review
+    Unclassified,
+    /// No cost basis found - disposal has zero allowable cost
+    NoCostBasis,
+    /// Pool had insufficient quantity
+    InsufficientPool {
+        available: Decimal,
+        required: Decimal,
+    },
+}
+
 impl MatchingRule {
     pub fn display(&self) -> &'static str {
         match self {
@@ -147,8 +162,20 @@ pub struct DisposalRecord {
     pub pool_after: PoolSnapshot,
     /// Breakdown by matching rule for detailed reporting
     pub matching_components: Vec<MatchingComponent>,
-    /// Whether this disposal came from an UnclassifiedOut event
-    pub is_unclassified: bool,
+    /// Warnings for this disposal (unclassified, no cost basis, insufficient pool, etc.)
+    pub warnings: Vec<DisposalWarning>,
+}
+
+impl DisposalRecord {
+    /// Check if this disposal came from an unclassified event
+    pub fn is_unclassified(&self) -> bool {
+        self.warnings.contains(&DisposalWarning::Unclassified)
+    }
+
+    /// Check if this disposal has any warnings
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
 }
 
 /// CSV record for disposal output
@@ -251,7 +278,31 @@ impl CgtReport {
     pub fn unclassified_count(&self, year: Option<TaxYear>) -> usize {
         self.disposals
             .iter()
-            .filter(|d| d.is_unclassified && year.is_none_or(|y| d.tax_year == y))
+            .filter(|d| d.is_unclassified() && year.is_none_or(|y| d.tax_year == y))
+            .count()
+    }
+
+    /// Count of disposals with any warning
+    pub fn warning_count(&self, year: Option<TaxYear>) -> usize {
+        self.disposals
+            .iter()
+            .filter(|d| d.has_warnings() && year.is_none_or(|y| d.tax_year == y))
+            .count()
+    }
+
+    /// Count of disposals with cost basis warnings (NoCostBasis or InsufficientPool)
+    pub fn cost_basis_warning_count(&self, year: Option<TaxYear>) -> usize {
+        self.disposals
+            .iter()
+            .filter(|d| {
+                year.is_none_or(|y| d.tax_year == y)
+                    && d.warnings.iter().any(|w| {
+                        matches!(
+                            w,
+                            DisposalWarning::NoCostBasis | DisposalWarning::InsufficientPool { .. }
+                        )
+                    })
+            })
             .count()
     }
 
@@ -268,7 +319,7 @@ impl CgtReport {
         self.disposals
             .iter()
             .filter(move |d| year.is_none_or(|y| d.tax_year == y))
-            .filter(move |d| !classified_only || !d.is_unclassified)
+            .filter(move |d| !classified_only || !d.is_unclassified())
     }
 
     /// Write disposals to CSV
@@ -458,7 +509,6 @@ pub fn calculate_cgt(
             EventType::Disposal | EventType::UnclassifiedOut => {
                 let fees = event.fees_gbp.unwrap_or(Decimal::ZERO);
                 let tax_year = TaxYear::from_date(event.date());
-                let is_unclassified = event.event_type == EventType::UnclassifiedOut;
 
                 let mut remaining_to_match = event.quantity;
                 let mut total_allowable_cost = Decimal::ZERO;
@@ -514,6 +564,14 @@ pub fn calculate_cgt(
                 }
 
                 // 3. Section 104 pool: match remaining from pool
+                // Track pool state before removal for insufficient pool warning
+                let pool_qty_before = pools
+                    .get(&event.asset)
+                    .map(|p| p.quantity)
+                    .unwrap_or(Decimal::ZERO);
+                let insufficient_pool =
+                    remaining_to_match > Decimal::ZERO && remaining_to_match > pool_qty_before;
+
                 if remaining_to_match > Decimal::ZERO {
                     let pool = pools
                         .entry(event.asset.clone())
@@ -564,6 +622,22 @@ pub fn calculate_cgt(
                     });
                 }
 
+                // Build warnings
+                let mut warnings = Vec::new();
+                if event.event_type == EventType::UnclassifiedOut {
+                    warnings.push(DisposalWarning::Unclassified);
+                }
+                if insufficient_pool {
+                    warnings.push(DisposalWarning::InsufficientPool {
+                        available: pool_qty_before,
+                        required: remaining_to_match,
+                    });
+                }
+                // No cost basis warning: disposal has quantity but zero cost
+                if total_allowable_cost.is_zero() && event.quantity > Decimal::ZERO {
+                    warnings.push(DisposalWarning::NoCostBasis);
+                }
+
                 disposals.push(DisposalRecord {
                     date: event.date(),
                     tax_year,
@@ -576,7 +650,7 @@ pub fn calculate_cgt(
                     description: event.description.clone(),
                     pool_after,
                     matching_components,
-                    is_unclassified,
+                    warnings,
                 });
             }
             // Dividends don't affect CGT
@@ -1375,5 +1449,156 @@ mod tests {
                 .any(|mc| mc.rule == MatchingRule::BedAndBreakfast),
             "April 8 disposal should have B&B matching component"
         );
+    }
+
+    // Tests for disposal warnings
+
+    #[test]
+    fn warning_no_cost_basis() {
+        // Disposal with no prior acquisitions should have NoCostBasis warning
+        let events = vec![disp("2024-06-15", "BTC", dec!(5), dec!(75000))];
+
+        let report = calculate_cgt(events, None);
+
+        assert_eq!(report.disposals.len(), 1);
+        let disposal = &report.disposals[0];
+
+        // Should have zero allowable cost
+        assert_eq!(disposal.allowable_cost_gbp, dec!(0));
+
+        // Should have NoCostBasis warning
+        assert!(
+            disposal.warnings.contains(&DisposalWarning::NoCostBasis),
+            "Expected NoCostBasis warning, got: {:?}",
+            disposal.warnings
+        );
+    }
+
+    #[test]
+    fn warning_insufficient_pool() {
+        // Disposal exceeding pool quantity should have InsufficientPool warning
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(5), dec!(50000)),
+            disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
+        ];
+
+        let report = calculate_cgt(events, None);
+
+        assert_eq!(report.disposals.len(), 1);
+        let disposal = &report.disposals[0];
+
+        // Should have InsufficientPool warning
+        let has_insufficient = disposal.warnings.iter().any(|w| {
+            matches!(
+                w,
+                DisposalWarning::InsufficientPool {
+                    available: _,
+                    required: _
+                }
+            )
+        });
+        assert!(
+            has_insufficient,
+            "Expected InsufficientPool warning, got: {:?}",
+            disposal.warnings
+        );
+
+        // Check the values in the warning
+        if let Some(DisposalWarning::InsufficientPool {
+            available,
+            required,
+        }) = disposal.warnings.iter().find(|w| {
+            matches!(
+                w,
+                DisposalWarning::InsufficientPool {
+                    available: _,
+                    required: _
+                }
+            )
+        }) {
+            assert_eq!(*available, dec!(5));
+            assert_eq!(*required, dec!(10));
+        }
+    }
+
+    #[test]
+    fn warning_unclassified_out() {
+        // UnclassifiedOut event should have Unclassified warning
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            event(
+                EventType::UnclassifiedOut,
+                "2024-06-15",
+                "BTC",
+                dec!(5),
+                dec!(75000),
+                None,
+            ),
+        ];
+
+        let report = calculate_cgt(events, None);
+
+        assert_eq!(report.disposals.len(), 1);
+        let disposal = &report.disposals[0];
+
+        // Should have Unclassified warning
+        assert!(
+            disposal.warnings.contains(&DisposalWarning::Unclassified),
+            "Expected Unclassified warning, got: {:?}",
+            disposal.warnings
+        );
+
+        // Should also be detected by is_unclassified helper
+        assert!(disposal.is_unclassified());
+    }
+
+    #[test]
+    fn warning_count_methods() {
+        // Test the warning count methods on CgtReport
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(5), dec!(50000)),
+            disp("2024-06-15", "BTC", dec!(10), dec!(150000)), // Insufficient pool
+            event(
+                EventType::UnclassifiedOut,
+                "2024-06-16",
+                "ETH",
+                dec!(10),
+                dec!(20000),
+                None,
+            ), // Unclassified + NoCostBasis
+        ];
+
+        let report = calculate_cgt(events, None);
+
+        // Should have 2 disposals with warnings
+        assert_eq!(report.warning_count(None), 2);
+
+        // Should have 1 unclassified
+        assert_eq!(report.unclassified_count(None), 1);
+
+        // Should have 2 with cost basis warnings (InsufficientPool and NoCostBasis)
+        assert_eq!(report.cost_basis_warning_count(None), 2);
+    }
+
+    #[test]
+    fn no_warning_for_normal_disposal() {
+        // Normal disposal with sufficient pool should have no warnings
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+        ];
+
+        let report = calculate_cgt(events, None);
+
+        assert_eq!(report.disposals.len(), 1);
+        let disposal = &report.disposals[0];
+
+        // Should have no warnings
+        assert!(
+            disposal.warnings.is_empty(),
+            "Expected no warnings, got: {:?}",
+            disposal.warnings
+        );
+        assert!(!disposal.has_warnings());
     }
 }
