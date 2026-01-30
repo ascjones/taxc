@@ -1,11 +1,13 @@
 {
-  "opening_pools": {
-    "as_of_date": "2024-03-06",
-    "pools": {
-      "BTC": { "quantity": 10, "cost_gbp": 100000 }
-    }
-  },
   "events": [
+    {
+      "date": "2024-01-15",
+      "event_type": "Acquisition",
+      "asset": "BTC",
+      "asset_class": "Crypto",
+      "quantity": 10,
+      "value_gbp": 100000
+    },
     {
       "date": "2024-04-15",
       "event_type": "Disposal",

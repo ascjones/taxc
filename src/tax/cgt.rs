@@ -412,33 +412,14 @@ impl AcquisitionTracker {
 
 type AcqKey = (NaiveDate, String);
 
-/// Calculate CGT from taxable events with optional opening pool balances
+/// Calculate CGT from taxable events
 /// Implements HMRC share identification rules:
 /// 1. Same-day rule: Match with acquisitions on the same day
 /// 2. Bed & breakfast rule: Match with acquisitions within 30 days after disposal
 /// 3. Section 104 pool: Match with pooled cost basis
-pub fn calculate_cgt(
-    events: Vec<TaxableEvent>,
-    opening_pools: Option<&crate::events::OpeningPools>,
-) -> CgtReport {
+pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pools: HashMap<String, Pool> = HashMap::new();
     let mut disposals: Vec<DisposalRecord> = Vec::new();
-
-    // Initialize pools from opening balances if provided
-    if let Some(op) = opening_pools {
-        for (asset, balance) in &op.pools {
-            let mut pool = Pool::new(asset.clone());
-            pool.quantity = balance.quantity;
-            pool.cost_gbp = balance.cost_gbp;
-            log::debug!(
-                "Initialized pool {} from opening balance: qty={}, cost={}",
-                asset,
-                balance.quantity,
-                balance.cost_gbp
-            );
-            pools.insert(asset.clone(), pool);
-        }
-    }
 
     // Sort events by date, with disposals before acquisitions on the same day
     let mut events = events;
@@ -759,7 +740,7 @@ mod tests {
             disp("2018-01-01", "BTC", dec!(50), dec!(300000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -780,7 +761,7 @@ mod tests {
             acq("2016-01-01", "BTC", dec!(100), dec!(1000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -798,7 +779,7 @@ mod tests {
             disp("2024-01-15", "BTC", dec!(1), dec!(45000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -820,7 +801,7 @@ mod tests {
             disp("2024-01-15", "BTC", dec!(1), dec!(45000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -844,7 +825,7 @@ mod tests {
             acq("2024-06-20", "BTC", dec!(5), dec!(60000)),   // B&B acquisition
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -874,7 +855,7 @@ mod tests {
             acq("2024-06-20", "BTC", dec!(3), dec!(36000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -898,7 +879,7 @@ mod tests {
             acq("2024-07-16", "BTC", dec!(5), dec!(60000)), // 31 days later
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -921,7 +902,7 @@ mod tests {
             acq("2024-06-20", "BTC", dec!(5), dec!(60000)), // B&B
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -942,7 +923,7 @@ mod tests {
             disp("2024-06-15", "ETH", dec!(50), dec!(30000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 2);
 
@@ -966,7 +947,7 @@ mod tests {
             disp("2024-04-06", "BTC", dec!(2), dec!(32000)), // 2024/25 tax year
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 2);
 
@@ -984,7 +965,7 @@ mod tests {
             disp_with_fee("2024-06-15", "BTC", dec!(5), dec!(75000), dec!(100)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         let disposal = &report.disposals[0];
         assert_eq!(disposal.fees_gbp, dec!(100));
@@ -999,7 +980,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         let disposal = &report.disposals[0];
         // Allowable cost should include the £500 fee
@@ -1015,7 +996,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         let disposal = &report.disposals[0];
         // Should use full pool cost even though disposing more
@@ -1032,7 +1013,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(10), dec!(17000)), // 2024/25
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         // 2023/24 totals
         assert_eq!(report.total_proceeds(Some(TaxYear(2024))), dec!(15000));
@@ -1058,7 +1039,7 @@ mod tests {
             disp("2024-07-15", "BTC", dec!(2), dec!(30000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 2);
 
@@ -1084,7 +1065,7 @@ mod tests {
             acq("2024-06-20", "BTC", dec!(3), dec!(36000)), // B&B - 3 matched
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         let disposal = &report.disposals[0];
 
         // Components should be: 3 B&B + 2 Pool
@@ -1105,7 +1086,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         let disposal = &report.disposals[0];
 
         // Should have 2 components: same-day (2) + pool (3)
@@ -1142,7 +1123,7 @@ mod tests {
             acq("2024-06-20", "BTC", dec!(5), dec!(60000)), // B&B
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         let disposal = &report.disposals[0];
 
         assert_eq!(disposal.matching_components.len(), 1);
@@ -1164,7 +1145,7 @@ mod tests {
             disp("2024-03-08", "DOT", dec!(10), dec!(85)),      // Fee disposal same day
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         assert_eq!(report.disposals.len(), 1);
 
         let disposal = &report.disposals[0];
@@ -1199,7 +1180,7 @@ mod tests {
             staking("2024-03-15", "DOT", dec!(100), dec!(800)), // Staking reward within 30 days
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         assert_eq!(report.disposals.len(), 1);
 
         let disposal = &report.disposals[0];
@@ -1233,7 +1214,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         let btc_disposal = &report.disposals[0];
 
         // BTC pool after should show BTC state only
@@ -1255,7 +1236,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         let mut output = Vec::new();
         report.write_detailed_csv(&mut output, None).unwrap();
 
@@ -1268,108 +1249,6 @@ mod tests {
         assert!(csv_str.contains("rule"));
         assert!(csv_str.contains("pool_quantity"));
         assert!(csv_str.contains("running_gain_gbp"));
-    }
-
-    // Tests for opening pool functionality
-
-    #[test]
-    fn opening_pool_balance() {
-        use crate::events::{OpeningPool, OpeningPools};
-        use std::collections::HashMap;
-
-        let opening = OpeningPools {
-            as_of_date: Some("2024-03-06".to_string()),
-            pools: HashMap::from([(
-                "BTC".to_string(),
-                OpeningPool {
-                    quantity: dec!(10),
-                    cost_gbp: dec!(100000),
-                },
-            )]),
-        };
-
-        let events = vec![disp("2024-04-15", "BTC", dec!(5), dec!(75000))];
-
-        let report = calculate_cgt(events, Some(&opening));
-
-        assert_eq!(report.disposals.len(), 1);
-        let disposal = &report.disposals[0];
-
-        // Should use opening pool cost: 5/10 * £100,000 = £50,000
-        assert_eq!(disposal.allowable_cost_gbp, dec!(50000));
-        assert_eq!(disposal.gain_gbp, dec!(25000));
-    }
-
-    #[test]
-    fn opening_pool_with_new_acquisitions() {
-        use crate::events::{OpeningPool, OpeningPools};
-        use std::collections::HashMap;
-
-        let opening = OpeningPools {
-            as_of_date: Some("2024-03-06".to_string()),
-            pools: HashMap::from([(
-                "BTC".to_string(),
-                OpeningPool {
-                    quantity: dec!(10),
-                    cost_gbp: dec!(100000),
-                },
-            )]),
-        };
-
-        let events = vec![
-            acq("2024-04-10", "BTC", dec!(5), dec!(75000)), // New acquisition
-            disp("2024-04-15", "BTC", dec!(10), dec!(200000)),
-        ];
-
-        let report = calculate_cgt(events, Some(&opening));
-
-        // Pool after acquisition: 15 BTC at £175,000 (avg £11,666.67)
-        // Disposal of 10: 10/15 * 175000 = £116,666.67
-        let disposal = &report.disposals[0];
-        assert_eq!(disposal.allowable_cost_gbp.round_dp(2), dec!(116666.67));
-    }
-
-    #[test]
-    fn opening_pool_multiple_assets() {
-        use crate::events::{OpeningPool, OpeningPools};
-        use std::collections::HashMap;
-
-        let opening = OpeningPools {
-            as_of_date: Some("2024-03-06".to_string()),
-            pools: HashMap::from([
-                (
-                    "BTC".to_string(),
-                    OpeningPool {
-                        quantity: dec!(10),
-                        cost_gbp: dec!(100000),
-                    },
-                ),
-                (
-                    "ETH".to_string(),
-                    OpeningPool {
-                        quantity: dec!(50),
-                        cost_gbp: dec!(50000),
-                    },
-                ),
-            ]),
-        };
-
-        let events = vec![
-            disp("2024-04-15", "BTC", dec!(5), dec!(75000)),
-            disp("2024-04-15", "ETH", dec!(25), dec!(30000)),
-        ];
-
-        let report = calculate_cgt(events, Some(&opening));
-
-        assert_eq!(report.disposals.len(), 2);
-
-        // BTC: 5/10 * 100000 = 50000 cost
-        let btc = report.disposals.iter().find(|d| d.asset == "BTC").unwrap();
-        assert_eq!(btc.allowable_cost_gbp, dec!(50000));
-
-        // ETH: 25/50 * 50000 = 25000 cost
-        let eth = report.disposals.iter().find(|d| d.asset == "ETH").unwrap();
-        assert_eq!(eth.allowable_cost_gbp, dec!(25000));
     }
 
     #[test]
@@ -1397,7 +1276,7 @@ mod tests {
             disp("2024-04-11", "BTC", dec!(50), dec!(30000)), // Sell 50 BTC at £600 each
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
         assert_eq!(report.disposals.len(), 2);
 
         // Find the April 11 disposal
@@ -1458,7 +1337,7 @@ mod tests {
         // Disposal with no prior acquisitions should have NoCostBasis warning
         let events = vec![disp("2024-06-15", "BTC", dec!(5), dec!(75000))];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -1482,7 +1361,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -1536,7 +1415,7 @@ mod tests {
             ),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
@@ -1568,7 +1447,7 @@ mod tests {
             ), // Unclassified + NoCostBasis
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         // Should have 2 disposals with warnings
         assert_eq!(report.warning_count(None), 2);
@@ -1588,7 +1467,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
         ];
 
-        let report = calculate_cgt(events, None);
+        let report = calculate_cgt(events);
 
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];

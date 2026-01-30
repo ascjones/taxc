@@ -93,7 +93,7 @@ impl SummaryCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_band: TaxBand = self.tax_band.into();
         let tax_year = self.year.map(TaxYear);
-        let (all_events, opening_pools) = read_events(&self.events)?;
+        let all_events = read_events(&self.events)?;
 
         // Filter by asset if specified
         let filtered_events: Vec<_> = if let Some(ref asset) = self.asset {
@@ -105,7 +105,7 @@ impl SummaryCommand {
             all_events
         };
 
-        let cgt_report = calculate_cgt(filtered_events.clone(), opening_pools.as_ref());
+        let cgt_report = calculate_cgt(filtered_events.clone());
         let income_report = calculate_income_tax(filtered_events);
 
         if self.json {

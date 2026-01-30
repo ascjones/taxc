@@ -34,9 +34,9 @@ pub struct ReportCommand {
 impl ReportCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_year = self.year.map(TaxYear);
-        let (events, opening_pools) = read_events(&self.events)?;
+        let events = read_events(&self.events)?;
 
-        let cgt_report = calculate_cgt(events.clone(), opening_pools.as_ref());
+        let cgt_report = calculate_cgt(events.clone());
         let income_report = calculate_income_tax(events.clone());
 
         if self.json {

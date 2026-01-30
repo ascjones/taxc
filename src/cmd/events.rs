@@ -1,6 +1,6 @@
 //! Events command - transaction-level view showing all events with filtering
 
-use crate::events::{self, EventType, OpeningPools, TaxableEvent};
+use crate::events::{self, EventType, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalRecord, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -49,10 +49,10 @@ pub enum EventTypeFilter {
 impl EventsCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_year = self.year.map(TaxYear);
-        let (all_events, opening_pools) = read_events(&self.events)?;
+        let all_events = read_events(&self.events)?;
 
         // Build the events view
-        let cgt_report = calculate_cgt(all_events.clone(), opening_pools.as_ref());
+        let cgt_report = calculate_cgt(all_events.clone());
         let income_report = calculate_income_tax(all_events.clone());
 
         let rows = build_event_rows(
@@ -495,7 +495,7 @@ fn format_quantity(qty: Decimal) -> String {
 }
 
 /// Read events from CSV or JSON file based on extension
-pub fn read_events(path: &Path) -> color_eyre::Result<(Vec<TaxableEvent>, Option<OpeningPools>)> {
+pub fn read_events(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -503,8 +503,7 @@ pub fn read_events(path: &Path) -> color_eyre::Result<(Vec<TaxableEvent>, Option
         Some("json") => events::read_json(reader),
         _ => {
             // Default to CSV for .csv files and any other extension
-            let events = events::read_csv(reader)?;
-            Ok((events, None))
+            events::read_csv(reader)
         }
     }
 }

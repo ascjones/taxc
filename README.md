@@ -61,7 +61,7 @@ taxc report [OPTIONS] --events <EVENTS>
 
 ## Input Formats
 
-Supports both CSV and JSON input. JSON format allows specifying opening pool balances.
+Supports both CSV and JSON input.
 
 ### CSV Format
 
@@ -90,18 +90,9 @@ date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
 
 ### JSON Format
 
-JSON input supports opening pool balances for scenarios where historical transactions have already established pool state.
-
 ```json
 {
   "tax_year": "2024-25",
-  "opening_pools": {
-    "as_of_date": "2024-03-06",
-    "pools": {
-      "BTC": { "quantity": 10.0, "cost_gbp": 100000.00 },
-      "ETH": { "quantity": 50.0, "cost_gbp": 50000.00 }
-    }
-  },
   "events": [
     {
       "date": "2024-04-15",
@@ -120,8 +111,6 @@ JSON input supports opening pool balances for scenarios where historical transac
 | Field | Description |
 |-------|-------------|
 | `tax_year` | Optional metadata |
-| `opening_pools.as_of_date` | Date of pool snapshot (optional) |
-| `opening_pools.pools` | Map of asset to `{ quantity, cost_gbp }` |
 | `events` | Array of taxable events (same fields as CSV) |
 
 ## Example Output

@@ -79,16 +79,16 @@ fn events_filter_by_type() {
     // Should not have "Acquisition" as a main row type (only in sub-rows or references)
 }
 
-/// Test JSON input with opening pool balances using summary command
+/// Test JSON input format using summary command
 #[test]
-fn json_input_with_opening_pools() {
+fn json_input_format() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
             "summary",
             "-e",
-            "tests/data/opening_pools.json",
+            "tests/data/basic_json.json",
         ])
         .output()
         .expect("Failed to execute command");
