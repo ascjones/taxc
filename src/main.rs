@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use cmd::events::EventsCommand;
 use cmd::html_report::ReportCommand;
 use cmd::summary::SummaryCommand;
+use cmd::validate::ValidateCommand;
 
 #[derive(Parser, Debug)]
 #[command(name = "taxc")]
@@ -26,6 +27,9 @@ enum Command {
 
     /// Generate tax report (HTML by default, or JSON with --json)
     Report(ReportCommand),
+
+    /// Validate data quality and surface issues
+    Validate(ValidateCommand),
 }
 
 impl Command {
@@ -34,6 +38,7 @@ impl Command {
             Command::Events(events) => events.exec(),
             Command::Summary(summary) => summary.exec(),
             Command::Report(report) => report.exec(),
+            Command::Validate(validate) => validate.exec(),
         }
     }
 }

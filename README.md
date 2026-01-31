@@ -59,6 +59,29 @@ taxc report [OPTIONS] --events <EVENTS>
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
 
+### Validate - Data Quality Check
+
+Surface data quality issues without generating full reports. Useful for quick checks or CI/CD pipelines.
+
+```
+taxc validate [OPTIONS] --events <EVENTS>
+```
+
+| Option | Description |
+|--------|-------------|
+| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
+| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `--json` | Output as JSON instead of formatted text |
+
+**Exit codes:**
+- `0` - No issues found
+- `1` - Issues found (useful for CI)
+
+**Issue types detected:**
+- `NoCostBasis` - Disposal with no matching acquisitions (cost basis is £0)
+- `InsufficientCostBasis` - Pool had less than required (partial cost basis)
+- `Unclassified` - UnclassifiedOut event that may need review
+
 ## Input Formats
 
 Supports both CSV and JSON input.

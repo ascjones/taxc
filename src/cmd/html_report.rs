@@ -898,12 +898,15 @@ fn format_matching_rule(rule: &MatchingRule) -> String {
 fn format_disposal_warning(warning: &DisposalWarning) -> String {
     match warning {
         DisposalWarning::Unclassified => "Unclassified".to_string(),
-        DisposalWarning::NoCostBasis => "NoCostBasis".to_string(),
-        DisposalWarning::InsufficientPool {
+        DisposalWarning::InsufficientCostBasis {
             available,
             required,
         } => {
-            format!("InsufficientPool({}/{})", available, required)
+            if available.is_zero() {
+                "NoCostBasis".to_string()
+            } else {
+                format!("InsufficientCostBasis({}/{})", available, required)
+            }
         }
     }
 }

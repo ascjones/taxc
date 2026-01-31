@@ -37,10 +37,10 @@ pub enum MatchingRule {
 pub enum DisposalWarning {
     /// Event was UnclassifiedOut - may need review
     Unclassified,
-    /// No cost basis found - disposal has zero allowable cost
-    NoCostBasis,
-    /// Pool had insufficient quantity
-    InsufficientPool {
+    /// Pool had insufficient quantity to cover the disposal
+    /// When available = 0, this means no cost basis at all
+    /// When available > 0, this means partial cost basis
+    InsufficientCostBasis {
         available: Decimal,
         required: Decimal,
     },
@@ -290,18 +290,15 @@ impl CgtReport {
             .count()
     }
 
-    /// Count of disposals with cost basis warnings (NoCostBasis or InsufficientPool)
+    /// Count of disposals with cost basis warnings (InsufficientCostBasis)
     pub fn cost_basis_warning_count(&self, year: Option<TaxYear>) -> usize {
         self.disposals
             .iter()
             .filter(|d| {
                 year.is_none_or(|y| d.tax_year == y)
-                    && d.warnings.iter().any(|w| {
-                        matches!(
-                            w,
-                            DisposalWarning::NoCostBasis | DisposalWarning::InsufficientPool { .. }
-                        )
-                    })
+                    && d.warnings
+                        .iter()
+                        .any(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }))
             })
             .count()
     }
@@ -608,15 +605,13 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 if event.event_type == EventType::UnclassifiedOut {
                     warnings.push(DisposalWarning::Unclassified);
                 }
+                // Insufficient cost basis: pool didn't have enough to cover the disposal
+                // This includes the "no cost basis" case when available = 0
                 if insufficient_pool {
-                    warnings.push(DisposalWarning::InsufficientPool {
+                    warnings.push(DisposalWarning::InsufficientCostBasis {
                         available: pool_qty_before,
                         required: remaining_to_match,
                     });
-                }
-                // No cost basis warning: disposal has quantity but zero cost
-                if total_allowable_cost.is_zero() && event.quantity > Decimal::ZERO {
-                    warnings.push(DisposalWarning::NoCostBasis);
                 }
 
                 disposals.push(DisposalRecord {
@@ -1334,7 +1329,7 @@ mod tests {
 
     #[test]
     fn warning_no_cost_basis() {
-        // Disposal with no prior acquisitions should have NoCostBasis warning
+        // Disposal with no prior acquisitions should have InsufficientCostBasis warning with available=0
         let events = vec![disp("2024-06-15", "BTC", dec!(5), dec!(75000))];
 
         let report = calculate_cgt(events);
@@ -1345,17 +1340,25 @@ mod tests {
         // Should have zero allowable cost
         assert_eq!(disposal.allowable_cost_gbp, dec!(0));
 
-        // Should have NoCostBasis warning
+        // Should have InsufficientCostBasis warning with available=0
+        let warning = disposal.warnings.iter().find(|w| {
+            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
+        });
         assert!(
-            disposal.warnings.contains(&DisposalWarning::NoCostBasis),
-            "Expected NoCostBasis warning, got: {:?}",
+            warning.is_some(),
+            "Expected InsufficientCostBasis warning, got: {:?}",
             disposal.warnings
         );
+
+        if let Some(DisposalWarning::InsufficientCostBasis { available, required }) = warning {
+            assert_eq!(*available, dec!(0));
+            assert_eq!(*required, dec!(5));
+        }
     }
 
     #[test]
     fn warning_insufficient_pool() {
-        // Disposal exceeding pool quantity should have InsufficientPool warning
+        // Disposal exceeding pool quantity should have InsufficientCostBasis warning
         let events = vec![
             acq("2024-01-01", "BTC", dec!(5), dec!(50000)),
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
@@ -1366,34 +1369,22 @@ mod tests {
         assert_eq!(report.disposals.len(), 1);
         let disposal = &report.disposals[0];
 
-        // Should have InsufficientPool warning
+        // Should have InsufficientCostBasis warning
         let has_insufficient = disposal.warnings.iter().any(|w| {
-            matches!(
-                w,
-                DisposalWarning::InsufficientPool {
-                    available: _,
-                    required: _
-                }
-            )
+            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
         });
         assert!(
             has_insufficient,
-            "Expected InsufficientPool warning, got: {:?}",
+            "Expected InsufficientCostBasis warning, got: {:?}",
             disposal.warnings
         );
 
         // Check the values in the warning
-        if let Some(DisposalWarning::InsufficientPool {
+        if let Some(DisposalWarning::InsufficientCostBasis {
             available,
             required,
         }) = disposal.warnings.iter().find(|w| {
-            matches!(
-                w,
-                DisposalWarning::InsufficientPool {
-                    available: _,
-                    required: _
-                }
-            )
+            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
         }) {
             assert_eq!(*available, dec!(5));
             assert_eq!(*required, dec!(10));
@@ -1444,7 +1435,7 @@ mod tests {
                 dec!(10),
                 dec!(20000),
                 None,
-            ), // Unclassified + NoCostBasis
+            ), // Unclassified + InsufficientCostBasis
         ];
 
         let report = calculate_cgt(events);
@@ -1455,7 +1446,7 @@ mod tests {
         // Should have 1 unclassified
         assert_eq!(report.unclassified_count(None), 1);
 
-        // Should have 2 with cost basis warnings (InsufficientPool and NoCostBasis)
+        // Should have 2 with cost basis warnings
         assert_eq!(report.cost_basis_warning_count(None), 2);
     }
 
