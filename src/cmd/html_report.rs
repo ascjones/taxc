@@ -77,6 +77,9 @@ pub struct HtmlReportData {
 
 #[derive(Serialize)]
 pub struct EventRow {
+    /// Source data identifier
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub datetime: String,
     pub tax_year: String,
     pub event_type: String,
@@ -775,6 +778,7 @@ fn build_report_data(
             };
 
             EventRow {
+                id: e.id.clone(),
                 datetime: e.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_type: format_event_type(&e.event_type),

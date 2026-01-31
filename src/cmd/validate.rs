@@ -24,8 +24,11 @@ pub struct ValidateCommand {
 }
 
 /// A validation issue for output
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct ValidationIssue {
+    /// Source data identifier
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
     #[serde(rename = "type")]
     issue_type: String,
     date: String,
@@ -57,6 +60,7 @@ impl ValidateCommand {
             .filter(|d| d.has_warnings())
             .flat_map(|d| {
                 d.warnings.iter().map(|w| ValidationIssue {
+                    id: d.id.clone(),
                     issue_type: warning_type_name(w),
                     date: d.date.format("%Y-%m-%d").to_string(),
                     asset: d.asset.clone(),
@@ -165,16 +169,3 @@ fn format_quantity(qty: Decimal) -> String {
     trimmed.to_string()
 }
 
-// Allow cloning for JSON serialization
-impl Clone for ValidationIssue {
-    fn clone(&self) -> Self {
-        ValidationIssue {
-            issue_type: self.issue_type.clone(),
-            date: self.date.clone(),
-            asset: self.asset.clone(),
-            quantity: self.quantity.clone(),
-            proceeds_gbp: self.proceeds_gbp.clone(),
-            message: self.message.clone(),
-        }
-    }
-}

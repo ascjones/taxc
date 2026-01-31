@@ -102,6 +102,11 @@ pub struct EventRow {
     #[serde(rename = "row_num")]
     pub row_num: String,
 
+    /// Source data identifier (hidden in table, shown in CSV)
+    #[tabled(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
     #[tabled(rename = "Date")]
     pub date: String,
 
@@ -206,6 +211,7 @@ fn build_event_rows(
             EventType::Acquisition => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
+                    id: event.id.clone(),
                     date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Acquisition".to_string(),
@@ -230,6 +236,7 @@ fn build_event_rows(
                             format_single_rule(disposal, &acquisition_row_nums);
                         rows.push(EventRow {
                             row_num: format!("#{}", row_num),
+                            id: event.id.clone(),
                             date: event.date().format("%Y-%m-%d").to_string(),
                             tax_year: event_year.display(),
                             event_type: rule_name,
@@ -248,6 +255,7 @@ fn build_event_rows(
                         let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                         rows.push(EventRow {
                             row_num: format!("#{}", row_num),
+                            id: event.id.clone(),
                             date: event.date().format("%Y-%m-%d").to_string(),
                             tax_year: event_year.display(),
                             event_type: format!("{}Disposal", warning_prefix),
@@ -282,6 +290,7 @@ fn build_event_rows(
 
                             rows.push(EventRow {
                                 row_num: "  └─".to_string(),
+                                id: None, // Sub-rows don't have their own id
                                 date: String::new(),
                                 tax_year: String::new(),
                                 event_type: format!("  {}", component.rule.display()),
@@ -300,6 +309,7 @@ fn build_event_rows(
                     // No disposal record found (shouldn't happen)
                     rows.push(EventRow {
                         row_num: format!("#{}", row_num),
+                        id: event.id.clone(),
                         date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
                         event_type: "Disposal".to_string(),
@@ -318,6 +328,7 @@ fn build_event_rows(
             EventType::StakingReward => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
+                    id: event.id.clone(),
                     date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Staking".to_string(),
@@ -335,6 +346,7 @@ fn build_event_rows(
             EventType::Dividend => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
+                    id: event.id.clone(),
                     date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Dividend".to_string(),
@@ -352,6 +364,7 @@ fn build_event_rows(
             EventType::UnclassifiedIn => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
+                    id: event.id.clone(),
                     date: event.date().format("%Y-%m-%d").to_string(),
                     tax_year: event_year.display(),
                     event_type: "Unclassified In".to_string(),
@@ -373,6 +386,7 @@ fn build_event_rows(
                     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                     rows.push(EventRow {
                         row_num: format!("#{}", row_num),
+                        id: event.id.clone(),
                         date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
                         event_type: format!("{}Unclassified Out", warning_prefix),
@@ -388,6 +402,7 @@ fn build_event_rows(
                 } else {
                     rows.push(EventRow {
                         row_num: format!("#{}", row_num),
+                        id: event.id.clone(),
                         date: event.date().format("%Y-%m-%d").to_string(),
                         tax_year: event_year.display(),
                         event_type: "⚠ Unclassified Out".to_string(),

@@ -60,6 +60,8 @@ pub enum AssetClass {
 /// A taxable event (acquisition, disposal, or income)
 #[derive(Debug, Clone)]
 pub struct TaxableEvent {
+    /// Optional identifier to link back to source data
+    pub id: Option<String>,
     pub datetime: NaiveDateTime,
     pub event_type: EventType,
     pub asset: String,
@@ -106,6 +108,9 @@ fn parse_datetime(s: &str) -> NaiveDateTime {
 /// CSV record format for taxable events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxableEventRecord {
+    /// Optional identifier to link back to source data
+    #[serde(default)]
+    pub id: Option<String>,
     pub date: String,
     pub event_type: String,
     pub asset: String,
@@ -139,6 +144,7 @@ impl From<TaxableEventRecord> for TaxableEvent {
         };
 
         TaxableEvent {
+            id: record.id,
             datetime,
             event_type,
             asset: record.asset,
@@ -170,6 +176,7 @@ impl From<&TaxableEvent> for TaxableEventRecord {
         .to_string();
 
         TaxableEventRecord {
+            id: event.id.clone(),
             date: event.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
             event_type,
             asset: event.asset.clone(),
@@ -247,6 +254,7 @@ mod tests {
     #[test]
     fn total_cost_includes_fees() {
         let event = TaxableEvent {
+            id: None,
             datetime: NaiveDate::from_ymd_opt(2024, 1, 15)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -265,6 +273,7 @@ mod tests {
     #[test]
     fn total_cost_without_fees() {
         let event = TaxableEvent {
+            id: None,
             datetime: NaiveDate::from_ymd_opt(2024, 1, 15)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -334,5 +343,60 @@ mod tests {
             events[1].date(),
             NaiveDate::from_ymd_opt(2024, 6, 15).unwrap()
         );
+    }
+
+    #[test]
+    fn parse_csv_with_id_field() {
+        let csv_data = r#"id,date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
+tx-001,2024-01-15,Acquisition,BTC,Crypto,0.5,15000.00,25.00,Coinbase
+tx-002,2024-03-20,Disposal,BTC,Crypto,0.25,10000.00,15.00,Sold
+,2024-04-01,StakingReward,ETH,Crypto,0.01,25.00,,No ID"#;
+
+        let events = read_csv(csv_data.as_bytes()).unwrap();
+        assert_eq!(events.len(), 3);
+
+        // First event has id
+        assert_eq!(events[0].id, Some("tx-001".to_string()));
+        assert_eq!(events[0].asset, "BTC");
+
+        // Second event has id
+        assert_eq!(events[1].id, Some("tx-002".to_string()));
+
+        // Third event has empty id (parsed as None due to empty string)
+        assert!(events[2].id.is_none() || events[2].id.as_deref() == Some(""));
+    }
+
+    #[test]
+    fn parse_json_with_id_field() {
+        let json_data = r#"{
+            "events": [
+                {
+                    "id": "json-001",
+                    "date": "2024-04-15",
+                    "event_type": "Acquisition",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 1.0,
+                    "value_gbp": 50000.00
+                },
+                {
+                    "date": "2024-05-15",
+                    "event_type": "Disposal",
+                    "asset": "BTC",
+                    "asset_class": "Crypto",
+                    "quantity": 0.5,
+                    "value_gbp": 30000.00
+                }
+            ]
+        }"#;
+
+        let events = read_json(json_data.as_bytes()).unwrap();
+        assert_eq!(events.len(), 2);
+
+        // First event has id
+        assert_eq!(events[0].id, Some("json-001".to_string()));
+
+        // Second event has no id
+        assert_eq!(events[1].id, None);
     }
 }

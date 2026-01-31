@@ -147,6 +147,8 @@ impl Pool {
 /// Record of a disposal for CGT purposes
 #[derive(Debug, Clone)]
 pub struct DisposalRecord {
+    /// Optional identifier from source data
+    pub id: Option<String>,
     pub date: NaiveDate,
     pub tax_year: TaxYear,
     pub asset: String,
@@ -182,6 +184,8 @@ impl DisposalRecord {
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct DisposalCsvRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub date: String,
     pub tax_year: String,
     pub asset: String,
@@ -196,6 +200,7 @@ pub struct DisposalCsvRecord {
 impl From<&DisposalRecord> for DisposalCsvRecord {
     fn from(d: &DisposalRecord) -> Self {
         DisposalCsvRecord {
+            id: d.id.clone(),
             date: d.date.format("%Y-%m-%d").to_string(),
             tax_year: d.tax_year.display(),
             asset: d.asset.clone(),
@@ -615,6 +620,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 }
 
                 disposals.push(DisposalRecord {
+                    id: event.id.clone(),
                     date: event.date(),
                     tax_year,
                     asset: event.asset.clone(),
@@ -652,6 +658,7 @@ mod tests {
         fee: Option<Decimal>,
     ) -> TaxableEvent {
         TaxableEvent {
+            id: None,
             datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -1470,5 +1477,48 @@ mod tests {
             disposal.warnings
         );
         assert!(!disposal.has_warnings());
+    }
+
+    #[test]
+    fn id_propagates_to_disposal_record() {
+        // Create events with explicit ids
+        let events = vec![
+            TaxableEvent {
+                id: Some("acq-001".to_string()),
+                datetime: NaiveDate::parse_from_str("2024-01-01", "%Y-%m-%d")
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                event_type: EventType::Acquisition,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(10),
+                value_gbp: dec!(100000),
+                fees_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("disp-001".to_string()),
+                datetime: NaiveDate::parse_from_str("2024-06-15", "%Y-%m-%d")
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                event_type: EventType::Disposal,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(5),
+                value_gbp: dec!(75000),
+                fees_gbp: None,
+                description: None,
+            },
+        ];
+
+        let report = calculate_cgt(events);
+
+        assert_eq!(report.disposals.len(), 1);
+        let disposal = &report.disposals[0];
+
+        // The disposal record should have the id from the source event
+        assert_eq!(disposal.id, Some("disp-001".to_string()));
     }
 }

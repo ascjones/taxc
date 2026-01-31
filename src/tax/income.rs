@@ -24,6 +24,8 @@ pub struct IncomeReport {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct IncomeEvent {
+    /// Optional identifier from source data
+    pub id: Option<String>,
     pub date: chrono::NaiveDate,
     pub tax_year: TaxYear,
     pub asset: String,
@@ -156,6 +158,8 @@ impl IncomeReport {
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct IncomeCsvRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub date: String,
     pub tax_year: String,
     pub income_type: String,
@@ -168,6 +172,7 @@ pub struct IncomeCsvRecord {
 impl From<&IncomeEvent> for IncomeCsvRecord {
     fn from(e: &IncomeEvent) -> Self {
         IncomeCsvRecord {
+            id: e.id.clone(),
             date: e.date.format("%Y-%m-%d").to_string(),
             tax_year: e.tax_year.display(),
             income_type: match e.income_type {
@@ -197,6 +202,7 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
             EventType::StakingReward => {
                 *staking_by_year.entry(tax_year).or_insert(Decimal::ZERO) += event.value_gbp;
                 staking_events.push(IncomeEvent {
+                    id: event.id.clone(),
                     date: event.date(),
                     tax_year,
                     asset: event.asset,
@@ -209,6 +215,7 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
             EventType::Dividend => {
                 *dividends_by_year.entry(tax_year).or_insert(Decimal::ZERO) += event.value_gbp;
                 dividend_events.push(IncomeEvent {
+                    id: event.id.clone(),
                     date: event.date(),
                     tax_year,
                     asset: event.asset,
@@ -243,6 +250,7 @@ mod tests {
 
     fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
+            id: None,
             datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -259,6 +267,7 @@ mod tests {
 
     fn dividend(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         TaxableEvent {
+            id: None,
             datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -403,6 +412,7 @@ mod tests {
 
         let events = vec![
             TaxableEvent {
+                id: None,
                 datetime: NaiveDate::from_ymd_opt(2024, 6, 1)
                     .unwrap()
                     .and_hms_opt(0, 0, 0)
@@ -416,6 +426,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
+                id: None,
                 datetime: NaiveDate::from_ymd_opt(2024, 7, 1)
                     .unwrap()
                     .and_hms_opt(0, 0, 0)
@@ -454,5 +465,50 @@ mod tests {
         assert_eq!(years.len(), 2);
         assert!(years.contains(&TaxYear(2024)));
         assert!(years.contains(&TaxYear(2025)));
+    }
+
+    #[test]
+    fn id_propagates_to_income_events() {
+        // Create events with explicit ids
+        let events = vec![
+            TaxableEvent {
+                id: Some("staking-001".to_string()),
+                datetime: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                event_type: EventType::StakingReward,
+                asset: "ETH".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.1),
+                value_gbp: dec!(250),
+                fees_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("div-001".to_string()),
+                datetime: NaiveDate::from_ymd_opt(2024, 7, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                event_type: EventType::Dividend,
+                asset: "AAPL".to_string(),
+                asset_class: AssetClass::Stock,
+                quantity: dec!(100),
+                value_gbp: dec!(150),
+                fees_gbp: None,
+                description: None,
+            },
+        ];
+
+        let report = calculate_income_tax(events);
+
+        // Check staking event id propagated
+        assert_eq!(report.staking_events.len(), 1);
+        assert_eq!(report.staking_events[0].id, Some("staking-001".to_string()));
+
+        // Check dividend event id propagated
+        assert_eq!(report.dividend_events.len(), 1);
+        assert_eq!(report.dividend_events[0].id, Some("div-001".to_string()));
     }
 }

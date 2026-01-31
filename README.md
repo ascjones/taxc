@@ -92,6 +92,7 @@ CSV file with the following columns:
 
 | Column | Description |
 |--------|-------------|
+| `id` | Unique identifier for linking back to source data (optional) |
 | `date` | Event date (YYYY-MM-DD) |
 | `event_type` | `Acquisition`, `Disposal`, `StakingReward`, `Dividend` |
 | `asset` | Asset identifier (e.g., BTC, ETH, AAPL) |
@@ -104,11 +105,11 @@ CSV file with the following columns:
 #### Example CSV
 
 ```csv
-date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
-2024-01-15,Acquisition,BTC,Crypto,0.5,15000.00,25.00,Coinbase
-2024-03-20,Disposal,BTC,Crypto,0.25,12000.00,15.00,Coinbase
-2024-04-01,StakingReward,ETH,Crypto,0.1,250.00,,Kraken
-2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
+id,date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
+tx-001,2024-01-15,Acquisition,BTC,Crypto,0.5,15000.00,25.00,Coinbase
+tx-002,2024-03-20,Disposal,BTC,Crypto,0.25,12000.00,15.00,Coinbase
+tx-003,2024-04-01,StakingReward,ETH,Crypto,0.1,250.00,,Kraken
+tx-004,2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
 ```
 
 ### JSON Format
@@ -118,6 +119,7 @@ date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
   "tax_year": "2024-25",
   "events": [
     {
+      "id": "tx-001",
       "date": "2024-04-15",
       "event_type": "Disposal",
       "asset": "BTC",
