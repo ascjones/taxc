@@ -5,6 +5,7 @@ mod tax;
 use clap::{Parser, Subcommand};
 use cmd::events::EventsCommand;
 use cmd::html_report::ReportCommand;
+use cmd::pools::PoolsCommand;
 use cmd::summary::SummaryCommand;
 use cmd::validate::ValidateCommand;
 
@@ -28,6 +29,9 @@ enum Command {
     /// Generate tax report (HTML by default, or JSON with --json)
     Report(ReportCommand),
 
+    /// Show pool balances over time
+    Pools(PoolsCommand),
+
     /// Validate data quality and surface issues
     Validate(ValidateCommand),
 }
@@ -38,6 +42,7 @@ impl Command {
             Command::Events(events) => events.exec(),
             Command::Summary(summary) => summary.exec(),
             Command::Report(report) => report.exec(),
+            Command::Pools(pools) => pools.exec(),
             Command::Validate(validate) => validate.exec(),
         }
     }

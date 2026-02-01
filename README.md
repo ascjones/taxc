@@ -59,6 +59,22 @@ taxc report [OPTIONS] --events <EVENTS>
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
 
+### Pools - Pool Balances
+
+Show pool balances over time (year-end snapshots by default, or daily history):
+
+```
+taxc pools [OPTIONS] --events <EVENTS>
+```
+
+| Option | Description |
+|--------|-------------|
+| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
+| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
+| `--daily` | Show daily time-series instead of year-end snapshots |
+| `--json` | Output as JSON instead of formatted table |
+
 ### Validate - Data Quality Check
 
 Surface data quality issues without generating full reports. Useful for quick checks or CI/CD pipelines.

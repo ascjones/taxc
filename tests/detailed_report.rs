@@ -83,13 +83,7 @@ fn events_filter_by_type() {
 #[test]
 fn json_input_format() {
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "summary",
-            "-e",
-            "tests/data/basic_json.json",
-        ])
+        .args(["run", "--", "summary", "-e", "tests/data/basic_json.json"])
         .output()
         .expect("Failed to execute command");
 

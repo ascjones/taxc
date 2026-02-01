@@ -23,6 +23,38 @@ impl From<&Pool> for PoolSnapshot {
     }
 }
 
+/// Snapshot of a single pool at a point in time (for daily history)
+#[derive(Debug, Clone)]
+pub struct PoolHistoryEntry {
+    pub date: NaiveDate,
+    pub asset: String,
+    pub event_type: EventType,
+    pub quantity: Decimal,
+    pub cost_gbp: Decimal,
+}
+
+/// Year-end pool snapshot
+#[derive(Debug, Clone)]
+pub struct YearEndSnapshot {
+    pub tax_year: TaxYear,
+    pub pools: Vec<PoolState>,
+}
+
+/// State of a single pool
+#[derive(Debug, Clone)]
+pub struct PoolState {
+    pub asset: String,
+    pub quantity: Decimal,
+    pub cost_gbp: Decimal,
+}
+
+/// Pool history tracking
+#[derive(Debug, Clone, Default)]
+pub struct PoolHistory {
+    pub entries: Vec<PoolHistoryEntry>,
+    pub year_end_snapshots: Vec<YearEndSnapshot>,
+}
+
 /// Which HMRC rule was used for matching
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchingRule {
@@ -238,6 +270,7 @@ pub struct CgtReport {
     pub disposals: Vec<DisposalRecord>,
     #[allow(dead_code)]
     pub pools: HashMap<String, Pool>,
+    pub pool_history: PoolHistory,
 }
 
 impl CgtReport {
@@ -422,6 +455,8 @@ type AcqKey = (NaiveDate, String);
 pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pools: HashMap<String, Pool> = HashMap::new();
     let mut disposals: Vec<DisposalRecord> = Vec::new();
+    let mut pool_history = PoolHistory::default();
+    let mut current_year: Option<TaxYear> = None;
 
     // Sort events by date, with disposals before acquisitions on the same day
     let mut events = events;
@@ -469,6 +504,18 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
 
     // Third pass: process all events
     for event in &events {
+        let event_year = TaxYear::from_date(event.date());
+
+        // Snapshot at year boundary (before processing new year's first event)
+        if let Some(prev_year) = current_year {
+            if event_year > prev_year {
+                pool_history
+                    .year_end_snapshots
+                    .push(snapshot_pools(prev_year, &pools));
+            }
+        }
+        current_year = Some(event_year);
+
         match event.event_type {
             // Acquisition-like events add to the pool (after matching)
             EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn => {
@@ -638,9 +685,48 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
             // Dividends don't affect CGT
             EventType::Dividend => {}
         }
+
+        // Record pool state after event (for daily history)
+        if let Some(pool) = pools.get(&event.asset) {
+            pool_history.entries.push(PoolHistoryEntry {
+                date: event.date(),
+                asset: event.asset.clone(),
+                event_type: event.event_type,
+                quantity: pool.quantity,
+                cost_gbp: pool.cost_gbp,
+            });
+        }
     }
 
-    CgtReport { disposals, pools }
+    // Final snapshot for last tax year
+    if let Some(year) = current_year {
+        pool_history
+            .year_end_snapshots
+            .push(snapshot_pools(year, &pools));
+    }
+
+    CgtReport {
+        disposals,
+        pools,
+        pool_history,
+    }
+}
+
+fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapshot {
+    let mut pool_states: Vec<PoolState> = pools
+        .values()
+        .filter(|p| p.quantity > Decimal::ZERO)
+        .map(|p| PoolState {
+            asset: p.asset.clone(),
+            quantity: p.quantity,
+            cost_gbp: p.cost_gbp,
+        })
+        .collect();
+    pool_states.sort_by(|a, b| a.asset.cmp(&b.asset));
+    YearEndSnapshot {
+        tax_year: year,
+        pools: pool_states,
+    }
 }
 
 #[cfg(test)]
@@ -1348,16 +1434,21 @@ mod tests {
         assert_eq!(disposal.allowable_cost_gbp, dec!(0));
 
         // Should have InsufficientCostBasis warning with available=0
-        let warning = disposal.warnings.iter().find(|w| {
-            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
-        });
+        let warning = disposal
+            .warnings
+            .iter()
+            .find(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }));
         assert!(
             warning.is_some(),
             "Expected InsufficientCostBasis warning, got: {:?}",
             disposal.warnings
         );
 
-        if let Some(DisposalWarning::InsufficientCostBasis { available, required }) = warning {
+        if let Some(DisposalWarning::InsufficientCostBasis {
+            available,
+            required,
+        }) = warning
+        {
             assert_eq!(*available, dec!(0));
             assert_eq!(*required, dec!(5));
         }
@@ -1377,9 +1468,10 @@ mod tests {
         let disposal = &report.disposals[0];
 
         // Should have InsufficientCostBasis warning
-        let has_insufficient = disposal.warnings.iter().any(|w| {
-            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
-        });
+        let has_insufficient = disposal
+            .warnings
+            .iter()
+            .any(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }));
         assert!(
             has_insufficient,
             "Expected InsufficientCostBasis warning, got: {:?}",
@@ -1390,9 +1482,11 @@ mod tests {
         if let Some(DisposalWarning::InsufficientCostBasis {
             available,
             required,
-        }) = disposal.warnings.iter().find(|w| {
-            matches!(w, DisposalWarning::InsufficientCostBasis { .. })
-        }) {
+        }) = disposal
+            .warnings
+            .iter()
+            .find(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }))
+        {
             assert_eq!(*available, dec!(5));
             assert_eq!(*required, dec!(10));
         }
@@ -1520,5 +1614,61 @@ mod tests {
 
         // The disposal record should have the id from the source event
         assert_eq!(disposal.id, Some("disp-001".to_string()));
+    }
+
+    #[test]
+    fn pool_history_tracks_acquisitions() {
+        let events = vec![
+            acq("2024-01-15", "BTC", dec!(5), dec!(50000)),
+            acq("2024-03-20", "ETH", dec!(10), dec!(5000)),
+        ];
+        let report = calculate_cgt(events);
+
+        assert_eq!(report.pool_history.entries.len(), 2);
+        assert_eq!(report.pool_history.entries[0].asset, "BTC");
+        assert_eq!(
+            report.pool_history.entries[0].event_type,
+            EventType::Acquisition
+        );
+        assert_eq!(report.pool_history.entries[0].quantity, dec!(5));
+    }
+
+    #[test]
+    fn pool_history_tracks_disposals() {
+        let events = vec![
+            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+            disp("2024-06-15", "BTC", dec!(3), dec!(45000)),
+        ];
+        let report = calculate_cgt(events);
+
+        let btc_entries: Vec<_> = report
+            .pool_history
+            .entries
+            .iter()
+            .filter(|e| e.asset == "BTC")
+            .collect();
+        assert_eq!(btc_entries.len(), 2);
+        assert_eq!(btc_entries[1].quantity, dec!(7));
+        assert_eq!(btc_entries[1].event_type, EventType::Disposal);
+    }
+
+    #[test]
+    fn year_end_snapshots_at_boundaries() {
+        let events = vec![
+            acq("2024-01-15", "BTC", dec!(10), dec!(100000)), // 2023/24
+            disp("2024-04-10", "BTC", dec!(3), dec!(45000)),  // 2024/25
+        ];
+        let report = calculate_cgt(events);
+
+        assert_eq!(report.pool_history.year_end_snapshots.len(), 2);
+
+        let snapshot_2324 = &report.pool_history.year_end_snapshots[0];
+        assert_eq!(snapshot_2324.tax_year, TaxYear(2024));
+        assert_eq!(snapshot_2324.pools.len(), 1);
+        assert_eq!(snapshot_2324.pools[0].quantity, dec!(10));
+
+        let snapshot_2425 = &report.pool_history.year_end_snapshots[1];
+        assert_eq!(snapshot_2425.tax_year, TaxYear(2025));
+        assert_eq!(snapshot_2425.pools[0].quantity, dec!(7));
     }
 }

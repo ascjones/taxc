@@ -113,7 +113,11 @@ impl ValidateCommand {
         }
     }
 
-    fn print_json(&self, issues: &[ValidationIssue], year: Option<TaxYear>) -> color_eyre::Result<()> {
+    fn print_json(
+        &self,
+        issues: &[ValidationIssue],
+        year: Option<TaxYear>,
+    ) -> color_eyre::Result<()> {
         let year_str = year.map_or("All Years".to_string(), |y| y.display());
 
         let output = ValidationOutput {
@@ -142,10 +146,11 @@ fn warning_type_name(warning: &DisposalWarning) -> String {
 
 fn warning_message(warning: &DisposalWarning, allowable_cost: Decimal) -> String {
     match warning {
-        DisposalWarning::Unclassified => {
-            "Event type needs review - may be a disposal".to_string()
-        }
-        DisposalWarning::InsufficientCostBasis { available, required } => {
+        DisposalWarning::Unclassified => "Event type needs review - may be a disposal".to_string(),
+        DisposalWarning::InsufficientCostBasis {
+            available,
+            required,
+        } => {
             if available.is_zero() {
                 format!(
                     "No matching acquisitions found - cost basis is \u{00A3}{:.2}",
@@ -168,4 +173,3 @@ fn format_quantity(qty: Decimal) -> String {
     let trimmed = s.trim_end_matches('0').trim_end_matches('.');
     trimmed.to_string()
 }
-

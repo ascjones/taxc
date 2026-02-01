@@ -12,7 +12,7 @@ pub struct TaxInput {
 }
 
 /// Type of taxable event
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventType {
     Acquisition,
     Disposal,
