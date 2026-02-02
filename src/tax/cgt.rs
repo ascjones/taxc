@@ -687,14 +687,17 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
         }
 
         // Record pool state after event (for daily history)
-        if let Some(pool) = pools.get(&event.asset) {
-            pool_history.entries.push(PoolHistoryEntry {
-                date: event.date(),
-                asset: event.asset.clone(),
-                event_type: event.event_type,
-                quantity: pool.quantity,
-                cost_gbp: pool.cost_gbp,
-            });
+        // Skip dividends since they don't affect pool state
+        if event.event_type != EventType::Dividend {
+            if let Some(pool) = pools.get(&event.asset) {
+                pool_history.entries.push(PoolHistoryEntry {
+                    date: event.date(),
+                    asset: event.asset.clone(),
+                    event_type: event.event_type,
+                    quantity: pool.quantity,
+                    cost_gbp: pool.cost_gbp,
+                });
+            }
         }
     }
 
@@ -1574,6 +1577,48 @@ mod tests {
     }
 
     #[test]
+    fn year_end_snapshots_omit_zero_balance() {
+        let events = vec![
+            acq("2024-01-15", "BTC", dec!(5), dec!(50000)),
+            disp("2024-06-15", "BTC", dec!(5), dec!(75000)), // Dispose all
+        ];
+        let report = calculate_cgt(events);
+
+        // Final snapshot should have no pools (BTC is zero)
+        let final_snapshot = report.pool_history.year_end_snapshots.last().unwrap();
+        assert!(
+            final_snapshot.pools.is_empty(),
+            "Expected no pools after disposing all, got: {:?}",
+            final_snapshot.pools
+        );
+    }
+
+    #[test]
+    fn pool_history_multiple_assets() {
+        let events = vec![
+            acq("2024-01-15", "BTC", dec!(10), dec!(100000)),
+            acq("2024-01-20", "ETH", dec!(50), dec!(25000)),
+            disp("2024-06-15", "BTC", dec!(3), dec!(45000)),
+        ];
+        let report = calculate_cgt(events);
+
+        // Should have 3 entries (2 acquisitions + 1 disposal)
+        assert_eq!(report.pool_history.entries.len(), 3);
+
+        // Final snapshot should have both assets
+        let final_snapshot = report.pool_history.year_end_snapshots.last().unwrap();
+        assert_eq!(final_snapshot.pools.len(), 2);
+
+        // Verify BTC state after disposal (10 - 3 = 7)
+        let btc_pool = final_snapshot.pools.iter().find(|p| p.asset == "BTC").unwrap();
+        assert_eq!(btc_pool.quantity, dec!(7));
+
+        // Verify ETH state unchanged
+        let eth_pool = final_snapshot.pools.iter().find(|p| p.asset == "ETH").unwrap();
+        assert_eq!(eth_pool.quantity, dec!(50));
+    }
+
+    #[test]
     fn id_propagates_to_disposal_record() {
         // Create events with explicit ids
         let events = vec![
@@ -1670,5 +1715,100 @@ mod tests {
         let snapshot_2425 = &report.pool_history.year_end_snapshots[1];
         assert_eq!(snapshot_2425.tax_year, TaxYear(2025));
         assert_eq!(snapshot_2425.pools[0].quantity, dec!(7));
+    }
+
+    // Edge case tests for pool history
+
+    #[test]
+    fn pool_history_empty_events() {
+        let events: Vec<TaxableEvent> = vec![];
+        let report = calculate_cgt(events);
+
+        assert!(report.pool_history.entries.is_empty());
+        assert!(report.pool_history.year_end_snapshots.is_empty());
+        assert!(report.disposals.is_empty());
+    }
+
+    #[test]
+    fn pool_history_single_tax_year() {
+        // All events in same tax year (2024/25: April 6, 2024 - April 5, 2025)
+        let events = vec![
+            acq("2024-04-10", "BTC", dec!(10), dec!(100000)),
+            acq("2024-06-15", "BTC", dec!(5), dec!(60000)),
+            disp("2024-12-01", "BTC", dec!(3), dec!(45000)),
+        ];
+        let report = calculate_cgt(events);
+
+        // Should have only 1 year-end snapshot
+        assert_eq!(report.pool_history.year_end_snapshots.len(), 1);
+        assert_eq!(
+            report.pool_history.year_end_snapshots[0].tax_year,
+            TaxYear(2025)
+        );
+
+        // Should have 3 daily entries
+        assert_eq!(report.pool_history.entries.len(), 3);
+    }
+
+    #[test]
+    fn pool_history_old_events() {
+        // Test events from before 2020
+        let events = vec![
+            acq("2017-01-15", "BTC", dec!(100), dec!(1000)),   // Very old
+            acq("2018-06-20", "BTC", dec!(50), dec!(200000)),  // 2018/19
+            disp("2019-01-10", "BTC", dec!(30), dec!(150000)), // 2018/19
+            disp("2024-06-15", "BTC", dec!(50), dec!(500000)), // 2024/25
+        ];
+        let report = calculate_cgt(events);
+
+        // Should have snapshots spanning multiple years
+        assert!(report.pool_history.year_end_snapshots.len() >= 2);
+
+        // First snapshot should be from 2016/17
+        assert_eq!(
+            report.pool_history.year_end_snapshots[0].tax_year,
+            TaxYear(2017)
+        );
+    }
+
+    #[test]
+    fn pool_history_dividend_not_in_history() {
+        // Dividends should not appear in pool history (they don't affect pools)
+        let events = vec![
+            acq("2024-01-15", "BTC", dec!(10), dec!(100000)),
+            event(
+                EventType::Dividend,
+                "2024-06-15",
+                "BTC",
+                dec!(0),
+                dec!(500),
+                None,
+            ),
+        ];
+        let report = calculate_cgt(events);
+
+        // Pool history should only have the acquisition, not the dividend
+        assert_eq!(report.pool_history.entries.len(), 1);
+        assert_eq!(
+            report.pool_history.entries[0].event_type,
+            EventType::Acquisition
+        );
+    }
+
+    #[test]
+    fn pool_history_staking_rewards_tracked() {
+        // Staking rewards should appear in pool history
+        let events = vec![
+            staking("2024-01-15", "DOT", dec!(100), dec!(500)),
+            staking("2024-02-15", "DOT", dec!(50), dec!(280)),
+        ];
+        let report = calculate_cgt(events);
+
+        assert_eq!(report.pool_history.entries.len(), 2);
+        assert_eq!(
+            report.pool_history.entries[0].event_type,
+            EventType::StakingReward
+        );
+        assert_eq!(report.pool_history.entries[1].quantity, dec!(150)); // Accumulated
     }
 }

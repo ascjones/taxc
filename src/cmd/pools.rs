@@ -44,8 +44,9 @@ impl PoolsCommand {
         let asset_filter = self.asset.as_deref();
 
         if self.daily {
-            let entries =
-                filter_daily_entries(&cgt_report.pool_history.entries, tax_year, asset_filter);
+            let entries: Vec<_> =
+                filter_daily_entries(&cgt_report.pool_history.entries, tax_year, asset_filter)
+                    .collect();
             if self.json {
                 self.print_json_daily(&entries)?;
             } else {
@@ -106,7 +107,7 @@ impl PoolsCommand {
         }
     }
 
-    fn print_daily(&self, entries: &[PoolHistoryEntry]) {
+    fn print_daily(&self, entries: &[&PoolHistoryEntry]) {
         if entries.is_empty() {
             println!("No pool history found matching filters");
             return;
@@ -158,7 +159,7 @@ impl PoolsCommand {
         Ok(())
     }
 
-    fn print_json_daily(&self, entries: &[PoolHistoryEntry]) -> color_eyre::Result<()> {
+    fn print_json_daily(&self, entries: &[&PoolHistoryEntry]) -> color_eyre::Result<()> {
         let output = DailyOutput {
             entries: entries
                 .iter()
@@ -264,19 +265,15 @@ fn filter_year_end_snapshots(
         .collect()
 }
 
-fn filter_daily_entries(
-    entries: &[PoolHistoryEntry],
+fn filter_daily_entries<'a>(
+    entries: &'a [PoolHistoryEntry],
     year: Option<TaxYear>,
-    asset_filter: Option<&str>,
-) -> Vec<PoolHistoryEntry> {
-    entries
-        .iter()
-        .filter(|entry| {
-            year.is_none_or(|y| TaxYear::from_date(entry.date) == y)
-                && asset_filter.is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
-        })
-        .cloned()
-        .collect()
+    asset_filter: Option<&'a str>,
+) -> impl Iterator<Item = &'a PoolHistoryEntry> {
+    entries.iter().filter(move |entry| {
+        year.is_none_or(|y| TaxYear::from_date(entry.date) == y)
+            && asset_filter.is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
+    })
 }
 
 fn event_type_name(event_type: EventType) -> String {
