@@ -27,13 +27,7 @@ fn events_mixed_rules() {
 #[test]
 fn events_csv_mixed_rules() {
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "events",
-            "tests/data/mixed_rules.csv",
-            "--csv",
-        ])
+        .args(["run", "--", "events", "tests/data/mixed_rules.csv", "--csv"])
         .output()
         .expect("Failed to execute command");
 
@@ -173,13 +167,7 @@ fn pools_basic_output() {
 #[test]
 fn pools_json_output() {
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.csv",
-            "--json",
-        ])
+        .args(["run", "--", "pools", "tests/data/mixed_rules.csv", "--json"])
         .output()
         .expect("Failed to execute command");
 

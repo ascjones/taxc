@@ -30,12 +30,6 @@ impl EventType {
         matches!(self, EventType::StakingReward | EventType::Dividend)
     }
 
-    /// Check if this is an unclassified event type
-    #[allow(dead_code)]
-    pub fn is_unclassified(&self) -> bool {
-        matches!(self, EventType::UnclassifiedIn | EventType::UnclassifiedOut)
-    }
-
     /// Check if this event type represents an acquisition (or acts like one)
     pub fn is_acquisition_like(&self) -> bool {
         matches!(

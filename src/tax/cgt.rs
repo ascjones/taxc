@@ -2,11 +2,10 @@ use crate::events::{EventType, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use chrono::{Duration, NaiveDate};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
-use std::io::Write;
 
-/// Snapshot of pool state at a point in time
+/// Snapshot of pool state at a point in time (used in tests via pool_after)
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct PoolSnapshot {
@@ -189,9 +188,8 @@ pub struct DisposalRecord {
     pub allowable_cost_gbp: Decimal,
     pub fees_gbp: Decimal,
     pub gain_gbp: Decimal,
-    #[allow(dead_code)]
     pub description: Option<String>,
-    /// Pool state after this disposal
+    /// Pool state after this disposal (used in tests)
     #[allow(dead_code)]
     pub pool_after: PoolSnapshot,
     /// Breakdown by matching rule for detailed reporting
@@ -212,62 +210,11 @@ impl DisposalRecord {
     }
 }
 
-/// CSV record for disposal output
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct DisposalCsvRecord {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    pub date: String,
-    pub tax_year: String,
-    pub asset: String,
-    pub quantity: String,
-    pub proceeds_gbp: String,
-    pub allowable_cost_gbp: String,
-    pub fees_gbp: String,
-    pub gain_gbp: String,
-    pub description: String,
-}
-
-impl From<&DisposalRecord> for DisposalCsvRecord {
-    fn from(d: &DisposalRecord) -> Self {
-        DisposalCsvRecord {
-            id: d.id.clone(),
-            date: d.date.format("%Y-%m-%d").to_string(),
-            tax_year: d.tax_year.display(),
-            asset: d.asset.clone(),
-            quantity: d.quantity.to_string(),
-            proceeds_gbp: d.proceeds_gbp.round_dp(2).to_string(),
-            allowable_cost_gbp: d.allowable_cost_gbp.round_dp(2).to_string(),
-            fees_gbp: d.fees_gbp.round_dp(2).to_string(),
-            gain_gbp: d.gain_gbp.round_dp(2).to_string(),
-            description: d.description.clone().unwrap_or_default(),
-        }
-    }
-}
-
-/// CSV record for detailed disposal output with per-rule breakdown
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct DetailedDisposalCsvRecord {
-    pub date: String,
-    pub tax_year: String,
-    pub asset: String,
-    pub rule: String,
-    pub matched_date: String,
-    pub quantity: String,
-    pub proceeds_gbp: String,
-    pub cost_gbp: String,
-    pub gain_gbp: String,
-    pub pool_quantity: String,
-    pub pool_cost_gbp: String,
-    pub running_gain_gbp: String,
-}
-
 /// CGT report containing all disposals
 #[derive(Debug)]
 pub struct CgtReport {
     pub disposals: Vec<DisposalRecord>,
+    /// Final pool states (used in tests)
     #[allow(dead_code)]
     pub pools: HashMap<String, Pool>,
     pub pool_history: PoolHistory,
@@ -355,66 +302,6 @@ impl CgtReport {
             .iter()
             .filter(move |d| year.is_none_or(|y| d.tax_year == y))
             .filter(move |d| !classified_only || !d.is_unclassified())
-    }
-
-    /// Write disposals to CSV
-    #[allow(dead_code)]
-    pub fn write_csv<W: Write>(&self, writer: W, year: Option<TaxYear>) -> color_eyre::Result<()> {
-        let mut wtr = csv::Writer::from_writer(writer);
-        for disposal in self.filter_disposals(year, false) {
-            let record: DisposalCsvRecord = disposal.into();
-            wtr.serialize(record)?;
-        }
-        wtr.flush()?;
-        Ok(())
-    }
-
-    /// Write detailed disposals to CSV with per-rule breakdown
-    #[allow(dead_code)]
-    pub fn write_detailed_csv<W: Write>(
-        &self,
-        writer: W,
-        year: Option<TaxYear>,
-    ) -> color_eyre::Result<()> {
-        let mut wtr = csv::Writer::from_writer(writer);
-        let mut running_gain = Decimal::ZERO;
-
-        for disposal in self.filter_disposals(year, false) {
-            let total_qty = disposal.quantity;
-
-            for component in &disposal.matching_components {
-                let proportion = if total_qty.is_zero() {
-                    Decimal::ZERO
-                } else {
-                    component.quantity / total_qty
-                };
-
-                let proceeds = (disposal.proceeds_gbp * proportion).round_dp(2);
-                let gain = (proceeds - component.cost).round_dp(2);
-                running_gain += gain;
-
-                let record = DetailedDisposalCsvRecord {
-                    date: disposal.date.format("%Y-%m-%d").to_string(),
-                    tax_year: disposal.tax_year.display(),
-                    asset: disposal.asset.clone(),
-                    rule: component.rule.display().to_string(),
-                    matched_date: component
-                        .matched_date
-                        .map(|d| d.format("%Y-%m-%d").to_string())
-                        .unwrap_or_default(),
-                    quantity: component.quantity.to_string(),
-                    proceeds_gbp: proceeds.to_string(),
-                    cost_gbp: component.cost.round_dp(2).to_string(),
-                    gain_gbp: gain.to_string(),
-                    pool_quantity: disposal.pool_after.quantity.to_string(),
-                    pool_cost_gbp: disposal.pool_after.cost_gbp.round_dp(2).to_string(),
-                    running_gain_gbp: running_gain.round_dp(2).to_string(),
-                };
-                wtr.serialize(record)?;
-            }
-        }
-        wtr.flush()?;
-        Ok(())
     }
 }
 
@@ -1319,30 +1206,6 @@ mod tests {
     }
 
     #[test]
-    fn detailed_csv_output() {
-        // Test that detailed CSV includes all components
-        let events = vec![
-            acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
-            acq("2024-06-15", "BTC", dec!(2), dec!(30000)),
-            disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
-        ];
-
-        let report = calculate_cgt(events);
-        let mut output = Vec::new();
-        report.write_detailed_csv(&mut output, None).unwrap();
-
-        let csv_str = String::from_utf8(output).unwrap();
-        // Should have header + 2 data rows (same-day + pool)
-        let lines: Vec<_> = csv_str.lines().collect();
-        assert_eq!(lines.len(), 3); // header + 2 rows
-
-        // Check header contains expected columns
-        assert!(csv_str.contains("rule"));
-        assert!(csv_str.contains("pool_quantity"));
-        assert!(csv_str.contains("running_gain_gbp"));
-    }
-
-    #[test]
     fn same_day_has_priority_over_bnb() {
         // Scenario: Same-day rule should have priority over B&B
         // - April 8: Disposal of 100 BTC (will try to B&B with April 11 acquisition)
@@ -1610,11 +1473,19 @@ mod tests {
         assert_eq!(final_snapshot.pools.len(), 2);
 
         // Verify BTC state after disposal (10 - 3 = 7)
-        let btc_pool = final_snapshot.pools.iter().find(|p| p.asset == "BTC").unwrap();
+        let btc_pool = final_snapshot
+            .pools
+            .iter()
+            .find(|p| p.asset == "BTC")
+            .unwrap();
         assert_eq!(btc_pool.quantity, dec!(7));
 
         // Verify ETH state unchanged
-        let eth_pool = final_snapshot.pools.iter().find(|p| p.asset == "ETH").unwrap();
+        let eth_pool = final_snapshot
+            .pools
+            .iter()
+            .find(|p| p.asset == "ETH")
+            .unwrap();
         assert_eq!(eth_pool.quantity, dec!(50));
     }
 
@@ -1754,8 +1625,8 @@ mod tests {
     fn pool_history_old_events() {
         // Test events from before 2020
         let events = vec![
-            acq("2017-01-15", "BTC", dec!(100), dec!(1000)),   // Very old
-            acq("2018-06-20", "BTC", dec!(50), dec!(200000)),  // 2018/19
+            acq("2017-01-15", "BTC", dec!(100), dec!(1000)), // Very old
+            acq("2018-06-20", "BTC", dec!(50), dec!(200000)), // 2018/19
             disp("2019-01-10", "BTC", dec!(30), dec!(150000)), // 2018/19
             disp("2024-06-15", "BTC", dec!(50), dec!(500000)), // 2024/25
         ];

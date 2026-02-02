@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -28,12 +28,6 @@ impl TaxYear {
         } else {
             TaxYear(year)
         }
-    }
-
-    /// Create a tax year from a datetime (uses the date portion)
-    #[allow(dead_code)]
-    pub fn from_datetime(datetime: NaiveDateTime) -> Self {
-        Self::from_date(datetime.date())
     }
 
     #[cfg(test)]
