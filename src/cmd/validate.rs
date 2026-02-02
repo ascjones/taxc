@@ -10,9 +10,9 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct ValidateCommand {
-    /// CSV or JSON file containing taxable events
-    #[arg(short, long)]
-    events: PathBuf,
+    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    #[arg(default_value = "-")]
+    file: PathBuf,
 
     /// Tax year to filter (e.g., 2025 for 2024/25)
     #[arg(short, long)]
@@ -48,7 +48,7 @@ struct ValidationOutput {
 
 impl ValidateCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
-        let events = read_events(&self.events)?;
+        let events = read_events(&self.file)?;
         let cgt_report = calculate_cgt(events);
         let tax_year = self.year.map(TaxYear);
 

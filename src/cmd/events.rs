@@ -7,9 +7,9 @@ use crate::tax::TaxYear;
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
-use std::io::BufReader;
-use std::path::Path;
-use std::{fs::File, io, path::PathBuf};
+use std::fs::File;
+use std::io::{self, BufReader, Read};
+use std::path::{Path, PathBuf};
 use tabled::{
     settings::{object::Rows, Alignment, Modify, Style},
     Table, Tabled,
@@ -17,9 +17,9 @@ use tabled::{
 
 #[derive(Args, Debug)]
 pub struct EventsCommand {
-    /// CSV or JSON file containing taxable events
-    #[arg(short, long)]
-    events: PathBuf,
+    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    #[arg(default_value = "-")]
+    file: PathBuf,
 
     /// Tax year to filter (e.g., 2025 for 2024/25)
     #[arg(short, long)]
@@ -49,7 +49,7 @@ pub enum EventTypeFilter {
 impl EventsCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let tax_year = self.year.map(TaxYear);
-        let all_events = read_events(&self.events)?;
+        let all_events = read_events(&self.file)?;
 
         // Build the events view
         let cgt_report = calculate_cgt(all_events.clone());
@@ -509,16 +509,58 @@ fn format_quantity(qty: Decimal) -> String {
     trimmed.to_string()
 }
 
-/// Read events from CSV or JSON file based on extension
+/// Read events from CSV or JSON file based on extension (or stdin with "-")
 pub fn read_events(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
+    if path.as_os_str() == "-" {
+        read_from_stdin()
+    } else {
+        read_from_file(path)
+    }
+}
+
+fn read_from_file(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
     match path.extension().and_then(|s| s.to_str()) {
         Some("json") => events::read_json(reader),
-        _ => {
-            // Default to CSV for .csv files and any other extension
-            events::read_csv(reader)
+        _ => events::read_csv(reader),
+    }
+}
+
+fn read_from_stdin() -> color_eyre::Result<Vec<TaxableEvent>> {
+    let stdin = io::stdin();
+    let mut reader = BufReader::new(stdin.lock());
+
+    // Read into buffer to sniff format
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
+
+    if buffer.is_empty() {
+        color_eyre::eyre::bail!("No input received. Provide a file or pipe data to stdin.");
+    }
+
+    let format = detect_format(&buffer);
+    let cursor = io::Cursor::new(buffer);
+
+    match format {
+        InputFormat::Json => events::read_json(cursor),
+        InputFormat::Csv => events::read_csv(cursor),
+    }
+}
+
+enum InputFormat {
+    Json,
+    Csv,
+}
+
+fn detect_format(data: &[u8]) -> InputFormat {
+    for byte in data {
+        match byte {
+            b' ' | b'\t' | b'\n' | b'\r' => continue,
+            b'[' | b'{' => return InputFormat::Json,
+            _ => return InputFormat::Csv,
         }
     }
+    InputFormat::Csv
 }

@@ -12,17 +12,23 @@ cargo install --git https://github.com/ascjones/taxc
 
 ## Commands
 
+All commands accept an optional positional `FILE` (CSV or JSON). If omitted or set to `-`, input is read from stdin.
+
+```
+cat events.csv | taxc summary --year 2025
+taxc events - < events.csv
+```
+
 ### Events - Transaction View
 
 Show all transactions/events in a detailed table:
 
 ```
-taxc events [OPTIONS] --events <EVENTS>
+taxc events [OPTIONS] [FILE]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking`, `dividend` |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
@@ -33,12 +39,11 @@ taxc events [OPTIONS] --events <EVENTS>
 Show aggregated tax summary with CGT and income calculations:
 
 ```
-taxc summary [OPTIONS] --events <EVENTS>
+taxc summary [OPTIONS] [FILE]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to report (e.g., 2025 for 2024/25) |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
@@ -49,12 +54,11 @@ taxc summary [OPTIONS] --events <EVENTS>
 Generate a tax report (HTML by default, or JSON):
 
 ```
-taxc report [OPTIONS] --events <EVENTS>
+taxc report [OPTIONS] [FILE]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
@@ -64,12 +68,11 @@ taxc report [OPTIONS] --events <EVENTS>
 Show pool balances over time (year-end snapshots by default, or daily history):
 
 ```
-taxc pools [OPTIONS] --events <EVENTS>
+taxc pools [OPTIONS] [FILE]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--daily` | Show daily time-series instead of year-end snapshots |
@@ -80,12 +83,11 @@ taxc pools [OPTIONS] --events <EVENTS>
 Surface data quality issues without generating full reports. Useful for quick checks or CI/CD pipelines.
 
 ```
-taxc validate [OPTIONS] --events <EVENTS>
+taxc validate [OPTIONS] [FILE]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-e, --events <FILE>` | CSV or JSON file containing taxable events (required) |
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `--json` | Output as JSON instead of formatted text |
 
@@ -159,7 +161,7 @@ tx-004,2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
 ### Events Command
 
 ```
-taxc events -e events.csv
+taxc events events.csv
 ```
 
 Shows a detailed table with all transactions, including sub-rows for disposals matched via multiple rules (Same-Day, B&B, Pool).
@@ -167,7 +169,7 @@ Shows a detailed table with all transactions, including sub-rows for disposals m
 ### Summary Command
 
 ```
-taxc summary -e events.csv -y 2025
+taxc summary events.csv -y 2025
 ```
 
 ```
@@ -189,7 +191,7 @@ TOTAL TAX LIABILITY: £403.25 (basic)
 ### Report Command
 
 ```
-taxc report -e events.csv
+taxc report events.csv
 ```
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
@@ -207,7 +209,7 @@ Use `-o report.html` to write to a specific file instead of opening in browser.
 Use `--json` to output the report data as JSON (for integration with other tools):
 
 ```
-taxc report -e events.csv --json > report.json
+taxc report events.csv --json > report.json
 ```
 
 ## HMRC Share Identification Rules

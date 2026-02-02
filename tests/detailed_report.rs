@@ -6,7 +6,7 @@ use std::process::Command;
 #[test]
 fn events_mixed_rules() {
     let output = Command::new("cargo")
-        .args(["run", "--", "events", "-e", "tests/data/mixed_rules.csv"])
+        .args(["run", "--", "events", "tests/data/mixed_rules.csv"])
         .output()
         .expect("Failed to execute command");
 
@@ -31,7 +31,6 @@ fn events_csv_mixed_rules() {
             "run",
             "--",
             "events",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--csv",
         ])
@@ -61,7 +60,6 @@ fn events_filter_by_type() {
             "run",
             "--",
             "events",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--event-type",
             "disposal",
@@ -83,7 +81,7 @@ fn events_filter_by_type() {
 #[test]
 fn json_input_format() {
     let output = Command::new("cargo")
-        .args(["run", "--", "summary", "-e", "tests/data/basic_json.json"])
+        .args(["run", "--", "summary", "tests/data/basic_json.json"])
         .output()
         .expect("Failed to execute command");
 
@@ -108,7 +106,6 @@ fn summary_json_output() {
             "run",
             "--",
             "summary",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--json",
         ])
@@ -135,7 +132,6 @@ fn events_filter_by_year() {
             "run",
             "--",
             "events",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--year",
             "2025",
@@ -158,7 +154,7 @@ fn events_filter_by_year() {
 #[test]
 fn pools_basic_output() {
     let output = Command::new("cargo")
-        .args(["run", "--", "pools", "-e", "tests/data/mixed_rules.csv"])
+        .args(["run", "--", "pools", "tests/data/mixed_rules.csv"])
         .output()
         .expect("Failed to execute command");
 
@@ -181,7 +177,6 @@ fn pools_json_output() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--json",
         ])
@@ -217,7 +212,6 @@ fn pools_daily_output() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--daily",
         ])
@@ -243,7 +237,6 @@ fn pools_daily_json_output() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "--daily",
             "--json",
@@ -283,7 +276,6 @@ fn pools_filter_by_asset() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "-a",
             "BTC",
@@ -308,7 +300,6 @@ fn pools_filter_by_year() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "-y",
             "2025",
@@ -333,7 +324,6 @@ fn pools_combined_filters() {
             "run",
             "--",
             "pools",
-            "-e",
             "tests/data/mixed_rules.csv",
             "-y",
             "2025",
