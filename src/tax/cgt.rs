@@ -370,7 +370,9 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
         }
     }
 
-    // Second pass: reserve acquisitions for same-day matching (priority over B&B)
+    // Second pass: reserve acquisitions for same-day matching (priority over B&B).
+    // See HMRC CG51560 for the matching order: same-day, then 30-day (B&B), then Section 104.
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
     for event in &events {
         if event.event_type.is_disposal_like() {
             let key = (event.date(), event.asset.clone());
@@ -433,7 +435,9 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                 let mut bnb_matches: Vec<(NaiveDate, Decimal, Decimal)> = Vec::new();
                 let mut pool_match: Option<(Decimal, Decimal)> = None;
 
-                // 1. Same-day rule: match with same-day acquisitions
+                // 1. Same-day rule: match with same-day acquisitions.
+                // See HMRC CG51560 for the ordering of identification rules.
+                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
                 let key = (event.date(), event.asset.clone());
                 if let Some(tracker) = acquisitions.get_mut(&key) {
                     if tracker.same_day_remaining > Decimal::ZERO {
@@ -452,7 +456,9 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                     }
                 }
 
-                // 2. Bed & breakfast rule: match with acquisitions in next 30 days
+                // 2. Bed & breakfast rule: match with acquisitions in next 30 days.
+                // See HMRC CG51560 for the 30-day rule and worked examples.
+                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
                 if remaining_to_match > Decimal::ZERO {
                     for days_ahead in 1..=30 {
                         if remaining_to_match <= Decimal::ZERO {
@@ -480,7 +486,9 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                     }
                 }
 
-                // 3. Section 104 pool: match remaining from pool
+                // 3. Section 104 pool: match remaining from pool.
+                // See HMRC CG51560 for the final matching step.
+                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
                 // Track pool state before removal for insufficient pool warning
                 let pool_qty_before = pools
                     .get(&event.asset)
@@ -747,6 +755,95 @@ mod tests {
         assert_eq!(disposal.proceeds_gbp, dec!(300000));
         assert_eq!(disposal.allowable_cost_gbp, dec!(42000));
         assert_eq!(disposal.gain_gbp, dec!(258000));
+    }
+
+    #[test]
+    fn hmrc_bnb_example_1() {
+        // HMRC example 1: https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+        // Section 104 holding 1,000 shares, disposal of all 1,000,
+        // then buy 1,000 within 30 days.
+        let events = vec![
+            acq("2011-01-01", "X", dec!(1000), dec!(10000)),
+            disp("2011-07-01", "X", dec!(1000), dec!(15000)),
+            acq("2011-07-31", "X", dec!(1000), dec!(12000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        assert_eq!(disposal.matching_components.len(), 1);
+        assert_eq!(disposal.matching_components[0].rule, MatchingRule::BedAndBreakfast);
+        assert_eq!(disposal.matching_components[0].quantity, dec!(1000));
+        assert_eq!(
+            disposal.matching_components[0].matched_date,
+            Some(chrono::NaiveDate::from_ymd_opt(2011, 7, 31).unwrap())
+        );
+        assert_eq!(disposal.allowable_cost_gbp, dec!(12000));
+
+        // Pool should remain as the original holding (B&B acquisition not added).
+        let pool = report.pools.get("X").unwrap();
+        assert_eq!(pool.quantity, dec!(1000));
+        assert_eq!(pool.cost_gbp, dec!(10000));
+    }
+
+    #[test]
+    fn hmrc_bnb_example_2() {
+        // HMRC example 2: https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+        // Section 104 holding 2,500 shares. Dispose 1,700, then buy 500 within 30 days.
+        let events = vec![
+            acq("2012-01-01", "Y", dec!(2500), dec!(2500)),
+            disp("2012-03-27", "Y", dec!(1700), dec!(1700)),
+            acq("2012-03-30", "Y", dec!(500), dec!(1000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        assert_eq!(disposal.matching_components.len(), 2);
+        let bnb = disposal
+            .matching_components
+            .iter()
+            .find(|c| c.rule == MatchingRule::BedAndBreakfast)
+            .expect("expected B&B match");
+        assert_eq!(bnb.quantity, dec!(500));
+        assert_eq!(
+            bnb.matched_date,
+            Some(chrono::NaiveDate::from_ymd_opt(2012, 3, 30).unwrap())
+        );
+        assert!(disposal
+            .matching_components
+            .iter()
+            .any(|c| c.rule == MatchingRule::Pool && c.quantity == dec!(1200)));
+        assert_eq!(disposal.allowable_cost_gbp, dec!(2200));
+
+        let pool = report.pools.get("Y").unwrap();
+        assert_eq!(pool.quantity, dec!(1300));
+        assert_eq!(pool.cost_gbp, dec!(1300));
+    }
+
+    #[test]
+    fn hmrc_bnb_example_3() {
+        // HMRC example 3: https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+        // Disposal on 28 Feb, acquisition on 31 Mar (outside 30 days).
+        let events = vec![
+            acq("2008-01-01", "Z", dec!(10000), dec!(10000)),
+            disp("2009-02-28", "Z", dec!(2000), dec!(2000)),
+            acq("2009-03-31", "Z", dec!(3000), dec!(6000)),
+        ];
+
+        let report = calculate_cgt(events);
+        let disposal = &report.disposals[0];
+
+        assert_eq!(disposal.matching_components.len(), 1);
+        assert_eq!(disposal.matching_components[0].rule, MatchingRule::Pool);
+        assert_eq!(disposal.matching_components[0].quantity, dec!(2000));
+        assert_eq!(disposal.matching_components[0].matched_date, None);
+        assert_eq!(disposal.allowable_cost_gbp, dec!(2000));
+
+        // Pool after later acquisition should include remaining + new shares.
+        let pool = report.pools.get("Z").unwrap();
+        assert_eq!(pool.quantity, dec!(11000));
+        assert_eq!(pool.cost_gbp, dec!(14000));
     }
 
     #[test]
