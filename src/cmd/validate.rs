@@ -47,7 +47,7 @@ struct ValidationOutput {
 }
 
 impl ValidateCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
+    pub fn exec(&self) -> anyhow::Result<()> {
         let events = read_events(&self.file)?;
         let cgt_report = calculate_cgt(events)?;
         let tax_year = self.year.map(TaxYear);
@@ -113,11 +113,7 @@ impl ValidateCommand {
         }
     }
 
-    fn print_json(
-        &self,
-        issues: &[ValidationIssue],
-        year: Option<TaxYear>,
-    ) -> color_eyre::Result<()> {
+    fn print_json(&self, issues: &[ValidationIssue], year: Option<TaxYear>) -> anyhow::Result<()> {
         let year_str = year.map_or("All Years".to_string(), |y| y.display());
 
         let output = ValidationOutput {

@@ -371,7 +371,7 @@ fn build_price(
 }
 
 /// Read taxable events from CSV
-pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
+pub fn read_csv<R: Read>(reader: R) -> anyhow::Result<Vec<TaxableEvent>> {
     let mut rdr = csv::Reader::from_reader(reader);
     let records: Result<Vec<CsvEvent>, _> = rdr.deserialize::<CsvEvent>().collect();
     let events = records?
@@ -385,7 +385,7 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
 }
 
 /// Read taxable events from JSON
-pub fn read_json<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
+pub fn read_json<R: Read>(reader: R) -> anyhow::Result<Vec<TaxableEvent>> {
     let input: TaxInput = serde_json::from_reader(reader)?;
     let mut events = input.events;
     for event in &mut events {

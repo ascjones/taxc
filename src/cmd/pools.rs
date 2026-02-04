@@ -37,7 +37,7 @@ pub struct PoolsCommand {
 }
 
 impl PoolsCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
+    pub fn exec(&self) -> anyhow::Result<()> {
         let events = read_events(&self.file)?;
         let cgt_report = calculate_cgt(events)?;
         let tax_year = self.year.map(TaxYear);
@@ -136,7 +136,7 @@ impl PoolsCommand {
         println!("{}", table);
     }
 
-    fn print_json_year_end(&self, snapshots: &[YearEndSnapshotView]) -> color_eyre::Result<()> {
+    fn print_json_year_end(&self, snapshots: &[YearEndSnapshotView]) -> anyhow::Result<()> {
         let output = YearEndOutput {
             year_end_snapshots: snapshots.to_vec(),
         };
@@ -145,7 +145,7 @@ impl PoolsCommand {
         Ok(())
     }
 
-    fn print_json_daily(&self, entries: &[&PoolHistoryEntry]) -> color_eyre::Result<()> {
+    fn print_json_daily(&self, entries: &[&PoolHistoryEntry]) -> anyhow::Result<()> {
         let output = DailyOutput {
             entries: entries.iter().cloned().cloned().collect(),
         };

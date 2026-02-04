@@ -90,7 +90,7 @@ struct IncomeSummary {
 }
 
 impl SummaryCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
+    pub fn exec(&self) -> anyhow::Result<()> {
         let tax_band: TaxBand = self.tax_band.into();
         let tax_year = self.year.map(TaxYear);
         let all_events = read_events(&self.file)?;
@@ -259,7 +259,7 @@ impl SummaryCommand {
         income_report: &crate::tax::income::IncomeReport,
         year: Option<TaxYear>,
         band: TaxBand,
-    ) -> color_eyre::Result<()> {
+    ) -> anyhow::Result<()> {
         let year_str = year.map_or("All Years".to_string(), |y| y.display());
         let band_str = match band {
             TaxBand::Basic => "basic",

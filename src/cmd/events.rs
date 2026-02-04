@@ -47,7 +47,7 @@ pub enum EventTypeFilter {
 }
 
 impl EventsCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
+    pub fn exec(&self) -> anyhow::Result<()> {
         let tax_year = self.year.map(TaxYear);
         let all_events = read_events(&self.file)?;
 
@@ -85,7 +85,7 @@ impl EventsCommand {
         println!("{}", table);
     }
 
-    fn write_csv(&self, rows: &[EventRow]) -> color_eyre::Result<()> {
+    fn write_csv(&self, rows: &[EventRow]) -> anyhow::Result<()> {
         let mut wtr = csv::Writer::from_writer(io::stdout());
         for row in rows {
             wtr.serialize(row)?;
@@ -510,7 +510,7 @@ fn format_quantity(qty: Decimal) -> String {
 }
 
 /// Read events from CSV or JSON file based on extension (or stdin with "-")
-pub fn read_events(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
+pub fn read_events(path: &Path) -> anyhow::Result<Vec<TaxableEvent>> {
     if path.as_os_str() == "-" {
         read_from_stdin()
     } else {
@@ -518,7 +518,7 @@ pub fn read_events(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
     }
 }
 
-fn read_from_file(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
+fn read_from_file(path: &Path) -> anyhow::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -528,7 +528,7 @@ fn read_from_file(path: &Path) -> color_eyre::Result<Vec<TaxableEvent>> {
     }
 }
 
-fn read_from_stdin() -> color_eyre::Result<Vec<TaxableEvent>> {
+fn read_from_stdin() -> anyhow::Result<Vec<TaxableEvent>> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
 
@@ -537,7 +537,7 @@ fn read_from_stdin() -> color_eyre::Result<Vec<TaxableEvent>> {
     reader.read_to_end(&mut buffer)?;
 
     if buffer.is_empty() {
-        color_eyre::eyre::bail!("No input received. Provide a file or pipe data to stdin.");
+        anyhow::bail!("No input received. Provide a file or pipe data to stdin.");
     }
 
     let format = detect_format(&buffer);

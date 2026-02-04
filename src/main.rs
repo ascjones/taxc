@@ -37,7 +37,7 @@ enum Command {
 }
 
 impl Command {
-    fn exec(&self) -> color_eyre::Result<()> {
+    fn exec(&self) -> anyhow::Result<()> {
         match self {
             Command::Events(events) => events.exec(),
             Command::Summary(summary) => summary.exec(),
@@ -48,8 +48,7 @@ impl Command {
     }
 }
 
-fn main() -> color_eyre::Result<()> {
-    color_eyre::install()?;
+fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
     let cli = Cli::parse();
     cli.command.exec()

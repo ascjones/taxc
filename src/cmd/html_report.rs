@@ -32,7 +32,7 @@ pub struct ReportCommand {
 }
 
 impl ReportCommand {
-    pub fn exec(&self) -> color_eyre::Result<()> {
+    pub fn exec(&self) -> anyhow::Result<()> {
         let tax_year = self.year.map(TaxYear);
         let events = read_events(&self.file)?;
 
