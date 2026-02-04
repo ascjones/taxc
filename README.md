@@ -226,6 +226,14 @@ CGT calculations implement the HMRC share matching rules in order:
 - Income tax rates for basic, higher, and additional rate taxpayers
 - Dividend allowances and rates
 
+## Development
+
+Enable pre-commit hooks (runs fmt, clippy, and tests):
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 MIT
