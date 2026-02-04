@@ -1,6 +1,7 @@
 use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::{Serialize, Serializer};
 
 /// Tax band for income tax calculations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -15,6 +16,12 @@ pub enum TaxBand {
 /// The year value represents the end year (e.g., 2025 = 2024/25 tax year)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaxYear(pub i32);
+
+impl Serialize for TaxYear {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.display())
+    }
+}
 
 impl TaxYear {
     /// Create a tax year from a date

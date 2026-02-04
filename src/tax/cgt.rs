@@ -2,8 +2,22 @@ use crate::events::{EventType, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use chrono::{Duration, NaiveDate};
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
+
+fn serialize_date<S: Serializer>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&date.format("%Y-%m-%d").to_string())
+}
+
+fn serialize_quantity<S: Serializer>(qty: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
+    let s = format!("{:.8}", qty);
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    serializer.serialize_str(trimmed)
+}
+
+fn serialize_decimal_2dp<S: Serializer>(d: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&format!("{:.2}", d))
+}
 
 /// Snapshot of pool state at a point in time (used in tests via pool_after)
 #[derive(Debug, Clone, Default)]
@@ -23,27 +37,32 @@ impl From<&Pool> for PoolSnapshot {
 }
 
 /// Snapshot of a single pool at a point in time (for daily history)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PoolHistoryEntry {
+    #[serde(serialize_with = "serialize_date")]
     pub date: NaiveDate,
     pub asset: String,
     pub event_type: EventType,
+    #[serde(serialize_with = "serialize_quantity")]
     pub quantity: Decimal,
+    #[serde(serialize_with = "serialize_decimal_2dp")]
     pub cost_gbp: Decimal,
 }
 
 /// Year-end pool snapshot
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct YearEndSnapshot {
     pub tax_year: TaxYear,
     pub pools: Vec<PoolState>,
 }
 
 /// State of a single pool
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PoolState {
     pub asset: String,
+    #[serde(serialize_with = "serialize_quantity")]
     pub quantity: Decimal,
+    #[serde(serialize_with = "serialize_decimal_2dp")]
     pub cost_gbp: Decimal,
 }
 
@@ -772,7 +791,10 @@ mod tests {
         let disposal = &report.disposals[0];
 
         assert_eq!(disposal.matching_components.len(), 1);
-        assert_eq!(disposal.matching_components[0].rule, MatchingRule::BedAndBreakfast);
+        assert_eq!(
+            disposal.matching_components[0].rule,
+            MatchingRule::BedAndBreakfast
+        );
         assert_eq!(disposal.matching_components[0].quantity, dec!(1000));
         assert_eq!(
             disposal.matching_components[0].matched_date,

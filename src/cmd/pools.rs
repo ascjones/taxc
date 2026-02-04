@@ -138,21 +138,7 @@ impl PoolsCommand {
 
     fn print_json_year_end(&self, snapshots: &[YearEndSnapshotView]) -> color_eyre::Result<()> {
         let output = YearEndOutput {
-            year_end_snapshots: snapshots
-                .iter()
-                .map(|snapshot| YearEndSnapshotOutput {
-                    tax_year: snapshot.tax_year.clone(),
-                    pools: snapshot
-                        .pools
-                        .iter()
-                        .map(|p| PoolStateOutput {
-                            asset: p.asset.clone(),
-                            quantity: format_quantity(p.quantity),
-                            cost_gbp: format_decimal(p.cost_gbp),
-                        })
-                        .collect(),
-                })
-                .collect(),
+            year_end_snapshots: snapshots.to_vec(),
         };
 
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -161,16 +147,7 @@ impl PoolsCommand {
 
     fn print_json_daily(&self, entries: &[&PoolHistoryEntry]) -> color_eyre::Result<()> {
         let output = DailyOutput {
-            entries: entries
-                .iter()
-                .map(|entry| PoolHistoryEntryOutput {
-                    date: entry.date.format("%Y-%m-%d").to_string(),
-                    asset: entry.asset.clone(),
-                    event_type: event_type_name(entry.event_type),
-                    quantity: format_quantity(entry.quantity),
-                    cost_gbp: format_decimal(entry.cost_gbp),
-                })
-                .collect(),
+            entries: entries.iter().cloned().cloned().collect(),
         };
 
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -206,7 +183,7 @@ struct DailyRow {
     cost_basis: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct YearEndSnapshotView {
     tax_year: String,
     pools: Vec<PoolState>,
@@ -214,34 +191,12 @@ struct YearEndSnapshotView {
 
 #[derive(Debug, Serialize)]
 struct YearEndOutput {
-    year_end_snapshots: Vec<YearEndSnapshotOutput>,
-}
-
-#[derive(Debug, Serialize)]
-struct YearEndSnapshotOutput {
-    tax_year: String,
-    pools: Vec<PoolStateOutput>,
-}
-
-#[derive(Debug, Serialize)]
-struct PoolStateOutput {
-    asset: String,
-    quantity: String,
-    cost_gbp: String,
+    year_end_snapshots: Vec<YearEndSnapshotView>,
 }
 
 #[derive(Debug, Serialize)]
 struct DailyOutput {
-    entries: Vec<PoolHistoryEntryOutput>,
-}
-
-#[derive(Debug, Serialize)]
-struct PoolHistoryEntryOutput {
-    date: String,
-    asset: String,
-    event_type: String,
-    quantity: String,
-    cost_gbp: String,
+    entries: Vec<PoolHistoryEntry>,
 }
 
 fn filter_year_end_snapshots(
@@ -298,10 +253,6 @@ fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
 
 fn format_gbp(amount: Decimal) -> String {
     format!("£{:.2}", amount)
-}
-
-fn format_decimal(amount: Decimal) -> String {
-    format!("{:.2}", amount)
 }
 
 fn format_quantity(qty: Decimal) -> String {

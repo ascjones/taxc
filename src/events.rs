@@ -112,7 +112,8 @@ where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    parse_datetime(&s).ok_or_else(|| serde::de::Error::custom(format!("Invalid date format: {}", s)))
+    parse_datetime(&s)
+        .ok_or_else(|| serde::de::Error::custom(format!("Invalid date format: {}", s)))
 }
 
 fn serialize_datetime<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
