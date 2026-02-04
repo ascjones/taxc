@@ -1,6 +1,6 @@
 //! Schema command - print expected input formats
 
-use crate::events::{csv_headers, TaxInput};
+use crate::events::{csv_schema, TaxInput};
 use clap::Args;
 use schemars::schema_for;
 
@@ -37,8 +37,7 @@ impl SchemaCommand {
     }
 
     fn print_csv_header(&self) -> anyhow::Result<()> {
-        // Derive headers from CsvEvent struct via serialization
-        let headers = csv_headers();
+        let headers: Vec<_> = csv_schema().iter().map(|f| f.name).collect();
         println!("{}", headers.join(","));
         Ok(())
     }
@@ -47,89 +46,16 @@ impl SchemaCommand {
         println!("CSV Input Format");
         println!("================");
         println!();
-        for (name, required, description) in CSV_FIELD_DESCRIPTIONS {
-            let req = if *required { "required" } else { "optional" };
-            println!("{:20} ({:8})  {}", name, req, description);
+        for field in csv_schema() {
+            let req = if field.required {
+                "required"
+            } else {
+                "optional"
+            };
+            println!("{:20} ({:8})  {}", field.name, req, field.description);
         }
         println!();
         println!("FX rate convention: fx_rate is always price_quote/GBP");
         Ok(())
-    }
-}
-
-/// Field descriptions with required/optional status
-/// Note: Column order is derived from CsvEvent struct, descriptions are manual
-const CSV_FIELD_DESCRIPTIONS: &[(&str, bool, &str)] = &[
-    (
-        "id",
-        false,
-        "Unique identifier for linking back to source data",
-    ),
-    (
-        "date",
-        true,
-        "Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss)",
-    ),
-    (
-        "event_type",
-        true,
-        "Acquisition, Disposal, StakingReward, Dividend",
-    ),
-    ("asset", true, "Asset identifier (e.g., BTC, ETH, AAPL)"),
-    ("asset_class", true, "Crypto or Stock"),
-    ("quantity", true, "Amount of asset"),
-    (
-        "price_rate",
-        false,
-        "Asset price (required if asset != GBP)",
-    ),
-    (
-        "price_quote",
-        false,
-        "Quote currency for price_rate (GBP, USD, EUR)",
-    ),
-    ("price_source", false, "Price data source"),
-    ("price_time", false, "Price timestamp"),
-    (
-        "fx_rate",
-        false,
-        "FX rate to GBP (required if price_quote != GBP)",
-    ),
-    ("fx_source", false, "FX rate source"),
-    ("fx_time", false, "FX rate timestamp"),
-    ("fee_amount", false, "Fee amount"),
-    ("fee_asset", false, "Fee asset (required if fee_amount set)"),
-    (
-        "fee_price_rate",
-        false,
-        "Fee asset price (required if fee_asset != GBP)",
-    ),
-    ("fee_price_quote", false, "Fee price quote currency"),
-    (
-        "fee_fx_rate",
-        false,
-        "Fee FX rate (required if fee_price_quote != GBP)",
-    ),
-    ("fee_fx_source", false, "Fee FX rate source"),
-    ("description", false, "Optional description"),
-];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn csv_headers_match_field_descriptions() {
-        let headers = csv_headers();
-        let description_names: Vec<&str> = CSV_FIELD_DESCRIPTIONS
-            .iter()
-            .map(|(name, _, _)| *name)
-            .collect();
-
-        assert_eq!(
-            headers, description_names,
-            "CSV headers derived from CsvEvent don't match CSV_FIELD_DESCRIPTIONS. \
-             Update CSV_FIELD_DESCRIPTIONS to match the struct field order."
-        );
     }
 }

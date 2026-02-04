@@ -5,7 +5,11 @@ authors = ["Andrew Jones <ascjones@gmail.com>"]
 edition = "2021"
 description = "UK Tax Calculator for Capital Gains and Income"
 
+[workspace]
+members = [".", "taxc-derive"]
+
 [dependencies]
+taxc-derive = { path = "taxc-derive" }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 csv = "1.3"

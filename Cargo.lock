@@ -999,7 +999,17 @@ dependencies = [
  "serde_json",
  "sha2",
  "tabled",
+ "taxc-derive",
  "thiserror",
+]
+
+[[package]]
+name = "taxc-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]

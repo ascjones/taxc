@@ -3,6 +3,15 @@ use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::io::Read;
+use taxc_derive::CsvSchema;
+
+/// CSV field schema information
+#[derive(Debug, Clone)]
+pub struct CsvField {
+    pub name: &'static str,
+    pub required: bool,
+    pub description: &'static str,
+}
 
 /// Unified JSON input format
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -236,13 +245,6 @@ where
     serializer.serialize_str(&datetime.format("%Y-%m-%dT%H:%M:%S").to_string())
 }
 
-fn default_datetime() -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(1970, 1, 1)
-        .unwrap()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-}
-
 /// Custom deserializer: accepts date-only or datetime, normalizes to NaiveDateTime
 fn deserialize_flexible_datetime<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
 where
@@ -265,75 +267,68 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, CsvSchema)]
 struct CsvEvent {
+    /// Unique identifier for linking back to source data
     #[serde(default)]
     id: Option<String>,
+    /// Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss)
     #[serde(rename = "date", deserialize_with = "deserialize_datetime")]
     datetime: NaiveDateTime,
+    /// Acquisition, Disposal, StakingReward, Dividend
     event_type: EventType,
+    /// Asset identifier (e.g., BTC, ETH, AAPL)
     asset: String,
+    /// Crypto or Stock
     asset_class: AssetClass,
+    /// Amount of asset
     quantity: Decimal,
 
+    /// Asset price (required if asset != GBP)
     #[serde(default)]
     price_rate: Option<Decimal>,
+    /// Quote currency for price_rate (GBP, USD, EUR)
     #[serde(default)]
     price_quote: Option<String>,
+    /// Price data source
     #[serde(default)]
     price_source: Option<String>,
+    /// Price timestamp
     #[serde(default, deserialize_with = "deserialize_flexible_datetime")]
     price_time: Option<NaiveDateTime>,
 
+    /// FX rate to GBP (required if price_quote != GBP)
     #[serde(default)]
     fx_rate: Option<Decimal>,
+    /// FX rate source
     #[serde(default)]
     fx_source: Option<String>,
+    /// FX rate timestamp
     #[serde(default, deserialize_with = "deserialize_flexible_datetime")]
     fx_time: Option<NaiveDateTime>,
 
+    /// Fee amount
     #[serde(default)]
     fee_amount: Option<Decimal>,
+    /// Fee asset (required if fee_amount set)
     #[serde(default)]
     fee_asset: Option<String>,
+    /// Fee asset price (required if fee_asset != GBP)
     #[serde(default)]
     fee_price_rate: Option<Decimal>,
+    /// Fee price quote currency
     #[serde(default)]
     fee_price_quote: Option<String>,
+    /// Fee FX rate (required if fee_price_quote != GBP)
     #[serde(default)]
     fee_fx_rate: Option<Decimal>,
+    /// Fee FX rate source
     #[serde(default)]
     fee_fx_source: Option<String>,
 
+    /// Optional description
     #[serde(default)]
     description: Option<String>,
-}
-
-impl Default for CsvEvent {
-    fn default() -> Self {
-        Self {
-            id: None,
-            datetime: default_datetime(),
-            event_type: EventType::default(),
-            asset: String::new(),
-            asset_class: AssetClass::default(),
-            quantity: Decimal::ZERO,
-            price_rate: None,
-            price_quote: None,
-            price_source: None,
-            price_time: None,
-            fx_rate: None,
-            fx_source: None,
-            fx_time: None,
-            fee_amount: None,
-            fee_asset: None,
-            fee_price_rate: None,
-            fee_price_quote: None,
-            fee_fx_rate: None,
-            fee_fx_source: None,
-            description: None,
-        }
-    }
 }
 
 impl CsvEvent {
@@ -425,19 +420,9 @@ pub fn read_csv<R: Read>(reader: R) -> anyhow::Result<Vec<TaxableEvent>> {
     Ok(events)
 }
 
-/// Get CSV column headers derived from CsvEvent struct
-pub fn csv_headers() -> Vec<String> {
-    let mut wtr = csv::Writer::from_writer(vec![]);
-    // Serialize a default CsvEvent to get the headers
-    wtr.serialize(CsvEvent::default()).unwrap();
-    let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
-    // First line is headers
-    data.lines()
-        .next()
-        .unwrap_or("")
-        .split(',')
-        .map(|s| s.to_string())
-        .collect()
+/// Get CSV schema derived from CsvEvent struct
+pub fn csv_schema() -> &'static [CsvField] {
+    CsvEvent::csv_schema()
 }
 
 /// Read taxable events from JSON
