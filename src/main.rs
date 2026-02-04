@@ -10,7 +10,7 @@ use cmd::summary::SummaryCommand;
 use cmd::validate::ValidateCommand;
 
 #[derive(Parser, Debug)]
-#[command(name = "taxc")]
+#[command(name = "taxc", version)]
 #[command(about = "UK Tax Calculator for Capital Gains and Income", long_about = None)]
 struct Cli {
     #[command(subcommand)]
