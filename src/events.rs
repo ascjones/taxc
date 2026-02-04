@@ -1,6 +1,6 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::io::Read;
 
 /// Unified JSON input format
@@ -8,7 +8,7 @@ use std::io::Read;
 pub struct TaxInput {
     #[serde(default)]
     pub tax_year: Option<String>,
-    pub events: Vec<TaxableEventRecord>,
+    pub events: Vec<TaxableEvent>,
 }
 
 /// Type of taxable event
@@ -52,17 +52,25 @@ pub enum AssetClass {
 }
 
 /// A taxable event (acquisition, disposal, or income)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxableEvent {
     /// Optional identifier to link back to source data
+    #[serde(default)]
     pub id: Option<String>,
+    #[serde(
+        rename = "date",
+        deserialize_with = "deserialize_datetime",
+        serialize_with = "serialize_datetime"
+    )]
     pub datetime: NaiveDateTime,
     pub event_type: EventType,
     pub asset: String,
     pub asset_class: AssetClass,
     pub quantity: Decimal,
     pub value_gbp: Decimal,
+    #[serde(default)]
     pub fees_gbp: Option<Decimal>,
+    #[serde(default)]
     pub description: Option<String>,
 }
 
@@ -80,115 +88,45 @@ impl TaxableEvent {
 }
 
 /// Parse a date string that may be date-only or datetime format
-fn parse_datetime(s: &str) -> NaiveDateTime {
+fn parse_datetime(s: &str) -> Option<NaiveDateTime> {
     // Try datetime format first: "2024-01-15T10:30:00" or "2024-01-15 10:30:00"
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return dt;
+        return Some(dt);
     }
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return dt;
+        return Some(dt);
     }
     // Try with milliseconds
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-        return dt;
+        return Some(dt);
     }
     // Fall back to date-only format, defaulting to midnight
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        return date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        return Some(date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
     }
-    panic!("Invalid date/datetime format: {}", s);
+    None
 }
 
-/// CSV record format for taxable events
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaxableEventRecord {
-    /// Optional identifier to link back to source data
-    #[serde(default)]
-    pub id: Option<String>,
-    pub date: String,
-    pub event_type: String,
-    pub asset: String,
-    pub asset_class: String,
-    pub quantity: Decimal,
-    pub value_gbp: Decimal,
-    #[serde(default)]
-    pub fees_gbp: Option<Decimal>,
-    #[serde(default)]
-    pub description: Option<String>,
+fn deserialize_datetime<'de, D>(deserializer: D) -> Result<NaiveDateTime, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    parse_datetime(&s).ok_or_else(|| serde::de::Error::custom(format!("Invalid date format: {}", s)))
 }
 
-impl From<TaxableEventRecord> for TaxableEvent {
-    fn from(record: TaxableEventRecord) -> Self {
-        let datetime = parse_datetime(&record.date);
-
-        let event_type = match record.event_type.as_str() {
-            "Acquisition" => EventType::Acquisition,
-            "Disposal" => EventType::Disposal,
-            "StakingReward" => EventType::StakingReward,
-            "Dividend" => EventType::Dividend,
-            "UnclassifiedIn" => EventType::UnclassifiedIn,
-            "UnclassifiedOut" => EventType::UnclassifiedOut,
-            _ => panic!("Invalid event type: {}", record.event_type),
-        };
-
-        let asset_class = match record.asset_class.as_str() {
-            "Crypto" => AssetClass::Crypto,
-            "Stock" => AssetClass::Stock,
-            _ => panic!("Invalid asset class: {}", record.asset_class),
-        };
-
-        TaxableEvent {
-            id: record.id,
-            datetime,
-            event_type,
-            asset: record.asset,
-            asset_class,
-            quantity: record.quantity,
-            value_gbp: record.value_gbp,
-            fees_gbp: record.fees_gbp,
-            description: record.description,
-        }
-    }
-}
-
-impl From<&TaxableEvent> for TaxableEventRecord {
-    fn from(event: &TaxableEvent) -> Self {
-        let event_type = match event.event_type {
-            EventType::Acquisition => "Acquisition",
-            EventType::Disposal => "Disposal",
-            EventType::StakingReward => "StakingReward",
-            EventType::Dividend => "Dividend",
-            EventType::UnclassifiedIn => "UnclassifiedIn",
-            EventType::UnclassifiedOut => "UnclassifiedOut",
-        }
-        .to_string();
-
-        let asset_class = match event.asset_class {
-            AssetClass::Crypto => "Crypto",
-            AssetClass::Stock => "Stock",
-        }
-        .to_string();
-
-        TaxableEventRecord {
-            id: event.id.clone(),
-            date: event.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
-            event_type,
-            asset: event.asset.clone(),
-            asset_class,
-            quantity: event.quantity,
-            value_gbp: event.value_gbp,
-            fees_gbp: event.fees_gbp,
-            description: event.description.clone(),
-        }
-    }
+fn serialize_datetime<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&datetime.format("%Y-%m-%dT%H:%M:%S").to_string())
 }
 
 /// Read taxable events from CSV
 pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
     let mut rdr = csv::Reader::from_reader(reader);
-    let records: Result<Vec<TaxableEventRecord>, _> =
-        rdr.deserialize::<TaxableEventRecord>().collect();
-    let mut events: Vec<TaxableEvent> = records?.into_iter().map(Into::into).collect();
+    let records: Result<Vec<TaxableEvent>, _> = rdr.deserialize::<TaxableEvent>().collect();
+    let mut events: Vec<TaxableEvent> = records?;
     events.sort_by_key(|e| e.datetime);
     Ok(events)
 }
@@ -196,7 +134,7 @@ pub fn read_csv<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
 /// Read taxable events from JSON
 pub fn read_json<R: Read>(reader: R) -> color_eyre::Result<Vec<TaxableEvent>> {
     let input: TaxInput = serde_json::from_reader(reader)?;
-    let mut events: Vec<TaxableEvent> = input.events.into_iter().map(Into::into).collect();
+    let mut events = input.events;
     events.sort_by_key(|e| e.datetime);
     Ok(events)
 }
