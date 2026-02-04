@@ -1,6 +1,6 @@
 //! Schema command - print expected input formats
 
-use crate::events::TaxInput;
+use crate::events::{csv_headers, TaxInput};
 use clap::Args;
 use schemars::schema_for;
 
@@ -37,7 +37,9 @@ impl SchemaCommand {
     }
 
     fn print_csv_header(&self) -> anyhow::Result<()> {
-        println!("{}", CSV_COLUMNS.join(","));
+        // Derive headers from CsvEvent struct via serialization
+        let headers = csv_headers();
+        println!("{}", headers.join(","));
         Ok(())
     }
 
@@ -55,29 +57,8 @@ impl SchemaCommand {
     }
 }
 
-const CSV_COLUMNS: &[&str] = &[
-    "id",
-    "date",
-    "event_type",
-    "asset",
-    "asset_class",
-    "quantity",
-    "price_rate",
-    "price_quote",
-    "price_source",
-    "price_time",
-    "fx_rate",
-    "fx_source",
-    "fx_time",
-    "fee_amount",
-    "fee_asset",
-    "fee_price_rate",
-    "fee_price_quote",
-    "fee_fx_rate",
-    "fee_fx_source",
-    "description",
-];
-
+/// Field descriptions with required/optional status
+/// Note: Column order is derived from CsvEvent struct, descriptions are manual
 const CSV_FIELD_DESCRIPTIONS: &[(&str, bool, &str)] = &[
     (
         "id",
@@ -132,3 +113,23 @@ const CSV_FIELD_DESCRIPTIONS: &[(&str, bool, &str)] = &[
     ("fee_fx_source", false, "Fee FX rate source"),
     ("description", false, "Optional description"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_headers_match_field_descriptions() {
+        let headers = csv_headers();
+        let description_names: Vec<&str> = CSV_FIELD_DESCRIPTIONS
+            .iter()
+            .map(|(name, _, _)| *name)
+            .collect();
+
+        assert_eq!(
+            headers, description_names,
+            "CSV headers derived from CsvEvent don't match CSV_FIELD_DESCRIPTIONS. \
+             Update CSV_FIELD_DESCRIPTIONS to match the struct field order."
+        );
+    }
+}

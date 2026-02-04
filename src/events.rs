@@ -13,8 +13,9 @@ pub struct TaxInput {
 }
 
 /// Type of taxable event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum EventType {
+    #[default]
     Acquisition,
     Disposal,
     StakingReward,
@@ -46,8 +47,9 @@ impl EventType {
 }
 
 /// Asset class for tax treatment
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
+    #[default]
     Crypto,
     Stock,
 }
@@ -234,6 +236,13 @@ where
     serializer.serialize_str(&datetime.format("%Y-%m-%dT%H:%M:%S").to_string())
 }
 
+fn default_datetime() -> NaiveDateTime {
+    NaiveDate::from_ymd_opt(1970, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+}
+
 /// Custom deserializer: accepts date-only or datetime, normalizes to NaiveDateTime
 fn deserialize_flexible_datetime<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
 where
@@ -256,7 +265,7 @@ where
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CsvEvent {
     #[serde(default)]
     id: Option<String>,
@@ -298,6 +307,33 @@ struct CsvEvent {
 
     #[serde(default)]
     description: Option<String>,
+}
+
+impl Default for CsvEvent {
+    fn default() -> Self {
+        Self {
+            id: None,
+            datetime: default_datetime(),
+            event_type: EventType::default(),
+            asset: String::new(),
+            asset_class: AssetClass::default(),
+            quantity: Decimal::ZERO,
+            price_rate: None,
+            price_quote: None,
+            price_source: None,
+            price_time: None,
+            fx_rate: None,
+            fx_source: None,
+            fx_time: None,
+            fee_amount: None,
+            fee_asset: None,
+            fee_price_rate: None,
+            fee_price_quote: None,
+            fee_fx_rate: None,
+            fee_fx_source: None,
+            description: None,
+        }
+    }
 }
 
 impl CsvEvent {
@@ -387,6 +423,21 @@ pub fn read_csv<R: Read>(reader: R) -> anyhow::Result<Vec<TaxableEvent>> {
     let mut events = events;
     events.sort_by_key(|e| e.datetime);
     Ok(events)
+}
+
+/// Get CSV column headers derived from CsvEvent struct
+pub fn csv_headers() -> Vec<String> {
+    let mut wtr = csv::Writer::from_writer(vec![]);
+    // Serialize a default CsvEvent to get the headers
+    wtr.serialize(CsvEvent::default()).unwrap();
+    let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
+    // First line is headers
+    data.lines()
+        .next()
+        .unwrap_or("")
+        .split(',')
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// Read taxable events from JSON
