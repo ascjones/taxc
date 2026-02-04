@@ -100,6 +100,20 @@ taxc validate [OPTIONS] [FILE]
 - `InsufficientCostBasis` - Pool had less than required (partial cost basis)
 - `Unclassified` - UnclassifiedOut event that may need review
 
+### Schema - Input Format Reference
+
+Print the expected input format. Useful for coding agents or tooling integration.
+
+```
+taxc schema [FORMAT]
+```
+
+| Format | Description |
+|--------|-------------|
+| `json-schema` | JSON Schema for the input format (default) |
+| `csv-header` | CSV header row with column names |
+| `csv-fields` | CSV column descriptions with required/optional |
+
 ## Input Formats
 
 Supports both CSV and JSON input.

@@ -21,3 +21,4 @@ sha2 = "0.10"
 hex = "0.4"
 opener = "0.7"
 thiserror = "1.0"
+schemars = { version = "0.8", features = ["chrono"] }

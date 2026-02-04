@@ -1,10 +1,11 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
+use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::io::Read;
 
 /// Unified JSON input format
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TaxInput {
     #[serde(default)]
     pub tax_year: Option<String>,
@@ -12,7 +13,7 @@ pub struct TaxInput {
 }
 
 /// Type of taxable event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum EventType {
     Acquisition,
     Disposal,
@@ -45,7 +46,7 @@ impl EventType {
 }
 
 /// Asset class for tax treatment
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
     Crypto,
     Stock,
@@ -54,8 +55,9 @@ pub enum AssetClass {
 /// Price with quote currency and metadata
 /// Convention: rate represents base/quote (e.g., BTC/USD = 40000 means 1 BTC = 40000 USD)
 /// For fx_rate: base is the foreign currency, quote is always GBP
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct Price {
+    #[schemars(with = "f64")]
     pub rate: Decimal,
     pub quote: String,
     #[serde(default)]
@@ -65,7 +67,7 @@ pub struct Price {
 }
 
 /// A taxable event (acquisition, disposal, or income)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TaxableEvent {
     /// Optional identifier to link back to source data
     #[serde(default)]
@@ -75,10 +77,12 @@ pub struct TaxableEvent {
         deserialize_with = "deserialize_datetime",
         serialize_with = "serialize_datetime"
     )]
+    #[schemars(with = "String")]
     pub datetime: NaiveDateTime,
     pub event_type: EventType,
     pub asset: String,
     pub asset_class: AssetClass,
+    #[schemars(with = "f64")]
     pub quantity: Decimal,
 
     #[serde(default)]
@@ -87,6 +91,7 @@ pub struct TaxableEvent {
     pub fx_rate: Option<Price>,
 
     #[serde(default)]
+    #[schemars(with = "Option<f64>")]
     pub fee_amount: Option<Decimal>,
     #[serde(default)]
     pub fee_asset: Option<String>,

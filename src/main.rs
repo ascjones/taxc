@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use cmd::events::EventsCommand;
 use cmd::html_report::ReportCommand;
 use cmd::pools::PoolsCommand;
+use cmd::schema::SchemaCommand;
 use cmd::summary::SummaryCommand;
 use cmd::validate::ValidateCommand;
 
@@ -34,6 +35,9 @@ enum Command {
 
     /// Validate data quality and surface issues
     Validate(ValidateCommand),
+
+    /// Print expected input format (JSON Schema or CSV columns)
+    Schema(SchemaCommand),
 }
 
 impl Command {
@@ -44,6 +48,7 @@ impl Command {
             Command::Report(report) => report.exec(),
             Command::Pools(pools) => pools.exec(),
             Command::Validate(validate) => validate.exec(),
+            Command::Schema(schema) => schema.exec(),
         }
     }
 }
