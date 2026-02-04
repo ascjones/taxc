@@ -105,8 +105,8 @@ impl SummaryCommand {
             all_events
         };
 
-        let cgt_report = calculate_cgt(filtered_events.clone());
-        let income_report = calculate_income_tax(filtered_events);
+        let cgt_report = calculate_cgt(filtered_events.clone())?;
+        let income_report = calculate_income_tax(filtered_events)?;
 
         if self.json {
             self.print_json(&cgt_report, &income_report, tax_year, tax_band)

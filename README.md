@@ -106,28 +106,41 @@ Supports both CSV and JSON input.
 
 ### CSV Format
 
-CSV file with the following columns:
+CSV file with the following columns (flattened price fields). GBP values are calculated from quantity × price(s).
 
 | Column | Description |
 |--------|-------------|
 | `id` | Unique identifier for linking back to source data (optional) |
-| `date` | Event date (YYYY-MM-DD) |
+| `date` | Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss) |
 | `event_type` | `Acquisition`, `Disposal`, `StakingReward`, `Dividend` |
 | `asset` | Asset identifier (e.g., BTC, ETH, AAPL) |
 | `asset_class` | `Crypto` or `Stock` |
 | `quantity` | Amount of asset |
-| `value_gbp` | Value in GBP |
-| `fees_gbp` | Transaction fees in GBP (optional) |
+| `price_rate` | Asset price (required if asset != GBP) |
+| `price_quote` | Quote currency for `price_rate` (GBP, USD, EUR, etc.) |
+| `price_source` | Price source (optional) |
+| `price_time` | Price timestamp (optional) |
+| `fx_rate` | FX rate to GBP (required if `price_quote` != GBP) |
+| `fx_source` | FX source (optional) |
+| `fx_time` | FX timestamp (optional) |
+| `fee_amount` | Fee amount (optional) |
+| `fee_asset` | Fee asset (required if `fee_amount` set) |
+| `fee_price_rate` | Fee asset price (required if `fee_asset` != GBP) |
+| `fee_price_quote` | Quote currency for `fee_price_rate` |
+| `fee_fx_rate` | Fee FX rate to GBP (required if `fee_price_quote` != GBP) |
+| `fee_fx_source` | Fee FX source (optional) |
 | `description` | Description (optional) |
+
+**FX rate convention:** `fx_rate` is always `price_quote/GBP` (e.g., if `price_quote=USD`, `fx_rate` is USD/GBP). There is no `fx_quote` column.
 
 #### Example CSV
 
 ```csv
-id,date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
-tx-001,2024-01-15,Acquisition,BTC,Crypto,0.5,15000.00,25.00,Coinbase
-tx-002,2024-03-20,Disposal,BTC,Crypto,0.25,12000.00,15.00,Coinbase
-tx-003,2024-04-01,StakingReward,ETH,Crypto,0.1,250.00,,Kraken
-tx-004,2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
+id,date,event_type,asset,asset_class,quantity,price_rate,price_quote,price_source,price_time,fx_rate,fx_source,fx_time,fee_amount,fee_asset,fee_price_rate,fee_price_quote,fee_fx_rate,fee_fx_source,description
+tx-001,2024-01-15,Acquisition,BTC,Crypto,0.5,30000,GBP,Kraken,2024-01-15T10:30:00,,,25,GBP,,,,Coinbase
+tx-002,2024-03-20,Disposal,BTC,Crypto,0.25,28000,GBP,Kraken,2024-03-20,,,15,GBP,,,,Coinbase
+tx-003,2024-04-01,StakingReward,ETH,Crypto,0.1,2500,GBP,Kraken,2024-04-01,,,,,,,,Kraken
+tx-004,2024-05-15,Dividend,GBP,Stock,150,,,,,,,,,,,,,Hargreaves
 ```
 
 ### JSON Format
@@ -143,8 +156,14 @@ tx-004,2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
       "asset": "BTC",
       "asset_class": "Crypto",
       "quantity": 5.0,
-      "value_gbp": 75000.00,
-      "fees_gbp": 10.00,
+      "price": {
+        "rate": 15000.0,
+        "quote": "GBP",
+        "source": "Kraken",
+        "timestamp": "2024-04-15T10:30:00"
+      },
+      "fee_amount": 10.00,
+      "fee_asset": "GBP",
       "description": "Partial sale"
     }
   ]
@@ -154,7 +173,24 @@ tx-004,2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
 | Field | Description |
 |-------|-------------|
 | `tax_year` | Optional metadata |
-| `events` | Array of taxable events (same fields as CSV) |
+| `events` | Array of taxable events |
+
+Event fields:
+
+| Field | Description |
+|-------|-------------|
+| `date` | Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss) |
+| `event_type` | `Acquisition`, `Disposal`, `StakingReward`, `Dividend` |
+| `asset` | Asset identifier (e.g., BTC, ETH, AAPL) |
+| `asset_class` | `Crypto` or `Stock` |
+| `quantity` | Amount of asset |
+| `price` | Optional price object (`rate`, `quote`, `source`, `timestamp`) |
+| `fx_rate` | Optional FX rate object (required if `price.quote` != GBP) |
+| `fee_amount` | Fee amount (optional) |
+| `fee_asset` | Fee asset (required if `fee_amount` set) |
+| `fee_price` | Optional fee price object |
+| `fee_fx_rate` | Optional fee FX rate object (required if `fee_price.quote` != GBP) |
+| `description` | Description (optional) |
 
 ## Example Output
 

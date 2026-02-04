@@ -1,10 +1,5 @@
-date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
-2024-01-15,Acquisition,BTC,Crypto,0.5,15000.00,25.00,Coinbase
-2024-03-20,Disposal,BTC,Crypto,0.25,12000.00,15.00,Coinbase
-2024-04-01,StakingReward,ETH,Crypto,0.1,250.00,,Kraken
-2024-05-15,Dividend,AAPL,Stock,100,150.00,,Hargreaves
-2024-06-01,Acquisition,ETH,Crypto,2.0,5000.00,10.00,Kraken
-2024-07-15,StakingReward,ETH,Crypto,0.05,130.00,,Kraken
-2024-09-01,Disposal,ETH,Crypto,1.0,3000.00,5.00,Sold some ETH
-2024-10-15,Dividend,AAPL,Stock,100,155.00,,Hargreaves Q3
-2024-12-01,Acquisition,BTC,Crypto,0.1,4500.00,20.00,Year-end buy
+date,event_type,asset,asset_class,quantity,price_rate,price_quote,price_source,price_time,fx_rate,fx_source,fx_time,fee_amount,fee_asset,fee_price_rate,fee_price_quote,fee_fx_rate,fee_fx_source,description
+2024-01-15,Acquisition,BTC,Crypto,0.5,30000,GBP,Kraken,2024-01-15T10:30:00,,,,25,GBP,,,,,Coinbase
+2024-03-20,Disposal,BTC,Crypto,0.25,28000,GBP,Kraken,2024-03-20,,,,15,GBP,,,,,Coinbase
+2024-04-01,StakingReward,ETH,Crypto,0.1,2500,GBP,Kraken,2024-04-01,,,,,,,,,,Kraken
+2024-05-15,Dividend,GBP,Stock,150,,,,,,,,,,,,,,Hargreaves

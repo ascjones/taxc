@@ -1,5 +1,5 @@
-date,event_type,asset,asset_class,quantity,value_gbp,fees_gbp,description
-2024-01-01,Acquisition,BTC,Crypto,10,100000,,Initial buy
-2024-06-15,Acquisition,BTC,Crypto,2,20000,,Same day buy
-2024-06-15,Disposal,BTC,Crypto,5,60000,,Partial sell
-2024-06-20,Acquisition,BTC,Crypto,3,30000,,B&B repurchase
+date,event_type,asset,asset_class,quantity,price_rate,price_quote,price_source,price_time,fx_rate,fx_source,fx_time,fee_amount,fee_asset,fee_price_rate,fee_price_quote,fee_fx_rate,fee_fx_source,description
+2024-01-01,Acquisition,BTC,Crypto,10,10000,GBP,,,,,,,,,,,,Initial buy
+2024-06-15,Acquisition,BTC,Crypto,2,10000,GBP,,,,,,,,,,,,Same day buy
+2024-06-15,Disposal,BTC,Crypto,5,12000,GBP,,,,,,,,,,,,Partial sell
+2024-06-20,Acquisition,BTC,Crypto,3,10000,GBP,,,,,,,,,,,,B&B repurchase

@@ -3,7 +3,7 @@
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
 use crate::cmd::events::read_events;
-use crate::events::{AssetClass, EventType, TaxableEvent};
+use crate::events::{AssetClass, EventType, TaxableEvent, TaxcError};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -36,11 +36,11 @@ impl ReportCommand {
         let tax_year = self.year.map(TaxYear);
         let events = read_events(&self.file)?;
 
-        let cgt_report = calculate_cgt(events.clone());
-        let income_report = calculate_income_tax(events.clone());
+        let cgt_report = calculate_cgt(events.clone())?;
+        let income_report = calculate_income_tax(events.clone())?;
 
         if self.json {
-            let data = build_report_data(&events, &cgt_report, &income_report, tax_year);
+            let data = build_report_data(&events, &cgt_report, &income_report, tax_year)?;
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -50,7 +50,7 @@ impl ReportCommand {
                 println!("{}", json);
             }
         } else {
-            let html = generate(&events, &cgt_report, &income_report, tax_year);
+            let html = generate(&events, &cgt_report, &income_report, tax_year)?;
 
             if let Some(ref output_path) = self.output {
                 std::fs::write(output_path, &html)?;
@@ -166,11 +166,11 @@ pub fn generate(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
-) -> String {
-    let data = build_report_data(events, cgt_report, income_report, year);
+) -> Result<String, TaxcError> {
+    let data = build_report_data(events, cgt_report, income_report, year)?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
 
-    format!(
+    Ok(format!(
         r##"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -634,7 +634,7 @@ document.addEventListener('DOMContentLoaded', init);
 </html>"##,
         css = CSS,
         json_data = json_data
-    )
+    ))
 }
 
 fn build_report_data(
@@ -642,7 +642,7 @@ fn build_report_data(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
-) -> HtmlReportData {
+) -> Result<HtmlReportData, TaxcError> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
 
@@ -677,7 +677,7 @@ fn build_report_data(
                     ..Default::default()
                 });
             detail.quantity += e.quantity;
-            detail.value_gbp += e.value_gbp;
+            detail.value_gbp += e.value_gbp()?;
         }
     }
 
@@ -777,7 +777,13 @@ fn build_report_data(
                 None
             };
 
-            EventRow {
+            let fees_gbp = if e.fee_amount.is_some() {
+                format!("{:.2}", e.fees_gbp()?)
+            } else {
+                String::new()
+            };
+
+            Ok(EventRow {
                 id: e.id.clone(),
                 datetime: e.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
                 tax_year: TaxYear::from_date(e.date()).display(),
@@ -785,13 +791,13 @@ fn build_report_data(
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
                 quantity: e.quantity.to_string(),
-                value_gbp: format!("{:.2}", e.value_gbp),
-                fees_gbp: e.fees_gbp.map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                value_gbp: format!("{:.2}", e.value_gbp()?),
+                fees_gbp,
                 description: e.description.clone().unwrap_or_default(),
                 cgt,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, TaxcError>>()?;
 
     // Calculate summary (classified events only)
     let total_proceeds = cgt_report.total_proceeds(year);
@@ -845,7 +851,7 @@ fn build_report_data(
         .filter(|e| e.event_type == "StakingReward" || e.event_type == "Dividend")
         .count();
 
-    HtmlReportData {
+    Ok(HtmlReportData {
         events: event_rows,
         summary: Summary {
             total_proceeds: format!("{:.2}", total_proceeds),
@@ -867,7 +873,7 @@ fn build_report_data(
             min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
             max_date: max_date.map(|d| d.format("%Y-%m-%d").to_string()),
         },
-    }
+    })
 }
 
 fn format_event_type(et: &EventType) -> String {

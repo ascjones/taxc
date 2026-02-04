@@ -1,4 +1,4 @@
-use crate::events::{EventType, TaxableEvent};
+use crate::events::{EventType, TaxableEvent, TaxcError};
 use crate::tax::uk::TaxYear;
 use rust_decimal::Decimal;
 
@@ -19,7 +19,7 @@ pub struct IncomeEvent {
 }
 
 /// Calculate income tax from taxable events
-pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
+pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> Result<IncomeReport, TaxcError> {
     let mut staking_events: Vec<IncomeEvent> = Vec::new();
     let mut dividend_events: Vec<IncomeEvent> = Vec::new();
 
@@ -30,13 +30,13 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
             EventType::StakingReward => {
                 staking_events.push(IncomeEvent {
                     tax_year,
-                    value_gbp: event.value_gbp,
+                    value_gbp: event.value_gbp()?,
                 });
             }
             EventType::Dividend => {
                 dividend_events.push(IncomeEvent {
                     tax_year,
-                    value_gbp: event.value_gbp,
+                    value_gbp: event.value_gbp()?,
                 });
             }
             // Non-income events are ignored
@@ -47,10 +47,10 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> IncomeReport {
         }
     }
 
-    IncomeReport {
+    Ok(IncomeReport {
         staking_events,
         dividend_events,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -68,11 +68,15 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             event_type: EventType::StakingReward,
-            asset: "ETH".to_string(),
+            asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: value,
-            fees_gbp: None,
+            quantity: value,
+            price: None,
+            fx_rate: None,
+            fee_amount: None,
+            fee_asset: None,
+            fee_price: None,
+            fee_fx_rate: None,
             description: None,
         }
     }
@@ -85,11 +89,15 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             event_type: EventType::Dividend,
-            asset: "AAPL".to_string(),
+            asset: "GBP".to_string(),
             asset_class: AssetClass::Stock,
-            quantity: dec!(100),
-            value_gbp: value,
-            fees_gbp: None,
+            quantity: value,
+            price: None,
+            fx_rate: None,
+            fee_amount: None,
+            fee_asset: None,
+            fee_price: None,
+            fee_fx_rate: None,
             description: None,
         }
     }
@@ -102,7 +110,7 @@ mod tests {
             staking("2024-08-01", dec!(50)),
         ];
 
-        let report = calculate_income_tax(events);
+        let report = calculate_income_tax(events).unwrap();
         assert_eq!(report.staking_events.len(), 3);
         assert_eq!(report.dividend_events.len(), 0);
     }
@@ -114,7 +122,7 @@ mod tests {
             dividend("2024-09-01", dec!(150)),
         ];
 
-        let report = calculate_income_tax(events);
+        let report = calculate_income_tax(events).unwrap();
         assert_eq!(report.staking_events.len(), 0);
         assert_eq!(report.dividend_events.len(), 2);
     }
@@ -129,11 +137,15 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 event_type: EventType::Acquisition,
-                asset: "BTC".to_string(),
+                asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
-                quantity: dec!(1),
-                value_gbp: dec!(50000),
-                fees_gbp: None,
+                quantity: dec!(50000),
+                price: None,
+                fx_rate: None,
+                fee_amount: None,
+                fee_asset: None,
+                fee_price: None,
+                fee_fx_rate: None,
                 description: None,
             },
             TaxableEvent {
@@ -143,17 +155,21 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 event_type: EventType::Disposal,
-                asset: "BTC".to_string(),
+                asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
-                quantity: dec!(0.5),
-                value_gbp: dec!(30000),
-                fees_gbp: None,
+                quantity: dec!(30000),
+                price: None,
+                fx_rate: None,
+                fee_amount: None,
+                fee_asset: None,
+                fee_price: None,
+                fee_fx_rate: None,
                 description: None,
             },
             staking("2024-06-01", dec!(100)),
         ];
 
-        let report = calculate_income_tax(events);
+        let report = calculate_income_tax(events).unwrap();
         assert_eq!(report.staking_events.len(), 1);
         assert_eq!(report.dividend_events.len(), 0);
     }

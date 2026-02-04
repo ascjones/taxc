@@ -49,7 +49,7 @@ struct ValidationOutput {
 impl ValidateCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let events = read_events(&self.file)?;
-        let cgt_report = calculate_cgt(events);
+        let cgt_report = calculate_cgt(events)?;
         let tax_year = self.year.map(TaxYear);
 
         // Collect issues from disposals with warnings

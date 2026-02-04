@@ -39,7 +39,7 @@ pub struct PoolsCommand {
 impl PoolsCommand {
     pub fn exec(&self) -> color_eyre::Result<()> {
         let events = read_events(&self.file)?;
-        let cgt_report = calculate_cgt(events);
+        let cgt_report = calculate_cgt(events)?;
         let tax_year = self.year.map(TaxYear);
         let asset_filter = self.asset.as_deref();
 

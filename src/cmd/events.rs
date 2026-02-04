@@ -1,6 +1,6 @@
 //! Events command - transaction-level view showing all events with filtering
 
-use crate::events::{self, EventType, TaxableEvent};
+use crate::events::{self, EventType, TaxableEvent, TaxcError};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalRecord, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -52,8 +52,8 @@ impl EventsCommand {
         let all_events = read_events(&self.file)?;
 
         // Build the events view
-        let cgt_report = calculate_cgt(all_events.clone());
-        let income_report = calculate_income_tax(all_events.clone());
+        let cgt_report = calculate_cgt(all_events.clone())?;
+        let income_report = calculate_income_tax(all_events.clone())?;
 
         let rows = build_event_rows(
             &all_events,
@@ -62,7 +62,7 @@ impl EventsCommand {
             tax_year,
             self.event_type,
             self.asset.as_deref(),
-        );
+        )?;
 
         if self.csv {
             self.write_csv(&rows)
@@ -149,7 +149,7 @@ fn build_event_rows(
     year: Option<TaxYear>,
     event_type_filter: Option<EventTypeFilter>,
     asset_filter: Option<&str>,
-) -> Vec<EventRow> {
+) -> Result<Vec<EventRow>, TaxcError> {
     let mut rows = Vec::new();
 
     // Build a lookup from (date, asset) to disposal record
@@ -217,7 +217,7 @@ fn build_event_rows(
                     event_type: "Acquisition".to_string(),
                     asset: event.asset.clone(),
                     quantity: format_quantity(event.quantity),
-                    acquisition_cost: format_gbp(event.total_cost_gbp()),
+                    acquisition_cost: format_gbp(event.total_cost_gbp()?),
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
@@ -316,7 +316,7 @@ fn build_event_rows(
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp),
+                        proceeds: format_gbp(event.value_gbp()?),
                         gain_loss: "-".to_string(),
                         matched_ref: String::new(),
                         income_value: "-".to_string(),
@@ -338,7 +338,7 @@ fn build_event_rows(
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
-                    income_value: format_gbp(event.value_gbp),
+                    income_value: format_gbp(event.value_gbp()?),
                     description: event.description.clone().unwrap_or_default(),
                 });
                 row_num += 1;
@@ -356,7 +356,7 @@ fn build_event_rows(
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
-                    income_value: format_gbp(event.value_gbp),
+                    income_value: format_gbp(event.value_gbp()?),
                     description: event.description.clone().unwrap_or_default(),
                 });
                 row_num += 1;
@@ -370,7 +370,7 @@ fn build_event_rows(
                     event_type: "Unclassified In".to_string(),
                     asset: event.asset.clone(),
                     quantity: format_quantity(event.quantity),
-                    acquisition_cost: format_gbp(event.total_cost_gbp()),
+                    acquisition_cost: format_gbp(event.total_cost_gbp()?),
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
@@ -409,7 +409,7 @@ fn build_event_rows(
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp),
+                        proceeds: format_gbp(event.value_gbp()?),
                         gain_loss: "-".to_string(),
                         matched_ref: String::new(),
                         income_value: "-".to_string(),
@@ -421,7 +421,7 @@ fn build_event_rows(
         }
     }
 
-    rows
+    Ok(rows)
 }
 
 fn matches_filter(event_type: &EventType, filter: EventTypeFilter) -> bool {
