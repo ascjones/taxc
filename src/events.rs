@@ -10,7 +10,6 @@ pub enum EventType {
     Acquisition,
     Disposal,
     StakingReward,
-    Dividend,
     /// Unclassified inbound - treated as Acquisition for conservative estimates
     UnclassifiedIn,
     /// Unclassified outbound - treated as Disposal for conservative estimates

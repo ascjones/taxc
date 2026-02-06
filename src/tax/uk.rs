@@ -88,28 +88,6 @@ impl TaxYear {
         }
     }
 
-    /// Get dividend allowance for this tax year
-    pub fn dividend_allowance(&self) -> Decimal {
-        match self.0 {
-            // 2024/25 onwards: £500
-            2025.. => dec!(500),
-            // 2023/24: £1,000
-            2024 => dec!(1000),
-            // Earlier: £2,000
-            _ => dec!(2000),
-        }
-    }
-
-    /// Get dividend tax rate for a given tax band
-    pub fn dividend_rate(&self, band: TaxBand) -> Decimal {
-        // Dividend rates have been stable for several years
-        match band {
-            TaxBand::Basic => dec!(0.0875),      // 8.75%
-            TaxBand::Higher => dec!(0.3375),     // 33.75%
-            TaxBand::Additional => dec!(0.3935), // 39.35%
-        }
-    }
-
     /// Get income tax rate for miscellaneous income (e.g., staking rewards)
     pub fn income_rate(&self, band: TaxBand) -> Decimal {
         match band {
@@ -202,21 +180,6 @@ mod tests {
         let ty = TaxYear(2025);
         assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
         assert_eq!(ty.cgt_higher_rate(), dec!(0.20));
-    }
-
-    #[test]
-    fn dividend_allowances() {
-        assert_eq!(TaxYear(2025).dividend_allowance(), dec!(500));
-        assert_eq!(TaxYear(2026).dividend_allowance(), dec!(500));
-        assert_eq!(TaxYear(2024).dividend_allowance(), dec!(1000));
-    }
-
-    #[test]
-    fn dividend_rates() {
-        let ty = TaxYear(2025);
-        assert_eq!(ty.dividend_rate(TaxBand::Basic), dec!(0.0875));
-        assert_eq!(ty.dividend_rate(TaxBand::Higher), dec!(0.3375));
-        assert_eq!(ty.dividend_rate(TaxBand::Additional), dec!(0.3935));
     }
 
     #[test]

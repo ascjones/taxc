@@ -148,7 +148,6 @@ pub struct Summary {
     pub total_costs_with_unclassified: String,
     pub total_gain_with_unclassified: String,
     pub total_staking: String,
-    pub total_dividends: String,
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
@@ -216,7 +215,6 @@ pub fn generate(
                         <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
                         <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
                         <label><input type="checkbox" id="type-staking" checked onchange="applyFilters()"> Staking</label>
-                        <label><input type="checkbox" id="type-dividend" checked onchange="applyFilters()"> Dividend</label>
                     </div>
                 </div>
                 <div class="filter-group">
@@ -251,10 +249,6 @@ pub fn generate(
             <div class="card">
                 <h3>Staking Income</h3>
                 <p class="value" id="summary-staking">-</p>
-            </div>
-            <div class="card">
-                <h3>Dividend Income</h3>
-                <p class="value" id="summary-dividends">-</p>
             </div>
         </section>
         <div class="warnings-banner" id="warnings-banner" style="display: none;">
@@ -331,7 +325,6 @@ function getFilters() {{
             Acquisition: document.getElementById('type-acquisition').checked,
             Disposal: document.getElementById('type-disposal').checked,
             StakingReward: document.getElementById('type-staking').checked,
-            Dividend: document.getElementById('type-dividend').checked,
             // Unclassified events always shown (they need attention)
             UnclassifiedIn: true,
             UnclassifiedOut: true,
@@ -379,7 +372,6 @@ function getEventTypeBadgeClass(eventType) {{
         case 'Acquisition': return 'badge-acquisition';
         case 'Disposal': return 'badge-disposal';
         case 'StakingReward': return 'badge-staking';
-        case 'Dividend': return 'badge-dividend';
         case 'UnclassifiedIn': return 'badge-unclassified';
         case 'UnclassifiedOut': return 'badge-unclassified';
         default: return '';
@@ -542,7 +534,7 @@ function calculateFilteredSummary(events) {{
     // Track classified and all (including unclassified) totals separately
     let proceeds = 0, costs = 0, gain = 0;
     let proceedsInc = 0, costsInc = 0, gainInc = 0;
-    let staking = 0, dividends = 0;
+    let staking = 0;
     let unclassifiedCount = 0;
 
     events.forEach(e => {{
@@ -569,12 +561,9 @@ function calculateFilteredSummary(events) {{
         if (e.event_type === 'StakingReward') {{
             staking += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
         }}
-        if (e.event_type === 'Dividend') {{
-            dividends += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
-        }}
     }});
 
-    return {{ proceeds, costs, gain, proceedsInc, costsInc, gainInc, staking, dividends, unclassifiedCount }};
+    return {{ proceeds, costs, gain, proceedsInc, costsInc, gainInc, staking, unclassifiedCount }};
 }}
 
 function updateSummary(events) {{
@@ -608,7 +597,6 @@ function updateSummary(events) {{
     }}
 
     document.getElementById('summary-staking').textContent = formatGbp(summary.staking.toString());
-    document.getElementById('summary-dividends').textContent = formatGbp(summary.dividends.toString());
 }}
 
 function applyFilters() {{
@@ -626,7 +614,6 @@ function resetFilters() {{
     document.getElementById('type-acquisition').checked = true;
     document.getElementById('type-disposal').checked = true;
     document.getElementById('type-staking').checked = true;
-    document.getElementById('type-dividend').checked = true;
     document.getElementById('class-crypto').checked = true;
     document.getElementById('class-stock').checked = true;
     applyFilters();
@@ -824,13 +811,6 @@ fn build_report_data(
         .map(|e| e.value_gbp)
         .sum();
 
-    let total_dividends: Decimal = income_report
-        .dividend_events
-        .iter()
-        .filter(|e| year.is_none_or(|y| e.tax_year == y))
-        .map(|e| e.value_gbp)
-        .sum();
-
     // Collect unique tax years
     let mut tax_years: Vec<String> = filtered_events
         .iter()
@@ -851,7 +831,7 @@ fn build_report_data(
     let disposal_count = event_rows.iter().filter(|e| e.cgt.is_some()).count();
     let income_count = event_rows
         .iter()
-        .filter(|e| e.event_type == "StakingReward" || e.event_type == "Dividend")
+        .filter(|e| e.event_type == "StakingReward")
         .count();
 
     Ok(HtmlReportData {
@@ -864,7 +844,6 @@ fn build_report_data(
             total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
             total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
             total_staking: format!("{:.2}", total_staking),
-            total_dividends: format!("{:.2}", total_dividends),
             event_count: events.len(),
             disposal_count,
             income_count,
@@ -884,7 +863,6 @@ fn format_event_type(et: &EventType) -> String {
         EventType::Acquisition => "Acquisition",
         EventType::Disposal => "Disposal",
         EventType::StakingReward => "StakingReward",
-        EventType::Dividend => "Dividend",
         EventType::UnclassifiedIn => "UnclassifiedIn",
         EventType::UnclassifiedOut => "UnclassifiedOut",
     }
@@ -944,8 +922,6 @@ const CSS: &str = r#"
     --type-disposal-bg: #fee2e2;
     --type-staking: #7c3aed;
     --type-staking-bg: #ede9fe;
-    --type-dividend: #0891b2;
-    --type-dividend-bg: #cffafe;
     /* Matching rule colors */
     --rule-sameday: #2563eb;
     --rule-sameday-bg: #dbeafe;
@@ -1284,11 +1260,6 @@ tbody tr:nth-child(even):hover {
 .badge-staking {
     background: var(--type-staking-bg);
     color: var(--type-staking);
-}
-
-.badge-dividend {
-    background: var(--type-dividend-bg);
-    color: var(--type-dividend);
 }
 
 .badge-unclassified {

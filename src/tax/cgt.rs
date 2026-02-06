@@ -596,22 +596,17 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     warnings,
                 });
             }
-            // Dividends don't affect CGT
-            EventType::Dividend => {}
         }
 
         // Record pool state after event (for daily history)
-        // Skip dividends since they don't affect pool state
-        if event.event_type != EventType::Dividend {
-            if let Some(pool) = pools.get(&event.asset) {
-                pool_history.entries.push(PoolHistoryEntry {
-                    date: event.date(),
-                    asset: event.asset.clone(),
-                    event_type: event.event_type,
-                    quantity: pool.quantity,
-                    cost_gbp: pool.cost_gbp,
-                });
-            }
+        if let Some(pool) = pools.get(&event.asset) {
+            pool_history.entries.push(PoolHistoryEntry {
+                date: event.date(),
+                asset: event.asset.clone(),
+                event_type: event.event_type,
+                quantity: pool.quantity,
+                cost_gbp: pool.cost_gbp,
+            });
         }
     }
 
@@ -1754,30 +1749,6 @@ mod tests {
         assert_eq!(
             report.pool_history.year_end_snapshots[0].tax_year,
             TaxYear(2017)
-        );
-    }
-
-    #[test]
-    fn pool_history_dividend_not_in_history() {
-        // Dividends should not appear in pool history (they don't affect pools)
-        let events = vec![
-            acq("2024-01-15", "BTC", dec!(10), dec!(100000)),
-            event(
-                EventType::Dividend,
-                "2024-06-15",
-                "BTC",
-                dec!(0),
-                dec!(500),
-                None,
-            ),
-        ];
-        let report = calculate_cgt(events).unwrap();
-
-        // Pool history should only have the acquisition, not the dividend
-        assert_eq!(report.pool_history.entries.len(), 1);
-        assert_eq!(
-            report.pool_history.entries[0].event_type,
-            EventType::Acquisition
         );
     }
 

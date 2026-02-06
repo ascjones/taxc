@@ -48,7 +48,6 @@ pub enum EventTypeFilter {
     Acquisition,
     Disposal,
     Staking,
-    Dividend,
 }
 
 impl EventsCommand {
@@ -347,24 +346,6 @@ fn build_event_rows(
                 });
                 row_num += 1;
             }
-            EventType::Dividend => {
-                rows.push(EventRow {
-                    row_num: format!("#{}", row_num),
-                    id: event.id.clone(),
-                    date: event.date().format("%Y-%m-%d").to_string(),
-                    tax_year: event_year.display(),
-                    event_type: "Dividend".to_string(),
-                    asset: event.asset.clone(),
-                    quantity: format_quantity(event.quantity),
-                    acquisition_cost: "-".to_string(),
-                    proceeds: "-".to_string(),
-                    gain_loss: "-".to_string(),
-                    matched_ref: String::new(),
-                    income_value: format_gbp(event.value_gbp),
-                    description: event.description.clone().unwrap_or_default(),
-                });
-                row_num += 1;
-            }
             EventType::UnclassifiedIn => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
@@ -434,7 +415,6 @@ fn matches_filter(event_type: &EventType, filter: EventTypeFilter) -> bool {
         (EventType::Acquisition, EventTypeFilter::Acquisition)
             | (EventType::Disposal, EventTypeFilter::Disposal)
             | (EventType::StakingReward, EventTypeFilter::Staking)
-            | (EventType::Dividend, EventTypeFilter::Dividend)
     )
 }
 

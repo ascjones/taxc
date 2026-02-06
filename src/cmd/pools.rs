@@ -240,7 +240,6 @@ fn event_type_name(event_type: EventType) -> String {
         EventType::Acquisition => "Acquisition",
         EventType::Disposal => "Disposal",
         EventType::StakingReward => "StakingReward",
-        EventType::Dividend => "Dividend",
         EventType::UnclassifiedIn => "UnclassifiedIn",
         EventType::UnclassifiedOut => "UnclassifiedOut",
     }

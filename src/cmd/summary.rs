@@ -86,11 +86,6 @@ struct IncomeSummary {
     staking_income: String,
     staking_tax: String,
     staking_rate_pct: String,
-    dividend_income: String,
-    dividend_allowance: String,
-    taxable_dividends: String,
-    dividend_tax: String,
-    dividend_rate_pct: String,
 }
 
 impl SummaryCommand {
@@ -193,8 +188,6 @@ impl SummaryCommand {
 
         // Income section
         let income_rate = rate_year.income_rate(band);
-        let dividend_rate = rate_year.dividend_rate(band);
-        let dividend_allowance = rate_year.dividend_allowance();
 
         // Calculate income totals
         let staking_income: Decimal = income_report
@@ -204,17 +197,7 @@ impl SummaryCommand {
             .map(|e| e.value_gbp)
             .sum();
 
-        let dividend_income: Decimal = income_report
-            .dividend_events
-            .iter()
-            .filter(|e| year.is_none_or(|y| e.tax_year == y))
-            .map(|e| e.value_gbp)
-            .sum();
-
         let staking_tax = (staking_income * income_rate).round_dp(2);
-        let dividend_allowance_used = dividend_allowance.min(dividend_income);
-        let taxable_dividends = (dividend_income - dividend_allowance_used).max(Decimal::ZERO);
-        let dividend_tax = (taxable_dividends * dividend_rate).round_dp(2);
 
         println!("INCOME");
         if staking_income > Decimal::ZERO {
@@ -227,18 +210,6 @@ impl SummaryCommand {
         } else {
             println!("  Staking: £0.00");
         }
-
-        if dividend_income > Decimal::ZERO {
-            println!(
-                "  Dividends: {} (Allowance: {}, Tax @ {:.2}%: {})",
-                format_gbp(dividend_income),
-                format_gbp(dividend_allowance_used),
-                dividend_rate * dec!(100),
-                format_gbp(dividend_tax)
-            );
-        } else {
-            println!("  Dividends: £0.00");
-        }
         println!();
 
         // Total liability
@@ -247,7 +218,7 @@ impl SummaryCommand {
             TaxBand::Basic => tax_basic,
             TaxBand::Higher | TaxBand::Additional => tax_higher,
         };
-        let total_tax = cgt_tax + staking_tax + dividend_tax;
+        let total_tax = cgt_tax + staking_tax;
 
         println!(
             "TOTAL TAX LIABILITY: {} ({})",
@@ -294,8 +265,6 @@ impl SummaryCommand {
 
         // Calculate income values
         let income_rate = rate_year.income_rate(band);
-        let dividend_rate = rate_year.dividend_rate(band);
-        let dividend_allowance = rate_year.dividend_allowance();
 
         let staking_income: Decimal = income_report
             .staking_events
@@ -304,23 +273,13 @@ impl SummaryCommand {
             .map(|e| e.value_gbp)
             .sum();
 
-        let dividend_income: Decimal = income_report
-            .dividend_events
-            .iter()
-            .filter(|e| year.is_none_or(|y| e.tax_year == y))
-            .map(|e| e.value_gbp)
-            .sum();
-
         let staking_tax = (staking_income * income_rate).round_dp(2);
-        let dividend_allowance_used = dividend_allowance.min(dividend_income);
-        let taxable_dividends = (dividend_income - dividend_allowance_used).max(Decimal::ZERO);
-        let dividend_tax = (taxable_dividends * dividend_rate).round_dp(2);
 
         let cgt_tax = match band {
             TaxBand::Basic => tax_basic,
             TaxBand::Higher | TaxBand::Additional => tax_higher,
         };
-        let total_tax = cgt_tax + staking_tax + dividend_tax;
+        let total_tax = cgt_tax + staking_tax;
 
         let data = SummaryData {
             tax_year: year_str,
@@ -342,11 +301,6 @@ impl SummaryCommand {
                 staking_income: format!("{:.2}", staking_income),
                 staking_tax: format!("{:.2}", staking_tax),
                 staking_rate_pct: format!("{:.0}", income_rate * dec!(100)),
-                dividend_income: format!("{:.2}", dividend_income),
-                dividend_allowance: format!("{:.2}", dividend_allowance_used),
-                taxable_dividends: format!("{:.2}", taxable_dividends),
-                dividend_tax: format!("{:.2}", dividend_tax),
-                dividend_rate_pct: format!("{:.2}", dividend_rate * dec!(100)),
             },
             total_tax_liability: format!("{:.2}", total_tax),
         };

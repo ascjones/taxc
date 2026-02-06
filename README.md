@@ -30,7 +30,7 @@ taxc events [OPTIONS] [FILE]
 | Option | Description |
 |--------|-------------|
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
-| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking`, `dividend` |
+| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking` |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--csv` | Output as CSV instead of formatted table |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
@@ -247,7 +247,6 @@ CAPITAL GAINS
 
 INCOME
   Staking: £250.00 (Tax @ 20%: £50.00)
-  Dividends: £150.00 (Allowance: £150.00, Tax @ 8.75%: £0.00)
 
 TOTAL TAX LIABILITY: £403.25 (basic)
 ```
@@ -260,10 +259,10 @@ taxc report transactions.json
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
 
-- **Summary cards** - Total proceeds, costs, gains/losses, staking income, dividends
+- **Summary cards** - Total proceeds, costs, gains/losses, staking income
 - **Interactive filtering** - Filter by date range, tax year, event type, asset class, or search by asset
 - **Three data tables** - All taxable events, CGT disposals, and income events
-- **Color-coded event types** - Badges for Acquisition (green), Disposal (red), Staking (purple), Dividend (teal)
+- **Color-coded event types** - Badges for Acquisition (green), Disposal (red), Staking (purple)
 - **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
 - **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
 - **Color-coded gains/losses** - Green for gains, red for losses
@@ -288,7 +287,6 @@ CGT calculations implement the HMRC share matching rules in order:
 
 - CGT annual exempt amounts and rates for 2024/25 onwards
 - Income tax rates for basic, higher, and additional rate taxpayers
-- Dividend allowances and rates
 
 ## Development
 
