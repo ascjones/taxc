@@ -103,7 +103,7 @@ taxc validate [OPTIONS] [FILE]
 **Issue types detected:**
 - `NoCostBasis` - Disposal with no matching acquisitions (cost basis is £0)
 - `InsufficientCostBasis` - Pool had less than required (partial cost basis)
-- `Unclassified` - UnclassifiedOut event that may need review
+- `Unclassified` - Unclassified disposal event that may need review
 
 ### Schema - Input Format Reference
 
@@ -172,7 +172,7 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 | `price` | Required when `asset` is not GBP |
 
 **Notes**
-- Unlinked crypto deposits/withdrawals become `UnclassifiedIn/Out` events with `value_gbp = 0` unless `--exclude-unlinked` is set.
+- Unlinked crypto deposits/withdrawals become unclassified events (shown as `Unclassified In/Out`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
 - For crypto-to-crypto trades, the GBP value is taken from the acquired asset price.
 
 ### Example JSON

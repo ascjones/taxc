@@ -1,6 +1,6 @@
 //! Events command - transaction-level view showing all events with filtering
 
-use crate::events::{EventType, TaxableEvent};
+use crate::events::{EventType, Label, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalRecord, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -179,12 +179,12 @@ fn build_event_rows(
             }
         }
         if let Some(filter) = event_type_filter {
-            if !matches_filter(&event.event_type, filter) {
+            if !matches_filter(event, filter) {
                 continue;
             }
         }
 
-        if event.event_type == EventType::Acquisition {
+        if event.event_type == EventType::Acquisition && event.label == Label::Trade {
             acquisition_row_nums.insert((event.date(), event.asset.clone()), row_num);
         }
         row_num += 1;
@@ -205,13 +205,13 @@ fn build_event_rows(
             }
         }
         if let Some(filter) = event_type_filter {
-            if !matches_filter(&event.event_type, filter) {
+            if !matches_filter(event, filter) {
                 continue;
             }
         }
 
-        match event.event_type {
-            EventType::Acquisition => {
+        match (event.event_type, event.label) {
+            (EventType::Acquisition, Label::Trade) => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
                     id: event.id.clone(),
@@ -229,7 +229,7 @@ fn build_event_rows(
                 });
                 row_num += 1;
             }
-            EventType::Disposal => {
+            (EventType::Disposal, Label::Trade) => {
                 // Find the disposal record for detailed info
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
                     // Check if this is a multi-rule disposal
@@ -328,7 +328,7 @@ fn build_event_rows(
                     row_num += 1;
                 }
             }
-            EventType::StakingReward => {
+            (EventType::Acquisition, Label::StakingReward) => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
                     id: event.id.clone(),
@@ -346,7 +346,7 @@ fn build_event_rows(
                 });
                 row_num += 1;
             }
-            EventType::UnclassifiedIn => {
+            (EventType::Acquisition, Label::Unclassified) => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),
                     id: event.id.clone(),
@@ -364,7 +364,7 @@ fn build_event_rows(
                 });
                 row_num += 1;
             }
-            EventType::UnclassifiedOut => {
+            (EventType::Disposal, Label::Unclassified) => {
                 // Find the disposal record for detailed info (same as Disposal)
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
                     // UnclassifiedOut always has at least the Unclassified warning
@@ -403,19 +403,28 @@ fn build_event_rows(
                 }
                 row_num += 1;
             }
+            _ => {
+                // Unexpected combination; skip for now to avoid misleading output
+                continue;
+            }
         }
     }
 
     Ok(rows)
 }
 
-fn matches_filter(event_type: &EventType, filter: EventTypeFilter) -> bool {
-    matches!(
-        (event_type, filter),
-        (EventType::Acquisition, EventTypeFilter::Acquisition)
-            | (EventType::Disposal, EventTypeFilter::Disposal)
-            | (EventType::StakingReward, EventTypeFilter::Staking)
-    )
+fn matches_filter(event: &TaxableEvent, filter: EventTypeFilter) -> bool {
+    match filter {
+        EventTypeFilter::Acquisition => {
+            event.event_type == EventType::Acquisition && event.label == Label::Trade
+        }
+        EventTypeFilter::Disposal => {
+            event.event_type == EventType::Disposal && event.label == Label::Trade
+        }
+        EventTypeFilter::Staking => {
+            event.event_type == EventType::Acquisition && event.label == Label::StakingReward
+        }
+    }
 }
 
 fn format_single_rule(

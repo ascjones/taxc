@@ -1,4 +1,4 @@
-use crate::events::{AssetClass, EventType, TaxableEvent};
+use crate::events::{AssetClass, EventType, Label, TaxableEvent};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
@@ -238,6 +238,7 @@ impl Transaction {
                     events.push(TaxableEvent {
                         id: Some(format!("{id}-disposal")),
                         event_type: EventType::Disposal,
+                        label: Label::Trade,
                         datetime: *datetime,
                         asset: normalize_currency(&sold.symbol),
                         asset_class: sold.asset_class.clone(),
@@ -253,6 +254,7 @@ impl Transaction {
                     events.push(TaxableEvent {
                         id: Some(format!("{id}-acquisition")),
                         event_type: EventType::Acquisition,
+                        label: Label::Trade,
                         datetime: *datetime,
                         asset: normalize_currency(&bought.symbol),
                         asset_class: bought.asset_class.clone(),
@@ -291,7 +293,8 @@ impl Transaction {
                 );
                 Ok(vec![TaxableEvent {
                     id: Some(id.clone()),
-                    event_type: EventType::UnclassifiedIn,
+                    event_type: EventType::Acquisition,
+                    label: Label::Unclassified,
                     datetime: *datetime,
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
@@ -327,7 +330,8 @@ impl Transaction {
                 );
                 Ok(vec![TaxableEvent {
                     id: Some(id.clone()),
-                    event_type: EventType::UnclassifiedOut,
+                    event_type: EventType::Disposal,
+                    label: Label::Unclassified,
                     datetime: *datetime,
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
@@ -340,7 +344,8 @@ impl Transaction {
 
             TransactionType::StakingReward { asset, price } => Ok(vec![TaxableEvent {
                 id: Some(id.clone()),
-                event_type: EventType::StakingReward,
+                event_type: EventType::Acquisition,
+                label: Label::StakingReward,
                 datetime: *datetime,
                 asset: normalize_currency(&asset.symbol),
                 asset_class: asset.asset_class.clone(),
@@ -739,7 +744,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::UnclassifiedIn);
+        assert_eq!(events[0].event_type, EventType::Acquisition);
+        assert_eq!(events[0].label, Label::Unclassified);
     }
 
     #[test]
@@ -792,7 +798,8 @@ mod tests {
 
         let events = tx.to_taxable_events(false).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::StakingReward);
+        assert_eq!(events[0].event_type, EventType::Acquisition);
+        assert_eq!(events[0].label, Label::StakingReward);
         assert_eq!(events[0].value_gbp, dec!(20));
     }
 

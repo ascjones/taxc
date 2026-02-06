@@ -3,7 +3,7 @@
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
 use crate::cmd::events::read_events;
-use crate::events::{AssetClass, EventType, TaxableEvent};
+use crate::events::{AssetClass, EventType, Label, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -647,7 +647,7 @@ fn build_report_data(
     // Multiple acquisitions on the same day for the same asset share a row index (first one)
     let mut acquisition_row_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
     for (idx, e) in filtered_events.iter().enumerate() {
-        if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
+        if e.event_type == EventType::Acquisition && e.label != Label::Unclassified {
             let key = (e.date(), e.asset.clone());
             acquisition_row_index.entry(key).or_insert(idx);
         }
@@ -657,12 +657,12 @@ fn build_report_data(
     // Aggregates multiple acquisitions on the same day
     let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
     for e in &filtered_events {
-        if e.event_type == EventType::Acquisition || e.event_type == EventType::StakingReward {
+        if e.event_type == EventType::Acquisition && e.label != Label::Unclassified {
             let key = (e.date(), e.asset.clone());
             let detail = acquisition_details
                 .entry(key)
                 .or_insert_with(|| AcquisitionDetail {
-                    event_type: format_event_type(&e.event_type),
+                    event_type: format_event_type(e.event_type, e.label),
                     tax_year: TaxYear::from_date(e.date()).display(),
                     description: e.description.clone().unwrap_or_default(),
                     ..Default::default()
@@ -777,7 +777,7 @@ fn build_report_data(
                 id: e.id.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
-                event_type: format_event_type(&e.event_type),
+                event_type: format_event_type(e.event_type, e.label),
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
                 quantity: e.quantity.to_string(),
@@ -858,13 +858,13 @@ fn build_report_data(
     })
 }
 
-fn format_event_type(et: &EventType) -> String {
-    match et {
-        EventType::Acquisition => "Acquisition",
-        EventType::Disposal => "Disposal",
-        EventType::StakingReward => "StakingReward",
-        EventType::UnclassifiedIn => "UnclassifiedIn",
-        EventType::UnclassifiedOut => "UnclassifiedOut",
+fn format_event_type(event_type: EventType, label: Label) -> String {
+    match (event_type, label) {
+        (EventType::Acquisition, Label::StakingReward) => "StakingReward",
+        (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
+        (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
+        (EventType::Acquisition, _) => "Acquisition",
+        (EventType::Disposal, _) => "Disposal",
     }
     .to_string()
 }

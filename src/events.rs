@@ -9,26 +9,16 @@ pub enum EventType {
     #[default]
     Acquisition,
     Disposal,
-    StakingReward,
-    /// Unclassified inbound - treated as Acquisition for conservative estimates
-    UnclassifiedIn,
-    /// Unclassified outbound - treated as Disposal for conservative estimates
-    UnclassifiedOut,
 }
 
-impl EventType {
-    /// Check if this event type represents an acquisition (or acts like one)
-    pub fn is_acquisition_like(&self) -> bool {
-        matches!(
-            self,
-            EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn
-        )
-    }
-
-    /// Check if this event type represents a disposal (or acts like one)
-    pub fn is_disposal_like(&self) -> bool {
-        matches!(self, EventType::Disposal | EventType::UnclassifiedOut)
-    }
+/// Classification label for a taxable event
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+pub enum Label {
+    /// Unclassified event - needs review
+    #[default]
+    Unclassified,
+    Trade,
+    StakingReward,
 }
 
 /// Asset class for tax treatment
@@ -49,6 +39,8 @@ pub struct TaxableEvent {
     #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
     pub event_type: EventType,
+    #[serde(default)]
+    pub label: Label,
     pub asset: String,
     pub asset_class: AssetClass,
     #[schemars(with = "f64")]
@@ -84,6 +76,7 @@ mod tests {
             id: None,
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
+            label: Label::Trade,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: dec!(1000),
@@ -100,6 +93,7 @@ mod tests {
             id: None,
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
+            label: Label::Trade,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: dec!(1000),

@@ -1,4 +1,4 @@
-use crate::events::{EventType, TaxableEvent};
+use crate::events::{EventType, Label, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use rust_decimal::Decimal;
 
@@ -23,18 +23,11 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> anyhow::Result<IncomeR
     for event in events {
         let tax_year = TaxYear::from_date(event.date());
 
-        match event.event_type {
-            EventType::StakingReward => {
-                staking_events.push(IncomeEvent {
-                    tax_year,
-                    value_gbp: event.value_gbp,
-                });
-            }
-            // Non-income events are ignored
-            EventType::Acquisition
-            | EventType::Disposal
-            | EventType::UnclassifiedIn
-            | EventType::UnclassifiedOut => {}
+        if event.event_type == EventType::Acquisition && event.label == Label::StakingReward {
+            staking_events.push(IncomeEvent {
+                tax_year,
+                value_gbp: event.value_gbp,
+            });
         }
     }
 
@@ -44,7 +37,7 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> anyhow::Result<IncomeR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::AssetClass;
+    use crate::events::{AssetClass, Label};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
@@ -56,7 +49,8 @@ mod tests {
         TaxableEvent {
             id: None,
             datetime: dt(date),
-            event_type: EventType::StakingReward,
+            event_type: EventType::Acquisition,
+            label: Label::StakingReward,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: value,
@@ -85,6 +79,7 @@ mod tests {
                 id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
+                label: Label::Trade,
                 asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(50000),
@@ -96,6 +91,7 @@ mod tests {
                 id: None,
                 datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
+                label: Label::Trade,
                 asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(30000),

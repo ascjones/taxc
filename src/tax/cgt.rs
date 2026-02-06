@@ -1,4 +1,4 @@
-use crate::events::{EventType, TaxableEvent};
+use crate::events::{EventType, Label, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use chrono::{Duration, NaiveDate};
 use rust_decimal::Decimal;
@@ -43,6 +43,7 @@ pub struct PoolHistoryEntry {
     pub date: NaiveDate,
     pub asset: String,
     pub event_type: EventType,
+    pub label: Label,
     #[serde(serialize_with = "serialize_quantity")]
     pub quantity: Decimal,
     #[serde(serialize_with = "serialize_decimal_2dp")]
@@ -85,7 +86,7 @@ pub enum MatchingRule {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type")]
 pub enum DisposalWarning {
-    /// Event was UnclassifiedOut - may need review
+    /// Event was Unclassified - may need review
     Unclassified,
     /// Pool had insufficient quantity to cover the disposal
     /// When available = 0, this means no cost basis at all
@@ -370,8 +371,8 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
         match a.date().cmp(&b.date()) {
             std::cmp::Ordering::Equal => {
                 // Disposals come before acquisitions on same day
-                let a_is_disposal = a.event_type.is_disposal_like();
-                let b_is_disposal = b.event_type.is_disposal_like();
+                let a_is_disposal = a.event_type == EventType::Disposal;
+                let b_is_disposal = b.event_type == EventType::Disposal;
                 b_is_disposal.cmp(&a_is_disposal)
             }
             other => other,
@@ -381,7 +382,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
     // Build acquisition tracker: first pass records totals
     let mut acquisitions: HashMap<AcqKey, AcquisitionTracker> = HashMap::new();
     for event in &events {
-        if event.event_type.is_acquisition_like() {
+        if event.event_type == EventType::Acquisition {
             let key = (event.date(), event.asset.clone());
             let tracker = acquisitions.entry(key).or_default();
             tracker.total_qty += event.quantity;
@@ -393,7 +394,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
     // See HMRC CG51560 for the matching order: same-day, then 30-day (B&B), then Section 104.
     // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
     for event in &events {
-        if event.event_type.is_disposal_like() {
+        if event.event_type == EventType::Disposal {
             let key = (event.date(), event.asset.clone());
             if let Some(tracker) = acquisitions.get_mut(&key) {
                 let available = tracker.total_qty - tracker.same_day_reserved;
@@ -425,8 +426,8 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
         current_year = Some(event_year);
 
         match event.event_type {
-            // Acquisition-like events add to the pool (after matching)
-            EventType::Acquisition | EventType::StakingReward | EventType::UnclassifiedIn => {
+            // Acquisition events add to the pool (after matching)
+            EventType::Acquisition => {
                 let key = (event.date(), event.asset.clone());
                 if let Some(tracker) = acquisitions.get(&key) {
                     let remaining = tracker.remaining_for_pool();
@@ -444,7 +445,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     }
                 }
             }
-            EventType::Disposal | EventType::UnclassifiedOut => {
+            EventType::Disposal => {
                 let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
                 let tax_year = TaxYear::from_date(event.date());
 
@@ -568,7 +569,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
 
                 // Build warnings
                 let mut warnings = Vec::new();
-                if event.event_type == EventType::UnclassifiedOut {
+                if event.label == Label::Unclassified {
                     warnings.push(DisposalWarning::Unclassified);
                 }
                 // Insufficient cost basis: pool didn't have enough to cover the disposal
@@ -604,6 +605,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                 date: event.date(),
                 asset: event.asset.clone(),
                 event_type: event.event_type,
+                label: event.label,
                 quantity: pool.quantity,
                 cost_gbp: pool.cost_gbp,
             });
@@ -644,7 +646,7 @@ fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapsh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::AssetClass;
+    use crate::events::{AssetClass, Label};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
@@ -654,6 +656,7 @@ mod tests {
 
     fn event(
         event_type: EventType,
+        label: Label,
         date: &str,
         asset: &str,
         qty: Decimal,
@@ -664,6 +667,7 @@ mod tests {
             id: None,
             datetime: dt(date),
             event_type,
+            label,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
             quantity: qty,
@@ -674,7 +678,15 @@ mod tests {
     }
 
     fn acq(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-        event(EventType::Acquisition, date, asset, qty, value, None)
+        event(
+            EventType::Acquisition,
+            Label::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
     }
 
     fn acq_with_fee(
@@ -684,11 +696,27 @@ mod tests {
         value: Decimal,
         fee: Decimal,
     ) -> TaxableEvent {
-        event(EventType::Acquisition, date, asset, qty, value, Some(fee))
+        event(
+            EventType::Acquisition,
+            Label::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            Some(fee),
+        )
     }
 
     fn disp(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-        event(EventType::Disposal, date, asset, qty, value, None)
+        event(
+            EventType::Disposal,
+            Label::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
     }
 
     fn disp_with_fee(
@@ -698,11 +726,27 @@ mod tests {
         value: Decimal,
         fee: Decimal,
     ) -> TaxableEvent {
-        event(EventType::Disposal, date, asset, qty, value, Some(fee))
+        event(
+            EventType::Disposal,
+            Label::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            Some(fee),
+        )
     }
 
     fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-        event(EventType::StakingReward, date, asset, qty, value, None)
+        event(
+            EventType::Acquisition,
+            Label::StakingReward,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
     }
 
     #[test]
@@ -1476,11 +1520,12 @@ mod tests {
 
     #[test]
     fn warning_unclassified_out() {
-        // UnclassifiedOut event should have Unclassified warning
+        // Unclassified event should have Unclassified warning
         let events = vec![
             acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
             event(
-                EventType::UnclassifiedOut,
+                EventType::Disposal,
+                Label::Unclassified,
                 "2024-06-15",
                 "BTC",
                 dec!(5),
@@ -1512,7 +1557,8 @@ mod tests {
             acq("2024-01-01", "BTC", dec!(5), dec!(50000)),
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)), // Insufficient pool
             event(
-                EventType::UnclassifiedOut,
+                EventType::Disposal,
+                Label::Unclassified,
                 "2024-06-16",
                 "ETH",
                 dec!(10),
@@ -1613,6 +1659,7 @@ mod tests {
                 id: Some("acq-001".to_string()),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
+                label: Label::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(10),
@@ -1624,6 +1671,7 @@ mod tests {
                 id: Some("disp-001".to_string()),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
+                label: Label::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(5),
@@ -1764,8 +1812,9 @@ mod tests {
         assert_eq!(report.pool_history.entries.len(), 2);
         assert_eq!(
             report.pool_history.entries[0].event_type,
-            EventType::StakingReward
+            EventType::Acquisition
         );
+        assert_eq!(report.pool_history.entries[0].label, Label::StakingReward);
         assert_eq!(report.pool_history.entries[1].quantity, dec!(150)); // Accumulated
     }
 }
