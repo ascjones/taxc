@@ -999,7 +999,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tabled",
- "taxc-derive",
  "thiserror",
 ]
 

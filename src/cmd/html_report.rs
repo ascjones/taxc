@@ -3,7 +3,7 @@
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
 use crate::cmd::events::read_events;
-use crate::events::{AssetClass, EventType, TaxableEvent, TaxcError};
+use crate::events::{AssetClass, EventType, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct ReportCommand {
-    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    /// Transactions file (JSON). Reads from stdin if not specified.
     #[arg(default_value = "-")]
     file: PathBuf,
 
@@ -29,12 +29,16 @@ pub struct ReportCommand {
     /// Output as JSON instead of HTML
     #[arg(long)]
     json: bool,
+
+    /// Don't include unlinked deposits/withdrawals in calculations
+    #[arg(long)]
+    exclude_unlinked: bool,
 }
 
 impl ReportCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let tax_year = self.year.map(TaxYear);
-        let events = read_events(&self.file)?;
+        let events = read_events(&self.file, self.exclude_unlinked)?;
 
         let cgt_report = calculate_cgt(events.clone())?;
         let income_report = calculate_income_tax(events.clone())?;
@@ -166,7 +170,7 @@ pub fn generate(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
-) -> Result<String, TaxcError> {
+) -> anyhow::Result<String> {
     let data = build_report_data(events, cgt_report, income_report, year)?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
 
@@ -642,7 +646,7 @@ fn build_report_data(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
-) -> Result<HtmlReportData, TaxcError> {
+) -> anyhow::Result<HtmlReportData> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
 
@@ -677,7 +681,7 @@ fn build_report_data(
                     ..Default::default()
                 });
             detail.quantity += e.quantity;
-            detail.value_gbp += e.value_gbp()?;
+            detail.value_gbp += e.value_gbp;
         }
     }
 
@@ -777,27 +781,26 @@ fn build_report_data(
                 None
             };
 
-            let fees_gbp = if e.fee_amount.is_some() {
-                format!("{:.2}", e.fees_gbp()?)
-            } else {
-                String::new()
-            };
+            let fees_gbp = e
+                .fee_gbp
+                .map(|fee| format!("{:.2}", fee))
+                .unwrap_or_default();
 
             Ok(EventRow {
                 id: e.id.clone(),
-                datetime: e.datetime.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_type: format_event_type(&e.event_type),
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
                 quantity: e.quantity.to_string(),
-                value_gbp: format!("{:.2}", e.value_gbp()?),
+                value_gbp: format!("{:.2}", e.value_gbp),
                 fees_gbp,
                 description: e.description.clone().unwrap_or_default(),
                 cgt,
             })
         })
-        .collect::<Result<Vec<_>, TaxcError>>()?;
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     // Calculate summary (classified events only)
     let total_proceeds = cgt_report.total_proceeds(year);

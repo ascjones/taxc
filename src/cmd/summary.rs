@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct SummaryCommand {
-    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    /// Transactions file (JSON). Reads from stdin if not specified.
     #[arg(default_value = "-")]
     file: PathBuf,
 
@@ -31,6 +31,10 @@ pub struct SummaryCommand {
     /// Output as JSON instead of formatted text
     #[arg(long)]
     json: bool,
+
+    /// Don't include unlinked deposits/withdrawals in calculations
+    #[arg(long)]
+    exclude_unlinked: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -93,7 +97,7 @@ impl SummaryCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let tax_band: TaxBand = self.tax_band.into();
         let tax_year = self.year.map(TaxYear);
-        let all_events = read_events(&self.file)?;
+        let all_events = read_events(&self.file, self.exclude_unlinked)?;
 
         // Filter by asset if specified
         let filtered_events: Vec<_> = if let Some(ref asset) = self.asset {

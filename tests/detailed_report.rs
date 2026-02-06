@@ -6,7 +6,7 @@ use std::process::Command;
 #[test]
 fn events_mixed_rules() {
     let output = Command::new("cargo")
-        .args(["run", "--", "events", "tests/data/mixed_rules.csv"])
+        .args(["run", "--", "events", "tests/data/mixed_rules.json"])
         .output()
         .expect("Failed to execute command");
 
@@ -27,7 +27,13 @@ fn events_mixed_rules() {
 #[test]
 fn events_csv_mixed_rules() {
     let output = Command::new("cargo")
-        .args(["run", "--", "events", "tests/data/mixed_rules.csv", "--csv"])
+        .args([
+            "run",
+            "--",
+            "events",
+            "tests/data/mixed_rules.json",
+            "--csv",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -54,7 +60,7 @@ fn events_filter_by_type() {
             "run",
             "--",
             "events",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "--event-type",
             "disposal",
         ])
@@ -100,7 +106,7 @@ fn summary_json_output() {
             "run",
             "--",
             "summary",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "--json",
         ])
         .output()
@@ -126,7 +132,7 @@ fn events_filter_by_year() {
             "run",
             "--",
             "events",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "--year",
             "2025",
         ])
@@ -148,7 +154,7 @@ fn events_filter_by_year() {
 #[test]
 fn pools_basic_output() {
     let output = Command::new("cargo")
-        .args(["run", "--", "pools", "tests/data/mixed_rules.csv"])
+        .args(["run", "--", "pools", "tests/data/mixed_rules.json"])
         .output()
         .expect("Failed to execute command");
 
@@ -167,7 +173,13 @@ fn pools_basic_output() {
 #[test]
 fn pools_json_output() {
     let output = Command::new("cargo")
-        .args(["run", "--", "pools", "tests/data/mixed_rules.csv", "--json"])
+        .args([
+            "run",
+            "--",
+            "pools",
+            "tests/data/mixed_rules.json",
+            "--json",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -200,7 +212,7 @@ fn pools_daily_output() {
             "run",
             "--",
             "pools",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "--daily",
         ])
         .output()
@@ -225,7 +237,7 @@ fn pools_daily_json_output() {
             "run",
             "--",
             "pools",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "--daily",
             "--json",
         ])
@@ -264,7 +276,7 @@ fn pools_filter_by_asset() {
             "run",
             "--",
             "pools",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "-a",
             "BTC",
         ])
@@ -288,7 +300,7 @@ fn pools_filter_by_year() {
             "run",
             "--",
             "pools",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "-y",
             "2025",
         ])
@@ -312,7 +324,7 @@ fn pools_combined_filters() {
             "run",
             "--",
             "pools",
-            "tests/data/mixed_rules.csv",
+            "tests/data/mixed_rules.json",
             "-y",
             "2025",
             "-a",

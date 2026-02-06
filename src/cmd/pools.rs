@@ -15,7 +15,7 @@ use tabled::{
 
 #[derive(Args, Debug)]
 pub struct PoolsCommand {
-    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    /// Transactions file (JSON). Reads from stdin if not specified.
     #[arg(default_value = "-")]
     file: PathBuf,
 
@@ -34,11 +34,15 @@ pub struct PoolsCommand {
     /// Output as JSON instead of formatted table
     #[arg(long)]
     json: bool,
+
+    /// Don't include unlinked deposits/withdrawals in calculations
+    #[arg(long)]
+    exclude_unlinked: bool,
 }
 
 impl PoolsCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
-        let events = read_events(&self.file)?;
+        let events = read_events(&self.file, self.exclude_unlinked)?;
         let cgt_report = calculate_cgt(events)?;
         let tax_year = self.year.map(TaxYear);
         let asset_filter = self.asset.as_deref();

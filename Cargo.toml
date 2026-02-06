@@ -9,7 +9,6 @@ description = "UK Tax Calculator for Capital Gains and Income"
 members = [".", "taxc-derive"]
 
 [dependencies]
-taxc-derive = { path = "taxc-derive" }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 csv = "1.3"

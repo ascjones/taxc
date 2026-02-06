@@ -2,7 +2,7 @@
 
 UK Tax Calculator for Capital Gains and Income.
 
-Calculates UK taxes from CSV or JSON input, implementing HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
+Calculates UK taxes from JSON transaction input, implementing HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
 
 ## Installation
 
@@ -12,11 +12,11 @@ cargo install --git https://github.com/ascjones/taxc
 
 ## Commands
 
-All commands accept an optional positional `FILE` (CSV or JSON). If omitted or set to `-`, input is read from stdin.
+All commands accept an optional positional `FILE` (JSON). If omitted or set to `-`, input is read from stdin.
 
 ```
-cat events.csv | taxc summary --year 2025
-taxc events - < events.csv
+cat transactions.json | taxc summary --year 2025
+taxc events - < transactions.json
 ```
 
 ### Events - Transaction View
@@ -33,6 +33,7 @@ taxc events [OPTIONS] [FILE]
 | `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking`, `dividend` |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--csv` | Output as CSV instead of formatted table |
+| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Summary - Tax Calculations
 
@@ -48,6 +49,7 @@ taxc summary [OPTIONS] [FILE]
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
 | `--json` | Output as JSON instead of formatted text |
+| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Report - Tax Report
 
@@ -62,6 +64,7 @@ taxc report [OPTIONS] [FILE]
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
+| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Pools - Pool Balances
 
@@ -77,6 +80,7 @@ taxc pools [OPTIONS] [FILE]
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--daily` | Show daily time-series instead of year-end snapshots |
 | `--json` | Output as JSON instead of formatted table |
+| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Validate - Data Quality Check
 
@@ -90,6 +94,7 @@ taxc validate [OPTIONS] [FILE]
 |--------|-------------|
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `--json` | Output as JSON instead of formatted text |
+| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 **Exit codes:**
 - `0` - No issues found
@@ -105,113 +110,122 @@ taxc validate [OPTIONS] [FILE]
 Print the expected input format. Useful for coding agents or tooling integration.
 
 ```
-taxc schema [FORMAT]
+taxc schema
 ```
 
-| Format | Description |
-|--------|-------------|
-| `json-schema` | JSON Schema for the input format (default) |
-| `csv-header` | CSV header row with column names |
-| `csv-fields` | CSV column descriptions with required/optional |
+Outputs the JSON Schema for the transaction input format.
 
-## Input Formats
+## Input Format (JSON Transactions)
 
-Supports both CSV and JSON input.
+taxc accepts JSON with a top-level `transactions` array. Each transaction has shared fields plus a type-specific payload.
 
-### CSV Format
+**Datetime** must be RFC3339 with an offset (e.g., `2024-06-15T09:00:00+00:00`). Date-only values are accepted and assumed to be UTC midnight.
 
-CSV file with the following columns (flattened price fields). GBP values are calculated from quantity × price(s).
+### Shared Fields
 
-| Column | Description |
-|--------|-------------|
-| `id` | Unique identifier for linking back to source data (optional) |
-| `date` | Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss) |
-| `event_type` | `Acquisition`, `Disposal`, `StakingReward`, `Dividend` |
-| `asset` | Asset identifier (e.g., BTC, ETH, AAPL) |
-| `asset_class` | `Crypto` or `Stock` |
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier for linking and traceability |
+| `datetime` | RFC3339 datetime with offset |
+| `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
+| `description` | Optional description |
+| `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal`, `StakingReward` |
+
+### Types
+
+**Trade**
+- `sold`: asset you gave up
+- `bought`: asset you received
+- `price` (optional): price of the **bought** asset. Required when neither side is GBP.
+- `fee` (optional)
+
+**Deposit / Withdrawal**
+- `asset`
+- `linked_withdrawal` or `linked_deposit` to mark transfers
+- `fee` (optional)
+
+**StakingReward**
+- `asset`
+- `price` (required)
+
+### Asset
+
+| Field | Description |
+|-------|-------------|
+| `symbol` | Asset identifier (e.g., BTC, ETH, GBP) |
 | `quantity` | Amount of asset |
-| `price_rate` | Asset price (required if asset != GBP) |
-| `price_quote` | Quote currency for `price_rate` (GBP, USD, EUR, etc.) |
-| `price_source` | Price source (optional) |
-| `price_time` | Price timestamp (optional) |
-| `fx_rate` | FX rate to GBP (required if `price_quote` != GBP) |
-| `fx_source` | FX source (optional) |
-| `fx_time` | FX timestamp (optional) |
-| `fee_amount` | Fee amount (optional) |
-| `fee_asset` | Fee asset (required if `fee_amount` set) |
-| `fee_price_rate` | Fee asset price (required if `fee_asset` != GBP) |
-| `fee_price_quote` | Quote currency for `fee_price_rate` |
-| `fee_fx_rate` | Fee FX rate to GBP (required if `fee_price_quote` != GBP) |
-| `fee_fx_source` | Fee FX source (optional) |
-| `description` | Description (optional) |
+| `asset_class` | `Crypto` (default) or `Stock` |
 
-**FX rate convention:** `fx_rate` is always `price_quote/GBP` (e.g., if `price_quote=USD`, `fx_rate` is USD/GBP). There is no `fx_quote` column.
+### Price
 
-#### Example CSV
+| Type | Fields | Description |
+|------|--------|-------------|
+| `Gbp` | `rate` | Direct GBP price per unit |
+| `FxChain` | `rate`, `quote`, `fx_rate` | Foreign price converted to GBP |
 
-```csv
-id,date,event_type,asset,asset_class,quantity,price_rate,price_quote,price_source,price_time,fx_rate,fx_source,fx_time,fee_amount,fee_asset,fee_price_rate,fee_price_quote,fee_fx_rate,fee_fx_source,description
-tx-001,2024-01-15,Acquisition,BTC,Crypto,0.5,30000,GBP,Kraken,2024-01-15T10:30:00,,,25,GBP,,,,Coinbase
-tx-002,2024-03-20,Disposal,BTC,Crypto,0.25,28000,GBP,Kraken,2024-03-20,,,15,GBP,,,,Coinbase
-tx-003,2024-04-01,StakingReward,ETH,Crypto,0.1,2500,GBP,Kraken,2024-04-01,,,,,,,,Kraken
-tx-004,2024-05-15,Dividend,GBP,Stock,150,,,,,,,,,,,,,Hargreaves
-```
+### Fee
 
-### JSON Format
+| Field | Description |
+|-------|-------------|
+| `asset` | Fee asset symbol |
+| `amount` | Fee amount |
+| `price` | Required when `asset` is not GBP |
+
+**Notes**
+- Unlinked crypto deposits/withdrawals become `UnclassifiedIn/Out` events with `value_gbp = 0` unless `--exclude-unlinked` is set.
+- For crypto-to-crypto trades, the GBP value is taken from the acquired asset price.
+
+### Example JSON
 
 ```json
 {
-  "tax_year": "2024-25",
-  "events": [
+  "transactions": [
     {
       "id": "tx-001",
-      "date": "2024-04-15",
-      "event_type": "Disposal",
-      "asset": "BTC",
-      "asset_class": "Crypto",
-      "quantity": 5.0,
-      "price": {
-        "rate": 15000.0,
-        "quote": "GBP",
-        "source": "Kraken",
-        "timestamp": "2024-04-15T10:30:00"
-      },
-      "fee_amount": 10.00,
-      "fee_asset": "GBP",
-      "description": "Partial sale"
+      "datetime": "2024-01-01T10:00:00+00:00",
+      "account": "bank",
+      "description": "Fund exchange",
+      "type": "Deposit",
+      "asset": { "symbol": "GBP", "quantity": 5000 }
+    },
+    {
+      "id": "tx-002",
+      "datetime": "2024-01-02T09:00:00+00:00",
+      "account": "kraken",
+      "description": "Buy BTC with GBP",
+      "type": "Trade",
+      "sold": { "symbol": "GBP", "quantity": 1000 },
+      "bought": { "symbol": "BTC", "quantity": 0.025 }
+    },
+    {
+      "id": "tx-003",
+      "datetime": "2024-08-31T10:00:00+00:00",
+      "account": "kraken",
+      "description": "Swap BTC for ETH (priced in USD)",
+      "type": "Trade",
+      "sold": { "symbol": "BTC", "quantity": 0.01 },
+      "bought": { "symbol": "ETH", "quantity": 0.5 },
+      "price": { "type": "FxChain", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
+    },
+    {
+      "id": "tx-004",
+      "datetime": "2024-10-01T00:00:00+00:00",
+      "account": "ledger",
+      "description": "ETH staking reward",
+      "type": "StakingReward",
+      "asset": { "symbol": "ETH", "quantity": 0.01 },
+      "price": { "type": "Gbp", "rate": 2000 }
     }
   ]
 }
 ```
-
-| Field | Description |
-|-------|-------------|
-| `tax_year` | Optional metadata |
-| `events` | Array of taxable events |
-
-Event fields:
-
-| Field | Description |
-|-------|-------------|
-| `date` | Event date (YYYY-MM-DD or YYYY-MM-DDThh:mm:ss) |
-| `event_type` | `Acquisition`, `Disposal`, `StakingReward`, `Dividend` |
-| `asset` | Asset identifier (e.g., BTC, ETH, AAPL) |
-| `asset_class` | `Crypto` or `Stock` |
-| `quantity` | Amount of asset |
-| `price` | Optional price object (`rate`, `quote`, `source`, `timestamp`) |
-| `fx_rate` | Optional FX rate object (required if `price.quote` != GBP) |
-| `fee_amount` | Fee amount (optional) |
-| `fee_asset` | Fee asset (required if `fee_amount` set) |
-| `fee_price` | Optional fee price object |
-| `fee_fx_rate` | Optional fee FX rate object (required if `fee_price.quote` != GBP) |
-| `description` | Description (optional) |
 
 ## Example Output
 
 ### Events Command
 
 ```
-taxc events events.csv
+taxc events transactions.json
 ```
 
 Shows a detailed table with all transactions, including sub-rows for disposals matched via multiple rules (Same-Day, B&B, Pool).
@@ -219,7 +233,7 @@ Shows a detailed table with all transactions, including sub-rows for disposals m
 ### Summary Command
 
 ```
-taxc summary events.csv -y 2025
+taxc summary transactions.json -y 2025
 ```
 
 ```
@@ -241,7 +255,7 @@ TOTAL TAX LIABILITY: £403.25 (basic)
 ### Report Command
 
 ```
-taxc report events.csv
+taxc report transactions.json
 ```
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
@@ -259,7 +273,7 @@ Use `-o report.html` to write to a specific file instead of opening in browser.
 Use `--json` to output the report data as JSON (for integration with other tools):
 
 ```
-taxc report events.csv --json > report.json
+taxc report transactions.json --json > report.json
 ```
 
 ## HMRC Share Identification Rules

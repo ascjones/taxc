@@ -1,5 +1,0 @@
-date,event_type,asset,asset_class,quantity,price_rate,price_quote,price_source,price_time,fx_rate,fx_source,fx_time,fee_amount,fee_asset,fee_price_rate,fee_price_quote,fee_fx_rate,fee_fx_source,description
-2024-01-15,Acquisition,BTC,Crypto,0.5,30000,GBP,Kraken,2024-01-15T10:30:00,,,,25,GBP,,,,,Coinbase
-2024-03-20,Disposal,BTC,Crypto,0.25,28000,GBP,Kraken,2024-03-20,,,,15,GBP,,,,,Coinbase
-2024-04-01,StakingReward,ETH,Crypto,0.1,2500,GBP,Kraken,2024-04-01,,,,,,,,,,Kraken
-2024-05-15,Dividend,GBP,Stock,150,,,,,,,,,,,,,,Hargreaves

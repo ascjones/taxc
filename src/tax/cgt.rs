@@ -1,4 +1,4 @@
-use crate::events::{EventType, TaxableEvent, TaxcError};
+use crate::events::{EventType, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use chrono::{Duration, NaiveDate};
 use rust_decimal::Decimal;
@@ -358,7 +358,7 @@ type AcqKey = (NaiveDate, String);
 /// 1. Same-day rule: Match with acquisitions on the same day
 /// 2. Bed & breakfast rule: Match with acquisitions within 30 days after disposal
 /// 3. Section 104 pool: Match with pooled cost basis
-pub fn calculate_cgt(events: Vec<TaxableEvent>) -> Result<CgtReport, TaxcError> {
+pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
     let mut pools: HashMap<String, Pool> = HashMap::new();
     let mut disposals: Vec<DisposalRecord> = Vec::new();
     let mut pool_history = PoolHistory::default();
@@ -385,7 +385,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> Result<CgtReport, TaxcError> 
             let key = (event.date(), event.asset.clone());
             let tracker = acquisitions.entry(key).or_default();
             tracker.total_qty += event.quantity;
-            tracker.total_cost += event.total_cost_gbp()?;
+            tracker.total_cost += event.total_cost_gbp();
         }
     }
 
@@ -445,7 +445,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> Result<CgtReport, TaxcError> 
                 }
             }
             EventType::Disposal | EventType::UnclassifiedOut => {
-                let fees = event.fees_gbp()?;
+                let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
                 let tax_year = TaxYear::from_date(event.date());
 
                 let mut remaining_to_match = event.quantity;
@@ -531,7 +531,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> Result<CgtReport, TaxcError> 
                     );
                 }
 
-                let gain = event.value_gbp()? - total_allowable_cost - fees;
+                let gain = event.value_gbp - total_allowable_cost - fees;
 
                 // Capture pool state after disposal
                 let pool_after = pools
@@ -586,7 +586,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> Result<CgtReport, TaxcError> 
                     tax_year,
                     asset: event.asset.clone(),
                     quantity: event.quantity,
-                    proceeds_gbp: event.value_gbp()?,
+                    proceeds_gbp: event.value_gbp,
                     allowable_cost_gbp: total_allowable_cost,
                     fees_gbp: fees,
                     gain_gbp: gain,
@@ -649,21 +649,12 @@ fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapsh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AssetClass, Price};
+    use crate::events::AssetClass;
+    use chrono::DateTime;
     use rust_decimal_macros::dec;
 
-    fn price_for_value(qty: Decimal, value: Decimal) -> Price {
-        let rate = if qty.is_zero() {
-            Decimal::ZERO
-        } else {
-            (value / qty).round_dp(8)
-        };
-        Price {
-            rate,
-            quote: "GBP".to_string(),
-            source: None,
-            timestamp: None,
-        }
+    fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
     }
 
     fn event(
@@ -676,20 +667,13 @@ mod tests {
     ) -> TaxableEvent {
         TaxableEvent {
             id: None,
-            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
+            datetime: dt(date),
             event_type,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
             quantity: qty,
-            price: Some(price_for_value(qty, value)),
-            fx_rate: None,
-            fee_amount: fee,
-            fee_asset: fee.map(|_| "GBP".to_string()),
-            fee_price: None,
-            fee_fx_rate: None,
+            value_gbp: value,
+            fee_gbp: fee,
             description: None,
         }
     }
@@ -1632,38 +1616,24 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: Some("acq-001".to_string()),
-                datetime: NaiveDate::parse_from_str("2024-01-01", "%Y-%m-%d")
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
+                datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(10),
-                price: Some(price_for_value(dec!(10), dec!(100000))),
-                fx_rate: None,
-                fee_amount: None,
-                fee_asset: None,
-                fee_price: None,
-                fee_fx_rate: None,
+                value_gbp: dec!(100000),
+                fee_gbp: None,
                 description: None,
             },
             TaxableEvent {
                 id: Some("disp-001".to_string()),
-                datetime: NaiveDate::parse_from_str("2024-06-15", "%Y-%m-%d")
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
+                datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(5),
-                price: Some(price_for_value(dec!(5), dec!(75000))),
-                fx_rate: None,
-                fee_amount: None,
-                fee_asset: None,
-                fee_price: None,
-                fee_fx_rate: None,
+                value_gbp: dec!(75000),
+                fee_gbp: None,
                 description: None,
             },
         ];

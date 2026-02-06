@@ -1,9 +1,10 @@
 //! Events command - transaction-level view showing all events with filtering
 
-use crate::events::{self, EventType, TaxableEvent, TaxcError};
+use crate::events::{EventType, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalRecord, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
+use crate::transaction::{self, ConversionOptions};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -17,7 +18,7 @@ use tabled::{
 
 #[derive(Args, Debug)]
 pub struct EventsCommand {
-    /// Events file (CSV or JSON). Reads from stdin if not specified.
+    /// Transactions file (JSON). Reads from stdin if not specified.
     #[arg(default_value = "-")]
     file: PathBuf,
 
@@ -36,6 +37,10 @@ pub struct EventsCommand {
     /// Output as CSV instead of formatted table
     #[arg(long)]
     csv: bool,
+
+    /// Don't include unlinked deposits/withdrawals in calculations
+    #[arg(long)]
+    exclude_unlinked: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -49,7 +54,7 @@ pub enum EventTypeFilter {
 impl EventsCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let tax_year = self.year.map(TaxYear);
-        let all_events = read_events(&self.file)?;
+        let all_events = read_events(&self.file, self.exclude_unlinked)?;
 
         // Build the events view
         let cgt_report = calculate_cgt(all_events.clone())?;
@@ -104,7 +109,6 @@ pub struct EventRow {
 
     /// Source data identifier (hidden in table, shown in CSV)
     #[tabled(skip)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 
     #[tabled(rename = "Date")]
@@ -149,7 +153,7 @@ fn build_event_rows(
     year: Option<TaxYear>,
     event_type_filter: Option<EventTypeFilter>,
     asset_filter: Option<&str>,
-) -> Result<Vec<EventRow>, TaxcError> {
+) -> anyhow::Result<Vec<EventRow>> {
     let mut rows = Vec::new();
 
     // Build a lookup from (date, asset) to disposal record
@@ -217,7 +221,7 @@ fn build_event_rows(
                     event_type: "Acquisition".to_string(),
                     asset: event.asset.clone(),
                     quantity: format_quantity(event.quantity),
-                    acquisition_cost: format_gbp(event.total_cost_gbp()?),
+                    acquisition_cost: format_gbp(event.total_cost_gbp()),
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
@@ -316,7 +320,7 @@ fn build_event_rows(
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp()?),
+                        proceeds: format_gbp(event.value_gbp),
                         gain_loss: "-".to_string(),
                         matched_ref: String::new(),
                         income_value: "-".to_string(),
@@ -338,7 +342,7 @@ fn build_event_rows(
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
-                    income_value: format_gbp(event.value_gbp()?),
+                    income_value: format_gbp(event.value_gbp),
                     description: event.description.clone().unwrap_or_default(),
                 });
                 row_num += 1;
@@ -356,7 +360,7 @@ fn build_event_rows(
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
-                    income_value: format_gbp(event.value_gbp()?),
+                    income_value: format_gbp(event.value_gbp),
                     description: event.description.clone().unwrap_or_default(),
                 });
                 row_num += 1;
@@ -370,7 +374,7 @@ fn build_event_rows(
                     event_type: "Unclassified In".to_string(),
                     asset: event.asset.clone(),
                     quantity: format_quantity(event.quantity),
-                    acquisition_cost: format_gbp(event.total_cost_gbp()?),
+                    acquisition_cost: format_gbp(event.total_cost_gbp()),
                     proceeds: "-".to_string(),
                     gain_loss: "-".to_string(),
                     matched_ref: String::new(),
@@ -409,7 +413,7 @@ fn build_event_rows(
                         asset: event.asset.clone(),
                         quantity: format_quantity(event.quantity),
                         acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp()?),
+                        proceeds: format_gbp(event.value_gbp),
                         gain_loss: "-".to_string(),
                         matched_ref: String::new(),
                         income_value: "-".to_string(),
@@ -509,30 +513,28 @@ fn format_quantity(qty: Decimal) -> String {
     trimmed.to_string()
 }
 
-/// Read events from CSV or JSON file based on extension (or stdin with "-")
-pub fn read_events(path: &Path) -> anyhow::Result<Vec<TaxableEvent>> {
+/// Read transactions (JSON) and convert to events (or stdin with "-")
+pub fn read_events(path: &Path, exclude_unlinked: bool) -> anyhow::Result<Vec<TaxableEvent>> {
+    let options = ConversionOptions { exclude_unlinked };
     if path.as_os_str() == "-" {
-        read_from_stdin()
+        read_from_stdin(options)
     } else {
-        read_from_file(path)
+        read_from_file(path, options)
     }
 }
 
-fn read_from_file(path: &Path) -> anyhow::Result<Vec<TaxableEvent>> {
+fn read_from_file(path: &Path, options: ConversionOptions) -> anyhow::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-
-    match path.extension().and_then(|s| s.to_str()) {
-        Some("json") => events::read_json(reader),
-        _ => events::read_csv(reader),
-    }
+    let transactions = transaction::read_transactions_json(reader)?;
+    let events = transaction::transactions_to_events(&transactions, options)?;
+    Ok(events)
 }
 
-fn read_from_stdin() -> anyhow::Result<Vec<TaxableEvent>> {
+fn read_from_stdin(options: ConversionOptions) -> anyhow::Result<Vec<TaxableEvent>> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
 
-    // Read into buffer to sniff format
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer)?;
 
@@ -540,27 +542,8 @@ fn read_from_stdin() -> anyhow::Result<Vec<TaxableEvent>> {
         anyhow::bail!("No input received. Provide a file or pipe data to stdin.");
     }
 
-    let format = detect_format(&buffer);
     let cursor = io::Cursor::new(buffer);
-
-    match format {
-        InputFormat::Json => events::read_json(cursor),
-        InputFormat::Csv => events::read_csv(cursor),
-    }
-}
-
-enum InputFormat {
-    Json,
-    Csv,
-}
-
-fn detect_format(data: &[u8]) -> InputFormat {
-    for byte in data {
-        match byte {
-            b' ' | b'\t' | b'\n' | b'\r' => continue,
-            b'[' | b'{' => return InputFormat::Json,
-            _ => return InputFormat::Csv,
-        }
-    }
-    InputFormat::Csv
+    let transactions = transaction::read_transactions_json(cursor)?;
+    let events = transaction::transactions_to_events(&transactions, options)?;
+    Ok(events)
 }

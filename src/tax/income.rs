@@ -1,4 +1,4 @@
-use crate::events::{EventType, TaxableEvent, TaxcError};
+use crate::events::{EventType, TaxableEvent};
 use crate::tax::uk::TaxYear;
 use rust_decimal::Decimal;
 
@@ -19,7 +19,7 @@ pub struct IncomeEvent {
 }
 
 /// Calculate income tax from taxable events
-pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> Result<IncomeReport, TaxcError> {
+pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> anyhow::Result<IncomeReport> {
     let mut staking_events: Vec<IncomeEvent> = Vec::new();
     let mut dividend_events: Vec<IncomeEvent> = Vec::new();
 
@@ -30,13 +30,13 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> Result<IncomeReport, T
             EventType::StakingReward => {
                 staking_events.push(IncomeEvent {
                     tax_year,
-                    value_gbp: event.value_gbp()?,
+                    value_gbp: event.value_gbp,
                 });
             }
             EventType::Dividend => {
                 dividend_events.push(IncomeEvent {
                     tax_year,
-                    value_gbp: event.value_gbp()?,
+                    value_gbp: event.value_gbp,
                 });
             }
             // Non-income events are ignored
@@ -57,26 +57,23 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> Result<IncomeReport, T
 mod tests {
     use super::*;
     use crate::events::AssetClass;
-    use chrono::NaiveDate;
+    use chrono::DateTime;
     use rust_decimal_macros::dec;
+
+    fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
+    }
 
     fn staking(date: &str, value: Decimal) -> TaxableEvent {
         TaxableEvent {
             id: None,
-            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
+            datetime: dt(date),
             event_type: EventType::StakingReward,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: value,
-            price: None,
-            fx_rate: None,
-            fee_amount: None,
-            fee_asset: None,
-            fee_price: None,
-            fee_fx_rate: None,
+            value_gbp: value,
+            fee_gbp: None,
             description: None,
         }
     }
@@ -84,20 +81,13 @@ mod tests {
     fn dividend(date: &str, value: Decimal) -> TaxableEvent {
         TaxableEvent {
             id: None,
-            datetime: NaiveDate::parse_from_str(date, "%Y-%m-%d")
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
+            datetime: dt(date),
             event_type: EventType::Dividend,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Stock,
             quantity: value,
-            price: None,
-            fx_rate: None,
-            fee_amount: None,
-            fee_asset: None,
-            fee_price: None,
-            fee_fx_rate: None,
+            value_gbp: value,
+            fee_gbp: None,
             description: None,
         }
     }
@@ -132,38 +122,24 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: None,
-                datetime: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
+                datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
                 asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(50000),
-                price: None,
-                fx_rate: None,
-                fee_amount: None,
-                fee_asset: None,
-                fee_price: None,
-                fee_fx_rate: None,
+                value_gbp: dec!(50000),
+                fee_gbp: None,
                 description: None,
             },
             TaxableEvent {
                 id: None,
-                datetime: NaiveDate::from_ymd_opt(2024, 7, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
+                datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
                 asset: "GBP".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(30000),
-                price: None,
-                fx_rate: None,
-                fee_amount: None,
-                fee_asset: None,
-                fee_price: None,
-                fee_fx_rate: None,
+                value_gbp: dec!(30000),
+                fee_gbp: None,
                 description: None,
             },
             staking("2024-06-01", dec!(100)),

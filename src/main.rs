@@ -1,6 +1,7 @@
 mod cmd;
 mod events;
 mod tax;
+mod transaction;
 
 use clap::{Parser, Subcommand};
 use cmd::events::EventsCommand;
@@ -36,7 +37,7 @@ enum Command {
     /// Validate data quality and surface issues
     Validate(ValidateCommand),
 
-    /// Print expected input format (JSON Schema or CSV columns)
+    /// Print expected JSON input schema
     Schema(SchemaCommand),
 }
 
