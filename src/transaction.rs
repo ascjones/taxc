@@ -93,6 +93,9 @@ pub struct Transaction {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional fee for this transaction
+    #[serde(default)]
+    pub fee: Option<Fee>,
     /// The transaction details
     #[serde(flatten)]
     pub details: TransactionType,
@@ -107,8 +110,6 @@ pub enum TransactionType {
         bought: Asset,
         #[serde(default)]
         price: Option<Price>,
-        #[serde(default)]
-        fee: Option<Fee>,
     },
 
     /// Deposit - assets received INTO an account
@@ -116,8 +117,6 @@ pub enum TransactionType {
         asset: Asset,
         #[serde(default)]
         linked_withdrawal: Option<String>,
-        #[serde(default)]
-        fee: Option<Fee>,
     },
 
     /// Withdrawal - assets sent FROM an account
@@ -125,8 +124,6 @@ pub enum TransactionType {
         asset: Asset,
         #[serde(default)]
         linked_deposit: Option<String>,
-        #[serde(default)]
-        fee: Option<Fee>,
     },
 
     /// Staking reward (income + acquisition)
@@ -152,16 +149,41 @@ pub struct Fee {
 }
 
 impl Fee {
-    pub fn to_gbp(&self) -> Result<Decimal, TransactionError> {
+    /// Compute fee in GBP, using transaction price if the fee asset matches the priced asset.
+    ///
+    /// If the fee has an explicit price, use it. Otherwise, if the fee asset
+    /// matches the priced_asset and a price is provided, use that price.
+    ///
+    /// - For Trade: priced_asset is the bought asset, price is the trade price
+    /// - For StakingReward: priced_asset is the reward asset, price is the staking price
+    /// - For Deposit/Withdrawal: no price available, fee must have explicit price or be GBP
+    pub fn to_gbp_with_context(
+        &self,
+        priced_asset: Option<&str>,
+        tx_price: Option<&Price>,
+    ) -> Result<Decimal, TransactionError> {
+        // GBP fees need no conversion
         if is_gbp(&self.asset) {
             return Ok(self.amount);
         }
-        match &self.price {
-            Some(price) => price.to_gbp(self.amount),
-            None => Err(TransactionError::MissingFeePrice {
-                asset: self.asset.clone(),
-            }),
+
+        // Explicit fee price takes precedence
+        if let Some(price) = &self.price {
+            return price.to_gbp(self.amount);
         }
+
+        // Use transaction price if fee asset matches the priced asset
+        if let (Some(asset), Some(price)) = (priced_asset, tx_price) {
+            let fee_asset_normalized = normalize_currency(&self.asset);
+            if fee_asset_normalized == normalize_currency(asset) {
+                return price.to_gbp(self.amount);
+            }
+        }
+
+        // Fee asset doesn't match or no price available - require explicit price
+        Err(TransactionError::MissingFeePrice {
+            asset: self.asset.clone(),
+        })
     }
 }
 
@@ -206,6 +228,7 @@ impl Transaction {
             id,
             datetime,
             description,
+            fee,
             details,
             ..
         } = self;
@@ -215,7 +238,6 @@ impl Transaction {
                 sold,
                 bought,
                 price,
-                fee,
             } => {
                 let value_gbp = match price {
                     Some(p) => p.to_gbp(bought.quantity)?,
@@ -229,8 +251,9 @@ impl Transaction {
                 let has_disposal = !is_gbp(&sold.symbol);
                 let has_acquisition = !is_gbp(&bought.symbol);
 
+                // Fee uses trade price if fee asset matches bought asset
                 let fee_gbp = match fee {
-                    Some(f) => Some(f.to_gbp()?),
+                    Some(f) => Some(f.to_gbp_with_context(Some(&bought.symbol), price.as_ref())?),
                     None => None,
                 };
 
@@ -271,7 +294,6 @@ impl Transaction {
             TransactionType::Deposit {
                 asset,
                 linked_withdrawal,
-                ..
             } => {
                 if linked_withdrawal.is_some() || is_gbp(&asset.symbol) {
                     return Ok(vec![]);
@@ -285,6 +307,12 @@ impl Transaction {
                     );
                     return Ok(vec![]);
                 }
+
+                // Deposits have no price, so fee must have explicit price or be GBP
+                let fee_gbp = match fee {
+                    Some(f) => Some(f.to_gbp_with_context(None, None)?),
+                    None => None,
+                };
 
                 log::warn!(
                     "Unlinked deposit treated as acquisition: id={} asset={}",
@@ -300,7 +328,7 @@ impl Transaction {
                     asset_class: asset.asset_class.clone(),
                     quantity: asset.quantity,
                     value_gbp: Decimal::ZERO,
-                    fee_gbp: None,
+                    fee_gbp,
                     description: description.clone(),
                 }])
             }
@@ -308,7 +336,6 @@ impl Transaction {
             TransactionType::Withdrawal {
                 asset,
                 linked_deposit,
-                ..
             } => {
                 if linked_deposit.is_some() || is_gbp(&asset.symbol) {
                     return Ok(vec![]);
@@ -322,6 +349,12 @@ impl Transaction {
                     );
                     return Ok(vec![]);
                 }
+
+                // Withdrawals have no price, so fee must have explicit price or be GBP
+                let fee_gbp = match fee {
+                    Some(f) => Some(f.to_gbp_with_context(None, None)?),
+                    None => None,
+                };
 
                 log::warn!(
                     "Unlinked withdrawal treated as disposal: id={} asset={}",
@@ -337,23 +370,31 @@ impl Transaction {
                     asset_class: asset.asset_class.clone(),
                     quantity: asset.quantity,
                     value_gbp: Decimal::ZERO,
-                    fee_gbp: None,
+                    fee_gbp,
                     description: description.clone(),
                 }])
             }
 
-            TransactionType::StakingReward { asset, price } => Ok(vec![TaxableEvent {
-                id: Some(id.clone()),
-                event_type: EventType::Acquisition,
-                label: Label::StakingReward,
-                datetime: *datetime,
-                asset: normalize_currency(&asset.symbol),
-                asset_class: asset.asset_class.clone(),
-                quantity: asset.quantity,
-                value_gbp: price.to_gbp(asset.quantity)?,
-                fee_gbp: None,
-                description: description.clone(),
-            }]),
+            TransactionType::StakingReward { asset, price } => {
+                // Fee uses staking price if fee asset matches reward asset
+                let fee_gbp = match fee {
+                    Some(f) => Some(f.to_gbp_with_context(Some(&asset.symbol), Some(price))?),
+                    None => None,
+                };
+
+                Ok(vec![TaxableEvent {
+                    id: Some(id.clone()),
+                    event_type: EventType::Acquisition,
+                    label: Label::StakingReward,
+                    datetime: *datetime,
+                    asset: normalize_currency(&asset.symbol),
+                    asset_class: asset.asset_class.clone(),
+                    quantity: asset.quantity,
+                    value_gbp: price.to_gbp(asset.quantity)?,
+                    fee_gbp,
+                    description: description.clone(),
+                }])
+            }
         }
     }
 }
@@ -438,42 +479,32 @@ fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> 
 
 fn normalize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions {
+        // Normalize fee at transaction level
+        if let Some(f) = tx.fee.as_mut() {
+            f.asset = normalize_currency(&f.asset);
+            if let Some(Price::FxChain { quote, .. }) = f.price.as_mut() {
+                *quote = normalize_currency(quote);
+            }
+        }
+
+        // Normalize type-specific fields
         match &mut tx.details {
             TransactionType::Trade {
                 sold,
                 bought,
                 price,
-                fee,
             } => {
                 sold.symbol = normalize_currency(&sold.symbol);
                 bought.symbol = normalize_currency(&bought.symbol);
                 if let Some(Price::FxChain { quote, .. }) = price.as_mut() {
                     *quote = normalize_currency(quote);
                 }
-                if let Some(f) = fee.as_mut() {
-                    f.asset = normalize_currency(&f.asset);
-                    if let Some(Price::FxChain { quote, .. }) = f.price.as_mut() {
-                        *quote = normalize_currency(quote);
-                    }
-                }
             }
-            TransactionType::Deposit { asset, fee, .. } => {
+            TransactionType::Deposit { asset, .. } => {
                 asset.symbol = normalize_currency(&asset.symbol);
-                if let Some(f) = fee.as_mut() {
-                    f.asset = normalize_currency(&f.asset);
-                    if let Some(Price::FxChain { quote, .. }) = f.price.as_mut() {
-                        *quote = normalize_currency(quote);
-                    }
-                }
             }
-            TransactionType::Withdrawal { asset, fee, .. } => {
+            TransactionType::Withdrawal { asset, .. } => {
                 asset.symbol = normalize_currency(&asset.symbol);
-                if let Some(f) = fee.as_mut() {
-                    f.asset = normalize_currency(&f.asset);
-                    if let Some(Price::FxChain { quote, .. }) = f.price.as_mut() {
-                        *quote = normalize_currency(quote);
-                    }
-                }
             }
             TransactionType::StakingReward { asset, price } => {
                 asset.symbol = normalize_currency(&asset.symbol);
@@ -557,6 +588,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -574,7 +606,6 @@ mod tests {
                     fx_rate: dec!(0.79),
                     source: None,
                 }),
-                fee: None,
             },
         };
 
@@ -592,6 +623,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "GBP".to_string(),
@@ -604,7 +636,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 price: None,
-                fee: None,
             },
         };
 
@@ -621,6 +652,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -633,7 +665,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 price: None,
-                fee: None,
             },
         };
 
@@ -650,6 +681,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -662,7 +694,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 price: None,
-                fee: None,
             },
         };
 
@@ -682,6 +713,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -689,7 +721,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: Some("w1".to_string()),
-                fee: None,
             },
         };
         let withdrawal = Transaction {
@@ -697,6 +728,7 @@ mod tests {
             datetime: dt("2024-01-01T09:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Withdrawal {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -704,7 +736,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: Some("d1".to_string()),
-                fee: None,
             },
         };
 
@@ -725,6 +756,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -732,7 +764,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
-                fee: None,
             },
         };
 
@@ -755,6 +786,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::Withdrawal {
                 asset: Asset {
                     symbol: "BTC".to_string(),
@@ -762,7 +794,6 @@ mod tests {
                     asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
-                fee: None,
             },
         };
 
@@ -783,6 +814,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            fee: None,
             details: TransactionType::StakingReward {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -810,6 +842,11 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            fee: Some(Fee {
+                asset: "GBP".to_string(),
+                amount: dec!(5),
+                price: None,
+            }),
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -825,11 +862,6 @@ mod tests {
                     rate: dec!(1000),
                     source: None,
                 }),
-                fee: Some(Fee {
-                    asset: "GBP".to_string(),
-                    amount: dec!(5),
-                    price: None,
-                }),
             },
         };
 
@@ -837,5 +869,203 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].fee_gbp, Some(dec!(5)));
         assert_eq!(events[1].fee_gbp, None);
+    }
+
+    #[test]
+    fn fee_uses_trade_price_when_asset_matches_bought() {
+        // Trade: 1 ETH -> 0.05 BTC at £15000/BTC
+        // Fee: 0.0001 BTC (no explicit price, but matches bought asset)
+        // Fee value = 0.0001 * 15000 = £1.50
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            fee: Some(Fee {
+                asset: "BTC".to_string(),
+                amount: dec!(0.0001),
+                price: None,
+            }),
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+                price: Some(Price::Gbp {
+                    rate: dec!(15000),
+                    source: None,
+                }),
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 2);
+        // Fee uses trade price directly: 0.0001 * 15000 = £1.50
+        assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
+    }
+
+    #[test]
+    fn fee_in_sold_asset_requires_explicit_price() {
+        // Trade: 1 ETH -> 0.05 BTC at £15000/BTC
+        // Fee: 0.01 ETH (no explicit price, doesn't match bought asset)
+        // Should error - sold asset doesn't get automatic price
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            fee: Some(Fee {
+                asset: "ETH".to_string(),
+                amount: dec!(0.01),
+                price: None,
+            }),
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+                price: Some(Price::Gbp {
+                    rate: dec!(15000),
+                    source: None,
+                }),
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingFeePrice {
+                asset: "ETH".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn fee_explicit_price_takes_precedence() {
+        // Fee has explicit price even though asset matches traded asset
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            fee: Some(Fee {
+                asset: "BTC".to_string(),
+                amount: dec!(0.0001),
+                // Explicit price overrides trade price
+                price: Some(Price::Gbp {
+                    rate: dec!(20000),
+                    source: None,
+                }),
+            }),
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+                price: Some(Price::Gbp {
+                    rate: dec!(15000),
+                    source: None,
+                }),
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 2);
+        // Fee should use explicit price: 0.0001 * 20000 = £2.00
+        assert_eq!(events[0].fee_gbp, Some(dec!(2)));
+    }
+
+    #[test]
+    fn fee_unrelated_asset_requires_price() {
+        // Fee in USDT but trade is ETH/BTC - should error
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            fee: Some(Fee {
+                asset: "USDT".to_string(),
+                amount: dec!(5),
+                price: None,
+            }),
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+                price: Some(Price::Gbp {
+                    rate: dec!(15000),
+                    source: None,
+                }),
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingFeePrice {
+                asset: "USDT".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn fee_asset_match_is_case_insensitive() {
+        // Fee asset "btc" should match bought asset "BTC"
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            fee: Some(Fee {
+                asset: "btc".to_string(), // lowercase
+                amount: dec!(0.0001),
+                price: None,
+            }),
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+                price: Some(Price::Gbp {
+                    rate: dec!(15000),
+                    source: None,
+                }),
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
     }
 }

@@ -130,6 +130,7 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 | `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
 | `description` | Optional description |
 | `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal`, `StakingReward` |
+| `fee` | Optional fee (see Fee section below) |
 
 ### Types
 
@@ -137,12 +138,10 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 - `sold`: asset you gave up
 - `bought`: asset you received
 - `price` (optional): price of the **bought** asset. Required when neither side is GBP.
-- `fee` (optional)
 
 **Deposit / Withdrawal**
 - `asset`
 - `linked_withdrawal` or `linked_deposit` to mark transfers
-- `fee` (optional)
 
 **StakingReward**
 - `asset`
@@ -169,7 +168,14 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 |-------|-------------|
 | `asset` | Fee asset symbol |
 | `amount` | Fee amount |
-| `price` | Required when `asset` is not GBP |
+| `price` | Optional if `asset` is GBP or matches the priced asset; required otherwise |
+
+Fee pricing rules:
+- GBP fees need no price
+- If the fee has an explicit `price`, that is used
+- For Trade: if fee asset matches the `bought` asset, the trade's `price` is used
+- For StakingReward: if fee asset matches the reward asset, the staking `price` is used
+- For Deposit/Withdrawal: fee must be GBP or have an explicit `price`
 
 **Notes**
 - Unlinked crypto deposits/withdrawals become unclassified events (shown as `Unclassified In/Out`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
