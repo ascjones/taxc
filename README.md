@@ -130,6 +130,7 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 | `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
 | `description` | Optional description |
 | `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal`, `StakingReward` |
+| `price` | Optional price for valuation (see Price section below) |
 | `fee` | Optional fee (see Fee section below) |
 
 ### Types
@@ -137,15 +138,16 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 **Trade**
 - `sold`: asset you gave up
 - `bought`: asset you received
-- `price` (optional): price of the **bought** asset. Required when neither side is GBP.
+- Requires `price` when neither side is GBP (price.base must match bought asset)
 
 **Deposit / Withdrawal**
 - `asset`
 - `linked_withdrawal` or `linked_deposit` to mark transfers
+- Optional `price` for valuing unlinked deposits/withdrawals
 
 **StakingReward**
 - `asset`
-- `price` (required)
+- Requires `price` (price.base must match asset)
 
 ### Asset
 
@@ -157,10 +159,16 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 
 ### Price
 
-| Type | Fields | Description |
-|------|--------|-------------|
-| `Gbp` | `rate` | Direct GBP price per unit |
-| `FxChain` | `rate`, `quote`, `fx_rate` | Foreign price converted to GBP |
+| Field | Description |
+|-------|-------------|
+| `base` | Asset symbol this price refers to (e.g., "BTC") |
+| `quote` | Optional foreign currency (e.g., "USD") - requires `fx_rate` |
+| `rate` | Price per unit (in GBP, or in quote currency if FX fields present) |
+| `fx_rate` | Optional FX rate to convert quote to GBP - requires `quote` |
+| `source` | Optional source of price data |
+
+For direct GBP prices: `value = quantity * rate`
+For FX prices: `value = quantity * rate * fx_rate`
 
 ### Fee
 
@@ -211,7 +219,7 @@ Fee pricing rules:
       "type": "Trade",
       "sold": { "symbol": "BTC", "quantity": 0.01 },
       "bought": { "symbol": "ETH", "quantity": 0.5 },
-      "price": { "type": "FxChain", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
+      "price": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
     },
     {
       "id": "tx-004",
@@ -220,7 +228,7 @@ Fee pricing rules:
       "description": "ETH staking reward",
       "type": "StakingReward",
       "asset": { "symbol": "ETH", "quantity": 0.01 },
-      "price": { "type": "Gbp", "rate": 2000 }
+      "price": { "base": "ETH", "rate": 2000 }
     }
   ]
 }

@@ -18,6 +18,14 @@ pub enum TransactionError {
     LinkedTransactionNotReciprocal { id: String, linked_id: String },
     #[error("price required when neither side is GBP: {id}")]
     MissingTradePrice { id: String },
+    #[error("price required for staking reward: {id}")]
+    MissingStakingPrice { id: String },
+    #[error("price base '{base}' does not match expected asset '{expected}': {id}")]
+    PriceBaseMismatch {
+        id: String,
+        base: String,
+        expected: String,
+    },
     #[error("fee price required for non-GBP fee asset: {asset}")]
     MissingFeePrice { asset: String },
     #[error("invalid price configuration: {0}")]
@@ -32,49 +40,44 @@ pub struct TransactionInput {
     pub transactions: Vec<Transaction>,
 }
 
-/// Price - either direct GBP or foreign currency with FX conversion
+/// Price for an asset - either direct GBP or foreign currency with FX conversion
+///
+/// For direct GBP prices: value_gbp = quantity * rate
+/// For FX prices: value_gbp = quantity * rate * fx_rate
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type")]
-pub enum Price {
-    /// Direct GBP price per unit
-    /// value_gbp = quantity * rate
-    Gbp {
-        #[schemars(with = "f64")]
-        rate: Decimal,
-        #[serde(default)]
-        source: Option<String>,
-    },
-
-    /// Foreign currency price with FX conversion to GBP
-    /// value_gbp = quantity * rate * fx_rate
-    FxChain {
-        #[schemars(with = "f64")]
-        rate: Decimal,
-        quote: String,
-        #[schemars(with = "f64")]
-        fx_rate: Decimal,
-        #[serde(default)]
-        source: Option<String>,
-    },
+pub struct Price {
+    /// The asset this price refers to (e.g., "BTC", "ETH")
+    pub base: String,
+    /// Foreign currency quote (e.g., "USD") - requires fx_rate
+    #[serde(default)]
+    pub quote: Option<String>,
+    /// Price per unit (in GBP, or in quote currency if FX fields present)
+    #[schemars(with = "f64")]
+    pub rate: Decimal,
+    /// FX rate to convert quote currency to GBP - requires quote
+    #[serde(default)]
+    #[schemars(with = "Option<f64>")]
+    pub fx_rate: Option<Decimal>,
+    /// Optional source of price data
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 impl Price {
     pub fn to_gbp(&self, quantity: Decimal) -> Result<Decimal, TransactionError> {
-        match self {
-            Price::Gbp { rate, .. } => Ok(quantity * rate),
-            Price::FxChain {
-                rate,
-                fx_rate,
-                quote,
-                ..
-            } => {
+        match (&self.quote, &self.fx_rate) {
+            (None, None) => Ok(quantity * self.rate),
+            (Some(quote), Some(fx_rate)) => {
                 if quote.trim().is_empty() {
                     return Err(TransactionError::InvalidPrice(
                         "quote is required and cannot be empty".to_string(),
                     ));
                 }
-                Ok(quantity * rate * fx_rate)
+                Ok(quantity * self.rate * fx_rate)
             }
+            _ => Err(TransactionError::InvalidPrice(
+                "quote and fx_rate must both be present or both absent".to_string(),
+            )),
         }
     }
 }
@@ -93,6 +96,9 @@ pub struct Transaction {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional price for valuation (required for crypto-to-crypto trades and staking rewards)
+    #[serde(default)]
+    pub price: Option<Price>,
     /// Optional fee for this transaction
     #[serde(default)]
     pub fee: Option<Fee>,
@@ -105,12 +111,7 @@ pub struct Transaction {
 #[serde(tag = "type")]
 pub enum TransactionType {
     /// Trade one asset for another (includes fiat and crypto-to-crypto)
-    Trade {
-        sold: Asset,
-        bought: Asset,
-        #[serde(default)]
-        price: Option<Price>,
-    },
+    Trade { sold: Asset, bought: Asset },
 
     /// Deposit - assets received INTO an account
     Deposit {
@@ -127,7 +128,7 @@ pub enum TransactionType {
     },
 
     /// Staking reward (income + acquisition)
-    StakingReward { asset: Asset, price: Price },
+    StakingReward { asset: Asset },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -228,17 +229,27 @@ impl Transaction {
             id,
             datetime,
             description,
+            price,
             fee,
             details,
             ..
         } = self;
 
         match details {
-            TransactionType::Trade {
-                sold,
-                bought,
-                price,
-            } => {
+            TransactionType::Trade { sold, bought } => {
+                // Validate price.base matches bought asset if price is provided
+                if let Some(p) = price {
+                    let price_base = normalize_currency(&p.base);
+                    let bought_symbol = normalize_currency(&bought.symbol);
+                    if price_base != bought_symbol {
+                        return Err(TransactionError::PriceBaseMismatch {
+                            id: id.clone(),
+                            base: p.base.clone(),
+                            expected: bought.symbol.clone(),
+                        });
+                    }
+                }
+
                 let value_gbp = match price {
                     Some(p) => p.to_gbp(bought.quantity)?,
                     None if is_gbp(&sold.symbol) => sold.quantity,
@@ -308,10 +319,18 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
-                // Deposits have no price, so fee must have explicit price or be GBP
+                // Deposits can optionally have a price for valuation
                 let fee_gbp = match fee {
-                    Some(f) => Some(f.to_gbp_with_context(None, None)?),
+                    Some(f) => Some(f.to_gbp_with_context(
+                        price.as_ref().map(|p| p.base.as_str()),
+                        price.as_ref(),
+                    )?),
                     None => None,
+                };
+
+                let value_gbp = match price {
+                    Some(p) => p.to_gbp(asset.quantity)?,
+                    None => Decimal::ZERO,
                 };
 
                 log::warn!(
@@ -327,7 +346,7 @@ impl Transaction {
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
                     quantity: asset.quantity,
-                    value_gbp: Decimal::ZERO,
+                    value_gbp,
                     fee_gbp,
                     description: description.clone(),
                 }])
@@ -350,10 +369,18 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
-                // Withdrawals have no price, so fee must have explicit price or be GBP
+                // Withdrawals can optionally have a price for valuation
                 let fee_gbp = match fee {
-                    Some(f) => Some(f.to_gbp_with_context(None, None)?),
+                    Some(f) => Some(f.to_gbp_with_context(
+                        price.as_ref().map(|p| p.base.as_str()),
+                        price.as_ref(),
+                    )?),
                     None => None,
+                };
+
+                let value_gbp = match price {
+                    Some(p) => p.to_gbp(asset.quantity)?,
+                    None => Decimal::ZERO,
                 };
 
                 log::warn!(
@@ -369,13 +396,29 @@ impl Transaction {
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
                     quantity: asset.quantity,
-                    value_gbp: Decimal::ZERO,
+                    value_gbp,
                     fee_gbp,
                     description: description.clone(),
                 }])
             }
 
-            TransactionType::StakingReward { asset, price } => {
+            TransactionType::StakingReward { asset } => {
+                // Staking rewards require a price
+                let price = price
+                    .as_ref()
+                    .ok_or_else(|| TransactionError::MissingStakingPrice { id: id.clone() })?;
+
+                // Validate price.base matches asset
+                let price_base = normalize_currency(&price.base);
+                let asset_symbol = normalize_currency(&asset.symbol);
+                if price_base != asset_symbol {
+                    return Err(TransactionError::PriceBaseMismatch {
+                        id: id.clone(),
+                        base: price.base.clone(),
+                        expected: asset.symbol.clone(),
+                    });
+                }
+
                 // Fee uses staking price if fee asset matches reward asset
                 let fee_gbp = match fee {
                     Some(f) => Some(f.to_gbp_with_context(Some(&asset.symbol), Some(price))?),
@@ -479,26 +522,30 @@ fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> 
 
 fn normalize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions {
+        // Normalize price at transaction level
+        if let Some(p) = tx.price.as_mut() {
+            p.base = normalize_currency(&p.base);
+            if let Some(quote) = p.quote.as_mut() {
+                *quote = normalize_currency(quote);
+            }
+        }
+
         // Normalize fee at transaction level
         if let Some(f) = tx.fee.as_mut() {
             f.asset = normalize_currency(&f.asset);
-            if let Some(Price::FxChain { quote, .. }) = f.price.as_mut() {
-                *quote = normalize_currency(quote);
+            if let Some(fp) = f.price.as_mut() {
+                fp.base = normalize_currency(&fp.base);
+                if let Some(quote) = fp.quote.as_mut() {
+                    *quote = normalize_currency(quote);
+                }
             }
         }
 
         // Normalize type-specific fields
         match &mut tx.details {
-            TransactionType::Trade {
-                sold,
-                bought,
-                price,
-            } => {
+            TransactionType::Trade { sold, bought } => {
                 sold.symbol = normalize_currency(&sold.symbol);
                 bought.symbol = normalize_currency(&bought.symbol);
-                if let Some(Price::FxChain { quote, .. }) = price.as_mut() {
-                    *quote = normalize_currency(quote);
-                }
             }
             TransactionType::Deposit { asset, .. } => {
                 asset.symbol = normalize_currency(&asset.symbol);
@@ -506,11 +553,8 @@ fn normalize_transactions(transactions: &mut [Transaction]) {
             TransactionType::Withdrawal { asset, .. } => {
                 asset.symbol = normalize_currency(&asset.symbol);
             }
-            TransactionType::StakingReward { asset, price } => {
+            TransactionType::StakingReward { asset } => {
                 asset.symbol = normalize_currency(&asset.symbol);
-                if let Price::FxChain { quote, .. } = price {
-                    *quote = normalize_currency(quote);
-                }
             }
         }
     }
@@ -561,23 +605,37 @@ mod tests {
         parse_datetime(s).unwrap()
     }
 
+    /// Helper to create a direct GBP price
+    fn gbp_price(base: &str, rate: Decimal) -> Price {
+        Price {
+            base: base.to_string(),
+            rate,
+            source: None,
+            quote: None,
+            fx_rate: None,
+        }
+    }
+
+    /// Helper to create an FX price
+    fn fx_price(base: &str, rate: Decimal, quote: &str, fx_rate: Decimal) -> Price {
+        Price {
+            base: base.to_string(),
+            rate,
+            source: None,
+            quote: Some(quote.to_string()),
+            fx_rate: Some(fx_rate),
+        }
+    }
+
     #[test]
     fn price_gbp_multiplies_rate() {
-        let price = Price::Gbp {
-            rate: dec!(2000),
-            source: None,
-        };
+        let price = gbp_price("BTC", dec!(2000));
         assert_eq!(price.to_gbp(dec!(0.5)).unwrap(), dec!(1000));
     }
 
     #[test]
     fn price_fx_chain_applies_fx() {
-        let price = Price::FxChain {
-            rate: dec!(40000),
-            quote: "USD".to_string(),
-            fx_rate: dec!(0.79),
-            source: None,
-        };
+        let price = fx_price("BTC", dec!(40000), "USD", dec!(0.79));
         assert_eq!(price.to_gbp(dec!(0.5)).unwrap(), dec!(15800));
     }
 
@@ -588,6 +646,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
             fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
@@ -600,12 +659,6 @@ mod tests {
                     quantity: dec!(0.5),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::FxChain {
-                    rate: dec!(2000),
-                    quote: "USD".to_string(),
-                    fx_rate: dec!(0.79),
-                    source: None,
-                }),
             },
         };
 
@@ -623,6 +676,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
@@ -635,7 +689,6 @@ mod tests {
                     quantity: dec!(0.02),
                     asset_class: AssetClass::Crypto,
                 },
-                price: None,
             },
         };
 
@@ -652,6 +705,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
@@ -664,7 +718,6 @@ mod tests {
                     quantity: dec!(1000),
                     asset_class: AssetClass::Crypto,
                 },
-                price: None,
             },
         };
 
@@ -681,6 +734,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Trade {
                 sold: Asset {
@@ -693,7 +747,6 @@ mod tests {
                     quantity: dec!(0.5),
                     asset_class: AssetClass::Crypto,
                 },
-                price: None,
             },
         };
 
@@ -713,6 +766,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Deposit {
                 asset: Asset {
@@ -728,6 +782,7 @@ mod tests {
             datetime: dt("2024-01-01T09:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Withdrawal {
                 asset: Asset {
@@ -756,6 +811,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Deposit {
                 asset: Asset {
@@ -786,6 +842,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: None,
             fee: None,
             details: TransactionType::Withdrawal {
                 asset: Asset {
@@ -814,16 +871,13 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "ledger".to_string(),
             description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
             fee: None,
             details: TransactionType::StakingReward {
                 asset: Asset {
                     symbol: "ETH".to_string(),
                     quantity: dec!(0.01),
                     asset_class: AssetClass::Crypto,
-                },
-                price: Price::Gbp {
-                    rate: dec!(2000),
-                    source: None,
                 },
             },
         };
@@ -842,6 +896,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
             fee: Some(Fee {
                 asset: "GBP".to_string(),
                 amount: dec!(5),
@@ -858,10 +913,6 @@ mod tests {
                     quantity: dec!(10),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(1000),
-                    source: None,
-                }),
             },
         };
 
@@ -881,6 +932,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("BTC", dec!(15000))),
             fee: Some(Fee {
                 asset: "BTC".to_string(),
                 amount: dec!(0.0001),
@@ -897,10 +949,6 @@ mod tests {
                     quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(15000),
-                    source: None,
-                }),
             },
         };
 
@@ -920,6 +968,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("BTC", dec!(15000))),
             fee: Some(Fee {
                 asset: "ETH".to_string(),
                 amount: dec!(0.01),
@@ -936,10 +985,6 @@ mod tests {
                     quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(15000),
-                    source: None,
-                }),
             },
         };
 
@@ -960,14 +1005,12 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("BTC", dec!(15000))),
             fee: Some(Fee {
                 asset: "BTC".to_string(),
                 amount: dec!(0.0001),
                 // Explicit price overrides trade price
-                price: Some(Price::Gbp {
-                    rate: dec!(20000),
-                    source: None,
-                }),
+                price: Some(gbp_price("BTC", dec!(20000))),
             }),
             details: TransactionType::Trade {
                 sold: Asset {
@@ -980,10 +1023,6 @@ mod tests {
                     quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(15000),
-                    source: None,
-                }),
             },
         };
 
@@ -1001,6 +1040,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("BTC", dec!(15000))),
             fee: Some(Fee {
                 asset: "USDT".to_string(),
                 amount: dec!(5),
@@ -1017,10 +1057,6 @@ mod tests {
                     quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(15000),
-                    source: None,
-                }),
             },
         };
 
@@ -1041,6 +1077,7 @@ mod tests {
             datetime: dt("2024-01-01T10:00:00+00:00"),
             account: "kraken".to_string(),
             description: None,
+            price: Some(gbp_price("BTC", dec!(15000))),
             fee: Some(Fee {
                 asset: "btc".to_string(), // lowercase
                 amount: dec!(0.0001),
@@ -1057,15 +1094,72 @@ mod tests {
                     quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
-                price: Some(Price::Gbp {
-                    rate: dec!(15000),
-                    source: None,
-                }),
             },
         };
 
         let events = tx.to_taxable_events(false).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
+    }
+
+    #[test]
+    fn staking_reward_requires_price() {
+        let tx = Transaction {
+            id: "s1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            details: TransactionType::StakingReward {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingStakingPrice {
+                id: "s1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn price_base_must_match_bought_asset() {
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))), // Wrong base - should be BTC
+            fee: None,
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
+                    asset_class: AssetClass::Crypto,
+                },
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::PriceBaseMismatch {
+                id: "t1".to_string(),
+                base: "ETH".to_string(),
+                expected: "BTC".to_string(),
+            }
+        );
     }
 }
