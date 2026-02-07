@@ -105,4 +105,40 @@ mod tests {
         let report = calculate_income_tax(events).unwrap();
         assert_eq!(report.staking_events.len(), 1);
     }
+
+    #[test]
+    fn gifts_not_counted_as_income() {
+        let events = vec![
+            TaxableEvent {
+                id: None,
+                datetime: dt("2024-06-01"),
+                event_type: EventType::Acquisition,
+                label: Label::Gift,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(50000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: None,
+                datetime: dt("2024-07-01"),
+                event_type: EventType::Disposal,
+                label: Label::Gift,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.5),
+                value_gbp: dec!(25000),
+                fee_gbp: None,
+                description: None,
+            },
+            staking("2024-06-01", dec!(100)),
+        ];
+
+        let report = calculate_income_tax(events).unwrap();
+        // Only staking counts as income, not gifts
+        assert_eq!(report.staking_events.len(), 1);
+        assert_eq!(report.staking_events[0].value_gbp, dec!(100));
+    }
 }

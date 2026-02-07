@@ -19,6 +19,7 @@ pub enum Label {
     Unclassified,
     Trade,
     StakingReward,
+    Gift,
 }
 
 /// Asset class for tax treatment

@@ -325,6 +325,8 @@ function getFilters() {{
             Acquisition: document.getElementById('type-acquisition').checked,
             Disposal: document.getElementById('type-disposal').checked,
             StakingReward: document.getElementById('type-staking').checked,
+            GiftIn: document.getElementById('type-acquisition').checked,
+            GiftOut: document.getElementById('type-disposal').checked,
             // Unclassified events always shown (they need attention)
             UnclassifiedIn: true,
             UnclassifiedOut: true,
@@ -372,6 +374,8 @@ function getEventTypeBadgeClass(eventType) {{
         case 'Acquisition': return 'badge-acquisition';
         case 'Disposal': return 'badge-disposal';
         case 'StakingReward': return 'badge-staking';
+        case 'GiftIn': return 'badge-acquisition';
+        case 'GiftOut': return 'badge-disposal';
         case 'UnclassifiedIn': return 'badge-unclassified';
         case 'UnclassifiedOut': return 'badge-unclassified';
         default: return '';
@@ -391,6 +395,8 @@ function getRuleBadgeClass(rule) {{
 function getEventTypeLabel(eventType) {{
     switch(eventType) {{
         case 'StakingReward': return 'Staking';
+        case 'GiftIn': return 'Gift In';
+        case 'GiftOut': return 'Gift Out';
         case 'UnclassifiedIn': return '? In';
         case 'UnclassifiedOut': return '? Out';
         default: return eventType;
@@ -861,6 +867,8 @@ fn build_report_data(
 fn format_event_type(event_type: EventType, label: Label) -> String {
     match (event_type, label) {
         (EventType::Acquisition, Label::StakingReward) => "StakingReward",
+        (EventType::Acquisition, Label::Gift) => "GiftIn",
+        (EventType::Disposal, Label::Gift) => "GiftOut",
         (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
         (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
         (EventType::Acquisition, _) => "Acquisition",

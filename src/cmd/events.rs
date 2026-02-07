@@ -346,6 +346,62 @@ fn build_event_rows(
                 });
                 row_num += 1;
             }
+            (EventType::Acquisition, Label::Gift) => {
+                rows.push(EventRow {
+                    row_num: format!("#{}", row_num),
+                    id: event.id.clone(),
+                    date: event.date().format("%Y-%m-%d").to_string(),
+                    tax_year: event_year.display(),
+                    event_type: "Gift In".to_string(),
+                    asset: event.asset.clone(),
+                    quantity: format_quantity(event.quantity),
+                    acquisition_cost: format_gbp(event.total_cost_gbp()),
+                    proceeds: "-".to_string(),
+                    gain_loss: "-".to_string(),
+                    matched_ref: String::new(),
+                    income_value: "-".to_string(),
+                    description: event.description.clone().unwrap_or_default(),
+                });
+                row_num += 1;
+            }
+            (EventType::Disposal, Label::Gift) => {
+                // Find the disposal record for detailed info (same as Disposal)
+                if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
+                    let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
+                    rows.push(EventRow {
+                        row_num: format!("#{}", row_num),
+                        id: event.id.clone(),
+                        date: event.date().format("%Y-%m-%d").to_string(),
+                        tax_year: event_year.display(),
+                        event_type: format!("{}Gift Out", warning_prefix),
+                        asset: event.asset.clone(),
+                        quantity: format_quantity(event.quantity),
+                        acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
+                        proceeds: format_gbp(disposal.proceeds_gbp),
+                        gain_loss: format_gbp_signed(disposal.gain_gbp),
+                        matched_ref: String::new(),
+                        income_value: "-".to_string(),
+                        description: event.description.clone().unwrap_or_default(),
+                    });
+                } else {
+                    rows.push(EventRow {
+                        row_num: format!("#{}", row_num),
+                        id: event.id.clone(),
+                        date: event.date().format("%Y-%m-%d").to_string(),
+                        tax_year: event_year.display(),
+                        event_type: "Gift Out".to_string(),
+                        asset: event.asset.clone(),
+                        quantity: format_quantity(event.quantity),
+                        acquisition_cost: "-".to_string(),
+                        proceeds: format_gbp(event.value_gbp),
+                        gain_loss: "-".to_string(),
+                        matched_ref: String::new(),
+                        income_value: "-".to_string(),
+                        description: event.description.clone().unwrap_or_default(),
+                    });
+                }
+                row_num += 1;
+            }
             (EventType::Acquisition, Label::Unclassified) => {
                 rows.push(EventRow {
                     row_num: format!("#{}", row_num),

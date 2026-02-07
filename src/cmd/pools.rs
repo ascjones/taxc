@@ -238,6 +238,8 @@ fn filter_daily_entries<'a>(
 fn event_type_name(event_type: EventType, label: Label) -> String {
     match (event_type, label) {
         (EventType::Acquisition, Label::StakingReward) => "StakingReward",
+        (EventType::Acquisition, Label::Gift) => "GiftIn",
+        (EventType::Disposal, Label::Gift) => "GiftOut",
         (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
         (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
         (EventType::Acquisition, _) => "Acquisition",
