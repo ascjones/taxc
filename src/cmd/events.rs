@@ -144,6 +144,56 @@ pub struct EventRow {
     pub description: String,
 }
 
+/// Create a base EventRow with common fields from an event
+fn base_row(event: &TaxableEvent, row_num: usize, event_year: TaxYear) -> EventRow {
+    EventRow {
+        row_num: format!("#{}", row_num),
+        id: event.id.clone(),
+        date: event.date().format("%Y-%m-%d").to_string(),
+        tax_year: event_year.display(),
+        event_type: String::new(),
+        asset: event.asset.clone(),
+        quantity: format_quantity(event.quantity),
+        acquisition_cost: "-".to_string(),
+        proceeds: "-".to_string(),
+        gain_loss: "-".to_string(),
+        matched_ref: String::new(),
+        income_value: "-".to_string(),
+        description: event.description.clone().unwrap_or_default(),
+    }
+}
+
+/// Create an EventRow for a disposal with CGT record
+fn disposal_row(
+    event: &TaxableEvent,
+    row_num: usize,
+    event_year: TaxYear,
+    disposal: &DisposalRecord,
+    event_type: String,
+) -> EventRow {
+    EventRow {
+        event_type,
+        acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
+        proceeds: format_gbp(disposal.proceeds_gbp),
+        gain_loss: format_gbp_signed(disposal.gain_gbp),
+        ..base_row(event, row_num, event_year)
+    }
+}
+
+/// Create an EventRow for a disposal without CGT record (fallback)
+fn disposal_row_fallback(
+    event: &TaxableEvent,
+    row_num: usize,
+    event_year: TaxYear,
+    event_type: &str,
+) -> EventRow {
+    EventRow {
+        event_type: event_type.to_string(),
+        proceeds: format_gbp(event.value_gbp),
+        ..base_row(event, row_num, event_year)
+    }
+}
+
 /// Build event rows from the various data sources
 fn build_event_rows(
     events: &[TaxableEvent],
@@ -163,7 +213,6 @@ fn build_event_rows(
         .collect();
 
     // Build acquisition row number lookup for cross-referencing
-    // We need to assign row numbers first, then disposals can reference them
     let mut row_num = 1usize;
     let mut acquisition_row_nums: HashMap<(chrono::NaiveDate, String), usize> = HashMap::new();
 
@@ -213,260 +262,143 @@ fn build_event_rows(
         match (event.event_type, event.label) {
             (EventType::Acquisition, Label::Trade) => {
                 rows.push(EventRow {
-                    row_num: format!("#{}", row_num),
-                    id: event.id.clone(),
-                    date: event.date().format("%Y-%m-%d").to_string(),
-                    tax_year: event_year.display(),
                     event_type: "Acquisition".to_string(),
-                    asset: event.asset.clone(),
-                    quantity: format_quantity(event.quantity),
                     acquisition_cost: format_gbp(event.total_cost_gbp()),
-                    proceeds: "-".to_string(),
-                    gain_loss: "-".to_string(),
-                    matched_ref: String::new(),
-                    income_value: "-".to_string(),
-                    description: event.description.clone().unwrap_or_default(),
+                    ..base_row(event, row_num, event_year)
                 });
                 row_num += 1;
             }
             (EventType::Disposal, Label::Trade) => {
-                // Find the disposal record for detailed info
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
-                    // Check if this is a multi-rule disposal
                     if disposal.matching_components.len() <= 1 {
                         // Single rule - show inline
                         let (rule_name, matched_ref) =
                             format_single_rule(disposal, &acquisition_row_nums);
                         rows.push(EventRow {
-                            row_num: format!("#{}", row_num),
-                            id: event.id.clone(),
-                            date: event.date().format("%Y-%m-%d").to_string(),
-                            tax_year: event_year.display(),
-                            event_type: rule_name,
-                            asset: event.asset.clone(),
-                            quantity: format_quantity(event.quantity),
-                            acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
-                            proceeds: format_gbp(disposal.proceeds_gbp),
-                            gain_loss: format_gbp_signed(disposal.gain_gbp),
                             matched_ref,
-                            income_value: "-".to_string(),
-                            description: event.description.clone().unwrap_or_default(),
+                            ..disposal_row(event, row_num, event_year, disposal, rule_name)
                         });
                         row_num += 1;
                     } else {
                         // Multi-rule - show disposal row plus sub-rows
                         let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
-                        rows.push(EventRow {
-                            row_num: format!("#{}", row_num),
-                            id: event.id.clone(),
-                            date: event.date().format("%Y-%m-%d").to_string(),
-                            tax_year: event_year.display(),
-                            event_type: format!("{}Disposal", warning_prefix),
-                            asset: event.asset.clone(),
-                            quantity: format_quantity(event.quantity),
-                            acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
-                            proceeds: format_gbp(disposal.proceeds_gbp),
-                            gain_loss: format_gbp_signed(disposal.gain_gbp),
-                            matched_ref: String::new(),
-                            income_value: "-".to_string(),
-                            description: event.description.clone().unwrap_or_default(),
-                        });
+                        let event_type = format!("{}Disposal", warning_prefix);
+                        rows.push(disposal_row(
+                            event, row_num, event_year, disposal, event_type,
+                        ));
                         row_num += 1;
 
                         // Add sub-rows for each matching component
-                        let total_qty = disposal.quantity;
-                        for component in &disposal.matching_components {
-                            let proportion = if total_qty.is_zero() {
-                                Decimal::ZERO
-                            } else {
-                                component.quantity / total_qty
-                            };
-                            let proceeds_portion = (disposal.proceeds_gbp * proportion).round_dp(2);
-                            let gain_portion = (proceeds_portion - component.cost).round_dp(2);
-
-                            let matched_ref = format_component_ref(
-                                &component.rule,
-                                component.matched_date,
-                                &acquisition_row_nums,
-                                &disposal.asset,
-                            );
-
-                            rows.push(EventRow {
-                                row_num: "  └─".to_string(),
-                                id: None, // Sub-rows don't have their own id
-                                date: String::new(),
-                                tax_year: String::new(),
-                                event_type: format!("  {}", component.rule.display()),
-                                asset: String::new(),
-                                quantity: format_quantity(component.quantity),
-                                acquisition_cost: format_gbp(component.cost),
-                                proceeds: String::new(),
-                                gain_loss: format_gbp_signed(gain_portion),
-                                matched_ref,
-                                income_value: String::new(),
-                                description: String::new(),
-                            });
-                        }
+                        push_component_rows(&mut rows, disposal, &acquisition_row_nums);
                     }
                 } else {
-                    // No disposal record found (shouldn't happen)
-                    rows.push(EventRow {
-                        row_num: format!("#{}", row_num),
-                        id: event.id.clone(),
-                        date: event.date().format("%Y-%m-%d").to_string(),
-                        tax_year: event_year.display(),
-                        event_type: "Disposal".to_string(),
-                        asset: event.asset.clone(),
-                        quantity: format_quantity(event.quantity),
-                        acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp),
-                        gain_loss: "-".to_string(),
-                        matched_ref: String::new(),
-                        income_value: "-".to_string(),
-                        description: event.description.clone().unwrap_or_default(),
-                    });
+                    rows.push(disposal_row_fallback(
+                        event, row_num, event_year, "Disposal",
+                    ));
                     row_num += 1;
                 }
             }
             (EventType::Acquisition, Label::StakingReward) => {
                 rows.push(EventRow {
-                    row_num: format!("#{}", row_num),
-                    id: event.id.clone(),
-                    date: event.date().format("%Y-%m-%d").to_string(),
-                    tax_year: event_year.display(),
                     event_type: "Staking".to_string(),
-                    asset: event.asset.clone(),
-                    quantity: format_quantity(event.quantity),
-                    acquisition_cost: "-".to_string(),
-                    proceeds: "-".to_string(),
-                    gain_loss: "-".to_string(),
-                    matched_ref: String::new(),
                     income_value: format_gbp(event.value_gbp),
-                    description: event.description.clone().unwrap_or_default(),
+                    ..base_row(event, row_num, event_year)
                 });
                 row_num += 1;
             }
             (EventType::Acquisition, Label::Gift) => {
                 rows.push(EventRow {
-                    row_num: format!("#{}", row_num),
-                    id: event.id.clone(),
-                    date: event.date().format("%Y-%m-%d").to_string(),
-                    tax_year: event_year.display(),
                     event_type: "Gift In".to_string(),
-                    asset: event.asset.clone(),
-                    quantity: format_quantity(event.quantity),
                     acquisition_cost: format_gbp(event.total_cost_gbp()),
-                    proceeds: "-".to_string(),
-                    gain_loss: "-".to_string(),
-                    matched_ref: String::new(),
-                    income_value: "-".to_string(),
-                    description: event.description.clone().unwrap_or_default(),
+                    ..base_row(event, row_num, event_year)
                 });
                 row_num += 1;
             }
             (EventType::Disposal, Label::Gift) => {
-                // Find the disposal record for detailed info (same as Disposal)
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
                     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
-                    rows.push(EventRow {
-                        row_num: format!("#{}", row_num),
-                        id: event.id.clone(),
-                        date: event.date().format("%Y-%m-%d").to_string(),
-                        tax_year: event_year.display(),
-                        event_type: format!("{}Gift Out", warning_prefix),
-                        asset: event.asset.clone(),
-                        quantity: format_quantity(event.quantity),
-                        acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
-                        proceeds: format_gbp(disposal.proceeds_gbp),
-                        gain_loss: format_gbp_signed(disposal.gain_gbp),
-                        matched_ref: String::new(),
-                        income_value: "-".to_string(),
-                        description: event.description.clone().unwrap_or_default(),
-                    });
+                    let event_type = format!("{}Gift Out", warning_prefix);
+                    rows.push(disposal_row(
+                        event, row_num, event_year, disposal, event_type,
+                    ));
                 } else {
-                    rows.push(EventRow {
-                        row_num: format!("#{}", row_num),
-                        id: event.id.clone(),
-                        date: event.date().format("%Y-%m-%d").to_string(),
-                        tax_year: event_year.display(),
-                        event_type: "Gift Out".to_string(),
-                        asset: event.asset.clone(),
-                        quantity: format_quantity(event.quantity),
-                        acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp),
-                        gain_loss: "-".to_string(),
-                        matched_ref: String::new(),
-                        income_value: "-".to_string(),
-                        description: event.description.clone().unwrap_or_default(),
-                    });
+                    rows.push(disposal_row_fallback(
+                        event, row_num, event_year, "Gift Out",
+                    ));
                 }
                 row_num += 1;
             }
             (EventType::Acquisition, Label::Unclassified) => {
                 rows.push(EventRow {
-                    row_num: format!("#{}", row_num),
-                    id: event.id.clone(),
-                    date: event.date().format("%Y-%m-%d").to_string(),
-                    tax_year: event_year.display(),
                     event_type: "Unclassified In".to_string(),
-                    asset: event.asset.clone(),
-                    quantity: format_quantity(event.quantity),
                     acquisition_cost: format_gbp(event.total_cost_gbp()),
-                    proceeds: "-".to_string(),
-                    gain_loss: "-".to_string(),
-                    matched_ref: String::new(),
-                    income_value: "-".to_string(),
-                    description: event.description.clone().unwrap_or_default(),
+                    ..base_row(event, row_num, event_year)
                 });
                 row_num += 1;
             }
             (EventType::Disposal, Label::Unclassified) => {
-                // Find the disposal record for detailed info (same as Disposal)
                 if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
-                    // UnclassifiedOut always has at least the Unclassified warning
                     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
-                    rows.push(EventRow {
-                        row_num: format!("#{}", row_num),
-                        id: event.id.clone(),
-                        date: event.date().format("%Y-%m-%d").to_string(),
-                        tax_year: event_year.display(),
-                        event_type: format!("{}Unclassified Out", warning_prefix),
-                        asset: event.asset.clone(),
-                        quantity: format_quantity(event.quantity),
-                        acquisition_cost: format_gbp(disposal.allowable_cost_gbp),
-                        proceeds: format_gbp(disposal.proceeds_gbp),
-                        gain_loss: format_gbp_signed(disposal.gain_gbp),
-                        matched_ref: String::new(),
-                        income_value: "-".to_string(),
-                        description: event.description.clone().unwrap_or_default(),
-                    });
+                    let event_type = format!("{}Unclassified Out", warning_prefix);
+                    rows.push(disposal_row(
+                        event, row_num, event_year, disposal, event_type,
+                    ));
                 } else {
-                    rows.push(EventRow {
-                        row_num: format!("#{}", row_num),
-                        id: event.id.clone(),
-                        date: event.date().format("%Y-%m-%d").to_string(),
-                        tax_year: event_year.display(),
-                        event_type: "⚠ Unclassified Out".to_string(),
-                        asset: event.asset.clone(),
-                        quantity: format_quantity(event.quantity),
-                        acquisition_cost: "-".to_string(),
-                        proceeds: format_gbp(event.value_gbp),
-                        gain_loss: "-".to_string(),
-                        matched_ref: String::new(),
-                        income_value: "-".to_string(),
-                        description: event.description.clone().unwrap_or_default(),
-                    });
+                    rows.push(disposal_row_fallback(
+                        event,
+                        row_num,
+                        event_year,
+                        "⚠ Unclassified Out",
+                    ));
                 }
                 row_num += 1;
             }
-            _ => {
-                // Unexpected combination; skip for now to avoid misleading output
-                continue;
-            }
+            _ => continue,
         }
     }
 
     Ok(rows)
+}
+
+/// Add sub-rows for matching components of a multi-rule disposal
+fn push_component_rows(
+    rows: &mut Vec<EventRow>,
+    disposal: &DisposalRecord,
+    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), usize>,
+) {
+    let total_qty = disposal.quantity;
+    for component in &disposal.matching_components {
+        let proportion = if total_qty.is_zero() {
+            Decimal::ZERO
+        } else {
+            component.quantity / total_qty
+        };
+        let proceeds_portion = (disposal.proceeds_gbp * proportion).round_dp(2);
+        let gain_portion = (proceeds_portion - component.cost).round_dp(2);
+
+        let matched_ref = format_component_ref(
+            &component.rule,
+            component.matched_date,
+            acquisition_row_nums,
+            &disposal.asset,
+        );
+
+        rows.push(EventRow {
+            row_num: "  └─".to_string(),
+            id: None,
+            date: String::new(),
+            tax_year: String::new(),
+            event_type: format!("  {}", component.rule.display()),
+            asset: String::new(),
+            quantity: format_quantity(component.quantity),
+            acquisition_cost: format_gbp(component.cost),
+            proceeds: String::new(),
+            gain_loss: format_gbp_signed(gain_portion),
+            matched_ref,
+            income_value: String::new(),
+            description: String::new(),
+        });
+    }
 }
 
 fn matches_filter(event: &TaxableEvent, filter: EventTypeFilter) -> bool {
