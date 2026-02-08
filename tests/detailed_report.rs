@@ -263,6 +263,53 @@ fn report_duplicate_descriptions() {
     );
 }
 
+/// Matched reference should link to staking acquisition rows when applicable
+#[test]
+fn events_matched_reference_staking() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "events",
+            "tests/data/staking_matched.json",
+            "--csv",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
+    let headers = rdr.headers().expect("missing CSV headers").clone();
+
+    let event_type_idx = headers
+        .iter()
+        .position(|h| h == "event_type")
+        .expect("event_type header missing");
+    let matched_ref_idx = headers
+        .iter()
+        .position(|h| h == "matched_ref")
+        .expect("matched_ref header missing");
+
+    let mut matched_ref = None;
+    for result in rdr.records() {
+        let record = result.expect("invalid CSV record");
+        let event_type = record.get(event_type_idx).unwrap_or_default();
+        if event_type.contains("Disposal") {
+            matched_ref = Some(record.get(matched_ref_idx).unwrap_or_default().to_string());
+            break;
+        }
+    }
+
+    let matched_ref = matched_ref.expect("No disposal row found in CSV output");
+    assert!(
+        matched_ref.trim().starts_with("→ #"),
+        "Expected matched reference for disposal to point to staking acquisition row, got: {}",
+        matched_ref
+    );
+}
+
 // Integration tests for pools command
 
 /// Test pools command basic output

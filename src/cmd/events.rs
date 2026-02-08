@@ -237,7 +237,7 @@ fn build_event_rows(
             }
         }
 
-        if event.event_type == EventType::Acquisition && event.label == Label::Trade {
+        if event.event_type == EventType::Acquisition && event.label != Label::Unclassified {
             acquisition_row_nums.insert((event.date(), event.asset.clone()), row_num);
         }
         row_num += 1;

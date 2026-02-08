@@ -1,7 +1,6 @@
 # Improvements Backlog
 
 ## High Priority
-- Consider making acquisition row linking include non-Trade acquisitions (e.g., staking) when appropriate.
 
 ## Medium Priority
 - Add tests for Gift label display in `events` output and HTML report JSON.

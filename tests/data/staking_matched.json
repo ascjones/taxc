@@ -1,0 +1,22 @@
+{
+  "transactions": [
+    {
+      "id": "s-1",
+      "datetime": "2024-01-01T10:00:00+00:00",
+      "account": "ledger",
+      "description": "Staking reward",
+      "type": "StakingReward",
+      "asset": { "symbol": "ETH", "quantity": 1.0 },
+      "price": { "base": "ETH", "rate": 2000 }
+    },
+    {
+      "id": "d-1",
+      "datetime": "2024-01-01T12:00:00+00:00",
+      "account": "kraken",
+      "description": "Sell ETH",
+      "type": "Trade",
+      "sold": { "symbol": "ETH", "quantity": 1.0 },
+      "bought": { "symbol": "GBP", "quantity": 2500 }
+    }
+  ]
+}
