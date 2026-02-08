@@ -500,6 +500,65 @@ fn format_quantity(qty: Decimal) -> String {
     trimmed.to_string()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{AssetClass, EventType, Label, TaxableEvent};
+    use chrono::DateTime;
+    use rust_decimal_macros::dec;
+
+    fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
+    }
+
+    #[test]
+    fn gift_events_displayed() {
+        let events = vec![
+            TaxableEvent {
+                id: Some("gift-in".to_string()),
+                datetime: dt("2024-01-01"),
+                event_type: EventType::Acquisition,
+                label: Label::Gift,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(10000),
+                fee_gbp: None,
+                description: Some("Gift received".to_string()),
+            },
+            TaxableEvent {
+                id: Some("gift-out".to_string()),
+                datetime: dt("2024-02-01"),
+                event_type: EventType::Disposal,
+                label: Label::Gift,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.5),
+                value_gbp: dec!(7000),
+                fee_gbp: None,
+                description: Some("Gift given".to_string()),
+            },
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+
+        let rows = build_event_rows(
+            &events,
+            &cgt_report,
+            &income_report,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let event_types: Vec<String> = rows.iter().map(|r| r.event_type.clone()).collect();
+        assert!(event_types.iter().any(|t| t == "Gift In"));
+        assert!(event_types.iter().any(|t| t.contains("Gift Out")));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct DisposalKey {
     date: chrono::NaiveDate,

@@ -958,6 +958,56 @@ fn format_decimal_key(value: Decimal, dp: u32) -> String {
     trimmed.to_string()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{AssetClass, EventType, Label, TaxableEvent};
+    use chrono::DateTime;
+    use rust_decimal_macros::dec;
+
+    fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
+    }
+
+    #[test]
+    fn gift_event_types_in_report_data() {
+        let events = vec![
+            TaxableEvent {
+                id: Some("gift-in".to_string()),
+                datetime: dt("2024-01-01"),
+                event_type: EventType::Acquisition,
+                label: Label::Gift,
+                asset: "ETH".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(2),
+                value_gbp: dec!(2000),
+                fee_gbp: None,
+                description: Some("Gift received".to_string()),
+            },
+            TaxableEvent {
+                id: Some("gift-out".to_string()),
+                datetime: dt("2024-02-01"),
+                event_type: EventType::Disposal,
+                label: Label::Gift,
+                asset: "ETH".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(1500),
+                fee_gbp: None,
+                description: Some("Gift given".to_string()),
+            },
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None).unwrap();
+
+        let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
+        assert!(event_types.iter().any(|t| t == "GiftIn"));
+        assert!(event_types.iter().any(|t| t == "GiftOut"));
+    }
+}
+
 const CSS: &str = r#"
 :root {
     --primary: #2563eb;
