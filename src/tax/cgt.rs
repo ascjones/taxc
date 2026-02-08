@@ -209,7 +209,6 @@ pub struct DisposalRecord {
     pub allowable_cost_gbp: Decimal,
     pub fees_gbp: Decimal,
     pub gain_gbp: Decimal,
-    pub description: Option<String>,
     /// Pool state after this disposal (used in tests)
     #[allow(dead_code)]
     pub pool_after: PoolSnapshot,
@@ -593,7 +592,6 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     allowable_cost_gbp: total_allowable_cost,
                     fees_gbp: fees,
                     gain_gbp: gain,
-                    description: event.description.clone(),
                     pool_after,
                     matching_components,
                     warnings,

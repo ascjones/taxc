@@ -207,6 +207,62 @@ fn events_multiple_disposals_same_day() {
     );
 }
 
+/// Ensure HTML report maps disposals correctly when descriptions are duplicated
+#[test]
+fn report_duplicate_descriptions() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/duplicate_descriptions.json",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
+
+    let mut proceeds = Vec::new();
+    for e in events {
+        let event_type = e.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
+        if event_type.contains("Disposal") {
+            let cgt = e.get("cgt");
+            let proceeds_gbp = cgt
+                .and_then(|c| c.get("proceeds_gbp"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !proceeds_gbp.is_empty() {
+                proceeds.push(proceeds_gbp);
+            }
+        }
+    }
+
+    proceeds.sort();
+    proceeds.dedup();
+
+    assert!(
+        proceeds.contains(&"12000.00".to_string()),
+        "Expected proceeds for first disposal not found. Got: {:?}",
+        proceeds
+    );
+    assert!(
+        proceeds.contains(&"9000.00".to_string()),
+        "Expected proceeds for second disposal not found. Got: {:?}",
+        proceeds
+    );
+}
+
 // Integration tests for pools command
 
 /// Test pools command basic output
