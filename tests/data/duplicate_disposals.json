@@ -1,0 +1,31 @@
+{
+  "transactions": [
+    {
+      "id": "tx-1",
+      "datetime": "2024-01-01T10:00:00+00:00",
+      "account": "kraken",
+      "description": "Buy BTC",
+      "type": "Trade",
+      "sold": { "symbol": "GBP", "quantity": 10000 },
+      "bought": { "symbol": "BTC", "quantity": 1.0 }
+    },
+    {
+      "id": "tx-2",
+      "datetime": "2024-06-01T09:00:00+00:00",
+      "account": "kraken",
+      "description": "Sell BTC part A",
+      "type": "Trade",
+      "sold": { "symbol": "BTC", "quantity": 0.4 },
+      "bought": { "symbol": "GBP", "quantity": 12000 }
+    },
+    {
+      "id": "tx-3",
+      "datetime": "2024-06-01T12:00:00+00:00",
+      "account": "kraken",
+      "description": "Sell BTC part B",
+      "type": "Trade",
+      "sold": { "symbol": "BTC", "quantity": 0.3 },
+      "bought": { "symbol": "GBP", "quantity": 9000 }
+    }
+  ]
+}

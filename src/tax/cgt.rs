@@ -1,6 +1,6 @@
 use crate::events::{EventType, Label, TaxableEvent};
 use crate::tax::uk::TaxYear;
-use chrono::{Duration, NaiveDate};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
 use std::collections::HashMap;
@@ -200,6 +200,7 @@ impl Pool {
 pub struct DisposalRecord {
     /// Optional identifier from source data
     pub id: Option<String>,
+    pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub tax_year: TaxYear,
     pub asset: String,
@@ -583,6 +584,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
 
                 disposals.push(DisposalRecord {
                     id: event.id.clone(),
+                    datetime: event.datetime,
                     date: event.date(),
                     tax_year,
                     asset: event.asset.clone(),

@@ -7,7 +7,7 @@ use crate::tax::TaxYear;
 use crate::transaction::{self, ConversionOptions};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -205,12 +205,16 @@ fn build_event_rows(
 ) -> anyhow::Result<Vec<EventRow>> {
     let mut rows = Vec::new();
 
-    // Build a lookup from (date, asset) to disposal record
-    let disposal_map: HashMap<_, _> = cgt_report
-        .disposals
-        .iter()
-        .map(|d| ((d.date, d.asset.clone()), d))
-        .collect();
+    // Build disposal lookups. Prefer id; fallback to a composite key for stable matching.
+    let mut disposal_by_id: HashMap<String, usize> = HashMap::new();
+    let mut disposal_by_key: HashMap<DisposalKey, VecDeque<usize>> = HashMap::new();
+    for (idx, d) in cgt_report.disposals.iter().enumerate() {
+        if let Some(id) = d.id.as_ref() {
+            disposal_by_id.insert(id.clone(), idx);
+        }
+        let key = DisposalKey::from_disposal(d);
+        disposal_by_key.entry(key).or_default().push_back(idx);
+    }
 
     // Build acquisition row number lookup for cross-referencing
     let mut row_num = 1usize;
@@ -269,7 +273,9 @@ fn build_event_rows(
                 row_num += 1;
             }
             (EventType::Disposal, Label::Trade) => {
-                if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
+                if let Some(disposal) =
+                    find_disposal(event, cgt_report, &disposal_by_id, &mut disposal_by_key)
+                {
                     if disposal.matching_components.len() <= 1 {
                         // Single rule - show inline
                         let (rule_name, matched_ref) =
@@ -315,7 +321,9 @@ fn build_event_rows(
                 row_num += 1;
             }
             (EventType::Disposal, Label::Gift) => {
-                if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
+                if let Some(disposal) =
+                    find_disposal(event, cgt_report, &disposal_by_id, &mut disposal_by_key)
+                {
                     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                     let event_type = format!("{}Gift Out", warning_prefix);
                     rows.push(disposal_row(
@@ -337,7 +345,9 @@ fn build_event_rows(
                 row_num += 1;
             }
             (EventType::Disposal, Label::Unclassified) => {
-                if let Some(disposal) = disposal_map.get(&(event.date(), event.asset.clone())) {
+                if let Some(disposal) =
+                    find_disposal(event, cgt_report, &disposal_by_id, &mut disposal_by_key)
+                {
                     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
                     let event_type = format!("{}Unclassified Out", warning_prefix);
                     rows.push(disposal_row(
@@ -486,6 +496,62 @@ fn format_gbp_signed(amount: Decimal) -> String {
 fn format_quantity(qty: Decimal) -> String {
     // Use reasonable precision, removing trailing zeros
     let s = format!("{:.8}", qty);
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    trimmed.to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DisposalKey {
+    date: chrono::NaiveDate,
+    datetime: String,
+    asset: String,
+    quantity: String,
+    proceeds: String,
+}
+
+impl DisposalKey {
+    fn from_disposal(disposal: &DisposalRecord) -> Self {
+        DisposalKey {
+            date: disposal.date,
+            datetime: disposal.datetime.to_rfc3339(),
+            asset: disposal.asset.clone(),
+            quantity: format_decimal_key(disposal.quantity, 8),
+            proceeds: format_decimal_key(disposal.proceeds_gbp, 2),
+        }
+    }
+
+    fn from_event(event: &TaxableEvent) -> Self {
+        DisposalKey {
+            date: event.date(),
+            datetime: event.datetime.to_rfc3339(),
+            asset: event.asset.clone(),
+            quantity: format_decimal_key(event.quantity, 8),
+            proceeds: format_decimal_key(event.value_gbp, 2),
+        }
+    }
+}
+
+fn find_disposal<'a>(
+    event: &TaxableEvent,
+    cgt_report: &'a CgtReport,
+    disposal_by_id: &HashMap<String, usize>,
+    disposal_by_key: &mut HashMap<DisposalKey, VecDeque<usize>>,
+) -> Option<&'a DisposalRecord> {
+    if let Some(id) = event.id.as_ref() {
+        if let Some(&idx) = disposal_by_id.get(id) {
+            return cgt_report.disposals.get(idx);
+        }
+    }
+
+    let key = DisposalKey::from_event(event);
+    disposal_by_key
+        .get_mut(&key)
+        .and_then(|queue| queue.pop_front())
+        .and_then(|idx| cgt_report.disposals.get(idx))
+}
+
+fn format_decimal_key(value: Decimal, dp: u32) -> String {
+    let s = format!("{:.*}", dp as usize, value);
     let trimmed = s.trim_end_matches('0').trim_end_matches('.');
     trimmed.to_string()
 }

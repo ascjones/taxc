@@ -148,6 +148,65 @@ fn events_filter_by_year() {
     assert!(stdout.contains("2024/25"));
 }
 
+/// Ensure multiple disposals on the same date/asset map to the correct CGT record
+#[test]
+fn events_multiple_disposals_same_day() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "events",
+            "tests/data/duplicate_disposals.json",
+            "--csv",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
+    let headers = rdr.headers().expect("missing CSV headers").clone();
+
+    let row_num_idx = headers
+        .iter()
+        .position(|h| h == "row_num")
+        .expect("row_num header missing");
+    let event_type_idx = headers
+        .iter()
+        .position(|h| h == "event_type")
+        .expect("event_type header missing");
+    let proceeds_idx = headers
+        .iter()
+        .position(|h| h == "proceeds")
+        .expect("proceeds header missing");
+
+    let mut proceeds = Vec::new();
+    for result in rdr.records() {
+        let record = result.expect("invalid CSV record");
+        let row_num = record.get(row_num_idx).unwrap_or_default();
+        let event_type = record.get(event_type_idx).unwrap_or_default();
+        let proceeds_val = record.get(proceeds_idx).unwrap_or_default();
+        if row_num.starts_with('#') && event_type.contains("Disposal") {
+            proceeds.push(proceeds_val.to_string());
+        }
+    }
+
+    proceeds.sort();
+    proceeds.dedup();
+
+    assert!(
+        proceeds.contains(&"£12000.00".to_string()),
+        "Expected proceeds for first disposal not found. Got: {:?}",
+        proceeds
+    );
+    assert!(
+        proceeds.contains(&"£9000.00".to_string()),
+        "Expected proceeds for second disposal not found. Got: {:?}",
+        proceeds
+    );
+}
+
 // Integration tests for pools command
 
 /// Test pools command basic output
