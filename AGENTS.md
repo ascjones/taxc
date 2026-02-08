@@ -30,3 +30,7 @@ Run tests and linting before committing:
 cargo test
 cargo clippy
 ```
+
+## Notes
+
+Record learnings, ideas, and follow-ups in `notes/` (one file per topic or a shared backlog) so we can improve iteratively.
