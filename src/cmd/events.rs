@@ -543,15 +543,8 @@ mod tests {
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
 
-        let rows = build_event_rows(
-            &events,
-            &cgt_report,
-            &income_report,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+        let rows =
+            build_event_rows(&events, &cgt_report, &income_report, None, None, None).unwrap();
 
         let event_types: Vec<String> = rows.iter().map(|r| r.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "Gift In"));

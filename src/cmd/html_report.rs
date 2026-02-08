@@ -173,6 +173,7 @@ pub fn generate(
 ) -> anyhow::Result<String> {
     let data = build_report_data(events, cgt_report, income_report, year)?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+    let js = JS.replace("__JSON_DATA__", &json_data);
 
     Ok(format!(
         r##"<!DOCTYPE html>
@@ -280,358 +281,12 @@ pub fn generate(
     </main>
 
     <script>
-const DATA = {json_data};
-
-function init() {{
-    // Populate tax year dropdown
-    const taxYearSelect = document.getElementById('tax-year');
-    DATA.summary.tax_years.forEach(year => {{
-        const opt = document.createElement('option');
-        opt.value = year;
-        opt.textContent = year;
-        taxYearSelect.appendChild(opt);
-    }});
-
-    // Set date range to match data
-    if (DATA.summary.min_date) {{
-        document.getElementById('date-from').value = DATA.summary.min_date;
-    }}
-    if (DATA.summary.max_date) {{
-        document.getElementById('date-to').value = DATA.summary.max_date;
-    }}
-
-    // Show warnings banner if there are any warnings
-    if (DATA.summary.warning_count > 0) {{
-        const parts = [];
-        if (DATA.summary.unclassified_count > 0) {{
-            parts.push(`${{DATA.summary.unclassified_count}} unclassified`);
-        }}
-        if (DATA.summary.cost_basis_warning_count > 0) {{
-            parts.push(`${{DATA.summary.cost_basis_warning_count}} missing cost basis`);
-        }}
-        const summary = `${{DATA.summary.warning_count}} disposal(s) with warnings: ${{parts.join(', ')}}`;
-        document.getElementById('warnings-banner').style.display = 'flex';
-        document.getElementById('warning-summary').textContent = summary;
-    }}
-
-    applyFilters();
-}}
-
-function getFilters() {{
-    return {{
-        dateFrom: document.getElementById('date-from').value,
-        dateTo: document.getElementById('date-to').value,
-        taxYear: document.getElementById('tax-year').value,
-        eventTypes: {{
-            Acquisition: document.getElementById('type-acquisition').checked,
-            Disposal: document.getElementById('type-disposal').checked,
-            StakingReward: document.getElementById('type-staking').checked,
-            GiftIn: document.getElementById('type-acquisition').checked,
-            GiftOut: document.getElementById('type-disposal').checked,
-            // Unclassified events always shown (they need attention)
-            UnclassifiedIn: true,
-            UnclassifiedOut: true,
-        }},
-        assetClasses: {{
-            Crypto: document.getElementById('class-crypto').checked,
-            Stock: document.getElementById('class-stock').checked,
-        }},
-        assetSearch: document.getElementById('asset-search').value.toLowerCase(),
-    }};
-}}
-
-function filterEvents(events, filters) {{
-    return events.filter(e => {{
-        // Date filter - extract date part from datetime
-        const eventDate = e.datetime.substring(0, 10);
-        if (filters.dateFrom && eventDate < filters.dateFrom) return false;
-        if (filters.dateTo && eventDate > filters.dateTo) return false;
-
-        // Tax year filter
-        if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
-
-        // Event type filter
-        if (e.event_type && !filters.eventTypes[e.event_type]) return false;
-
-        // Asset class filter
-        if (e.asset_class && !filters.assetClasses[e.asset_class]) return false;
-
-        // Asset search
-        if (filters.assetSearch && !e.asset.toLowerCase().includes(filters.assetSearch)) return false;
-
-        return true;
-    }});
-}}
-
-function formatGbp(value) {{
-    const num = parseFloat(value.replace(/[£,]/g, ''));
-    if (isNaN(num)) return value;
-    const prefix = num < 0 ? '-£' : '£';
-    return prefix + Math.abs(num).toLocaleString('en-GB', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-}}
-
-function getEventTypeBadgeClass(eventType) {{
-    switch(eventType) {{
-        case 'Acquisition': return 'badge-acquisition';
-        case 'Disposal': return 'badge-disposal';
-        case 'StakingReward': return 'badge-staking';
-        case 'GiftIn': return 'badge-acquisition';
-        case 'GiftOut': return 'badge-disposal';
-        case 'UnclassifiedIn': return 'badge-unclassified';
-        case 'UnclassifiedOut': return 'badge-unclassified';
-        default: return '';
-    }}
-}}
-
-function getRuleBadgeClass(rule) {{
-    switch(rule) {{
-        case 'Same-Day': return 'badge-sameday';
-        case 'B&B': return 'badge-bnb';
-        case 'Pool': return 'badge-pool';
-        case 'Mixed': return 'badge-mixed';
-        default: return '';
-    }}
-}}
-
-function getEventTypeLabel(eventType) {{
-    switch(eventType) {{
-        case 'StakingReward': return 'Staking';
-        case 'GiftIn': return 'Gift In';
-        case 'GiftOut': return 'Gift Out';
-        case 'UnclassifiedIn': return '? In';
-        case 'UnclassifiedOut': return '? Out';
-        default: return eventType;
-    }}
-}}
-
-function formatDateTime(dt) {{
-    // Format "2024-01-15T10:30:00" as "2024-01-15 10:30"
-    const date = dt.substring(0, 10);
-    const time = dt.substring(11, 16);
-    if (time === '00:00') {{
-        return date;  // Don't show midnight time
-    }}
-    return `${{date}} ${{time}}`;
-}}
-
-function renderEventsTable(events) {{
-    const tbody = document.getElementById('events-body');
-    let html = '';
-
-    events.forEach((e, idx) => {{
-        const badgeClass = getEventTypeBadgeClass(e.event_type);
-        const label = getEventTypeLabel(e.event_type);
-        const hasCgt = e.cgt != null;
-        const expandIcon = hasCgt ? '<span class="expand-icon">▶</span>' : '';
-        const expandableClass = hasCgt ? 'expandable' : '';
-
-        // Check for warnings
-        const hasWarnings = hasCgt && e.cgt.warnings && e.cgt.warnings.length > 0;
-        const warningIndicator = hasWarnings ? '<span class="warning-indicator" title="' + e.cgt.warnings.join(', ') + '">⚠</span> ' : '';
-
-        // Gain/Loss column - show CGT gain for disposals, empty for others
-        let gainCell = '<td class="number">-</td>';
-        if (hasCgt) {{
-            const gainNum = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, ''));
-            const gainClass = gainNum >= 0 ? 'gain' : 'loss';
-            gainCell = `<td class="number ${{gainClass}}">${{formatGbp(e.cgt.gain_gbp)}}</td>`;
-        }}
-
-        html += `
-            <tr class="${{expandableClass}}" data-idx="${{idx}}" id="row-${{idx}}" ${{hasCgt ? `onclick="toggleCgtDetails(${{idx}})"` : ''}}>
-                <td class="expand-cell">${{expandIcon}}</td>
-                <td>${{formatDateTime(e.datetime)}}</td>
-                <td>${{warningIndicator}}<span class="badge ${{badgeClass}}">${{label}}</span></td>
-                <td class="number">${{e.quantity}}</td>
-                <td>${{e.asset}}</td>
-                <td class="number">${{formatGbp(e.value_gbp)}}</td>
-                ${{gainCell}}
-                <td>${{e.description || ''}}</td>
-            </tr>
-        `;
-
-        // Add hidden CGT detail rows for disposals
-        if (hasCgt) {{
-            // CGT summary row
-            const ruleBadgeClass = getRuleBadgeClass(e.cgt.rule);
-            html += `
-                <tr class="matching-row cgt-summary-row" data-parent="${{idx}}" style="display: none;">
-                    <td class="expand-cell"></td>
-                    <td colspan="7" class="cgt-summary-label">Cost Basis</td>
-                </tr>
-            `;
-
-            // Add matching component rows as full table rows
-            if (e.cgt.matching_components && e.cgt.matching_components.length > 0) {{
-                e.cgt.matching_components.forEach(mc => {{
-                    const mcBadgeClass = getRuleBadgeClass(mc.rule);
-                    const hasLinkedRow = mc.matched_row_id != null && mc.rule !== 'Pool';
-                    const clickHandler = hasLinkedRow ? `onclick="navigateToRow(${{mc.matched_row_id}}); event.stopPropagation();"` : '';
-                    const clickableClass = hasLinkedRow ? 'clickable-ref' : '';
-
-                    // For Same-Day/B&B, show the linked acquisition row with partial qty/value
-                    if (mc.matched_event_type) {{
-                        const linkedBadgeClass = getEventTypeBadgeClass(mc.matched_event_type);
-                        const linkedLabel = getEventTypeLabel(mc.matched_event_type);
-                        html += `
-                            <tr class="matching-row ref-row ${{clickableClass}}" data-parent="${{idx}}" style="display: none;" ${{clickHandler}}>
-                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
-                                <td class="ref-text">${{mc.matched_date}}</td>
-                                <td><span class="badge ${{linkedBadgeClass}} ref-badge">${{linkedLabel}}</span> <span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
-                                <td class="number ref-text">${{mc.quantity}} <span class="ref-original">of ${{mc.matched_original_qty}}</span></td>
-                                <td class="ref-text">${{mc.matched_asset || ''}}</td>
-                                <td class="number ref-text">${{formatGbp(mc.cost_gbp)}} <span class="ref-original">of ${{formatGbp(mc.matched_original_value || '0')}}</span></td>
-                                <td></td>
-                                <td class="ref-text">${{mc.matched_description || ''}}</td>
-                            </tr>
-                        `;
-                    }} else {{
-                        // Pool matching - no linked acquisition
-                        html += `
-                            <tr class="matching-row ref-row" data-parent="${{idx}}" style="display: none;">
-                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
-                                <td class="ref-text">-</td>
-                                <td><span class="badge ${{mcBadgeClass}}">${{mc.rule}}</span></td>
-                                <td class="number ref-text">${{mc.quantity}}</td>
-                                <td class="ref-text">${{e.asset}}</td>
-                                <td class="number ref-text">${{formatGbp(mc.cost_gbp)}}</td>
-                                <td></td>
-                                <td class="ref-text">Section 104 Pool</td>
-                            </tr>
-                        `;
-                    }}
-                }});
-            }}
-        }}
-    }});
-
-    tbody.innerHTML = html;
-    document.getElementById('events-count').textContent = `(${{events.length}})`;
-}}
-
-function toggleCgtDetails(idx) {{
-    const parentRow = document.querySelector(`tr[data-idx="${{idx}}"]`);
-    const childRows = document.querySelectorAll(`tr[data-parent="${{idx}}"]`);
-
-    if (childRows.length === 0) return;
-
-    const isExpanded = parentRow.classList.contains('expanded');
-
-    if (isExpanded) {{
-        parentRow.classList.remove('expanded');
-        childRows.forEach(row => row.style.display = 'none');
-    }} else {{
-        parentRow.classList.add('expanded');
-        childRows.forEach(row => row.style.display = '');
-    }}
-}}
-
-function navigateToRow(rowIdx) {{
-    const targetRow = document.getElementById(`row-${{rowIdx}}`);
-    if (targetRow) {{
-        // Scroll to the row
-        targetRow.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-        // Highlight briefly
-        targetRow.classList.add('highlight-flash');
-        setTimeout(() => targetRow.classList.remove('highlight-flash'), 1500);
-    }}
-}}
-
-function calculateFilteredSummary(events) {{
-    // Track classified and all (including unclassified) totals separately
-    let proceeds = 0, costs = 0, gain = 0;
-    let proceedsInc = 0, costsInc = 0, gainInc = 0;
-    let staking = 0;
-    let unclassifiedCount = 0;
-
-    events.forEach(e => {{
-        const isUnclassified = e.event_type === 'UnclassifiedIn' || e.event_type === 'UnclassifiedOut';
-        if (isUnclassified) unclassifiedCount++;
-
-        if (e.cgt) {{
-            const p = parseFloat(e.cgt.proceeds_gbp.replace(/[£,]/g, '')) || 0;
-            const c = parseFloat(e.cgt.cost_gbp.replace(/[£,]/g, '')) || 0;
-            const g = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, '')) || 0;
-
-            // Always add to "including unclassified" totals
-            proceedsInc += p;
-            costsInc += c;
-            gainInc += g;
-
-            // Only add to classified totals if not unclassified
-            if (!isUnclassified) {{
-                proceeds += p;
-                costs += c;
-                gain += g;
-            }}
-        }}
-        if (e.event_type === 'StakingReward') {{
-            staking += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
-        }}
-    }});
-
-    return {{ proceeds, costs, gain, proceedsInc, costsInc, gainInc, staking, unclassifiedCount }};
-}}
-
-function updateSummary(events) {{
-    const summary = calculateFilteredSummary(events);
-
-    document.getElementById('summary-proceeds').textContent = formatGbp(summary.proceeds.toString());
-    document.getElementById('summary-costs').textContent = formatGbp(summary.costs.toString());
-
-    const gainEl = document.getElementById('summary-gain');
-    gainEl.textContent = formatGbp(summary.gain.toString());
-    gainEl.className = 'value ' + (summary.gain >= 0 ? 'gain' : 'loss');
-
-    // Show "inc. unclassified" sub-values only if there are unclassified events
-    const hasUnclassified = summary.unclassifiedCount > 0;
-    const proceedsIncEl = document.getElementById('summary-proceeds-inc');
-    const costsIncEl = document.getElementById('summary-costs-inc');
-    const gainIncEl = document.getElementById('summary-gain-inc');
-
-    if (hasUnclassified) {{
-        proceedsIncEl.textContent = `(${{formatGbp(summary.proceedsInc.toString())}} inc. unclassified)`;
-        proceedsIncEl.style.display = 'block';
-        costsIncEl.textContent = `(${{formatGbp(summary.costsInc.toString())}} inc. unclassified)`;
-        costsIncEl.style.display = 'block';
-        gainIncEl.textContent = `(${{formatGbp(summary.gainInc.toString())}} inc. unclassified)`;
-        gainIncEl.style.display = 'block';
-        gainIncEl.className = 'sub-value ' + (summary.gainInc >= 0 ? 'gain' : 'loss');
-    }} else {{
-        proceedsIncEl.style.display = 'none';
-        costsIncEl.style.display = 'none';
-        gainIncEl.style.display = 'none';
-    }}
-
-    document.getElementById('summary-staking').textContent = formatGbp(summary.staking.toString());
-}}
-
-function applyFilters() {{
-    const filters = getFilters();
-    const filteredEvents = filterEvents(DATA.events, filters);
-    renderEventsTable(filteredEvents);
-    updateSummary(filteredEvents);
-}}
-
-function resetFilters() {{
-    document.getElementById('date-from').value = DATA.summary.min_date || '';
-    document.getElementById('date-to').value = DATA.summary.max_date || '';
-    document.getElementById('tax-year').value = '';
-    document.getElementById('asset-search').value = '';
-    document.getElementById('type-acquisition').checked = true;
-    document.getElementById('type-disposal').checked = true;
-    document.getElementById('type-staking').checked = true;
-    document.getElementById('class-crypto').checked = true;
-    document.getElementById('class-stock').checked = true;
-    applyFilters();
-}}
-
-document.addEventListener('DOMContentLoaded', init);
+{js}
     </script>
 </body>
 </html>"##,
         css = CSS,
-        json_data = json_data
+        js = js
     ))
 }
 
@@ -1499,4 +1154,354 @@ tbody tr:nth-child(even):hover {
 .matching-row td {
     border-bottom: 1px solid var(--gray-100);
 }
+"#;
+
+const JS: &str = r#"
+const DATA = __JSON_DATA__;
+
+function init() {
+    // Populate tax year dropdown
+    const taxYearSelect = document.getElementById('tax-year');
+    DATA.summary.tax_years.forEach(year => {
+        const opt = document.createElement('option');
+        opt.value = year;
+        opt.textContent = year;
+        taxYearSelect.appendChild(opt);
+    });
+
+    // Set date range to match data
+    if (DATA.summary.min_date) {
+        document.getElementById('date-from').value = DATA.summary.min_date;
+    }
+    if (DATA.summary.max_date) {
+        document.getElementById('date-to').value = DATA.summary.max_date;
+    }
+
+    // Show warnings banner if there are any warnings
+    if (DATA.summary.warning_count > 0) {
+        const parts = [];
+        if (DATA.summary.unclassified_count > 0) {
+            parts.push(`${DATA.summary.unclassified_count} unclassified`);
+        }
+        if (DATA.summary.cost_basis_warning_count > 0) {
+            parts.push(`${DATA.summary.cost_basis_warning_count} missing cost basis`);
+        }
+        const summary = `${DATA.summary.warning_count} disposal(s) with warnings: ${parts.join(', ')}`;
+        document.getElementById('warnings-banner').style.display = 'flex';
+        document.getElementById('warning-summary').textContent = summary;
+    }
+
+    applyFilters();
+}
+
+function getFilters() {
+    return {
+        dateFrom: document.getElementById('date-from').value,
+        dateTo: document.getElementById('date-to').value,
+        taxYear: document.getElementById('tax-year').value,
+        eventTypes: {
+            Acquisition: document.getElementById('type-acquisition').checked,
+            Disposal: document.getElementById('type-disposal').checked,
+            StakingReward: document.getElementById('type-staking').checked,
+            GiftIn: document.getElementById('type-acquisition').checked,
+            GiftOut: document.getElementById('type-disposal').checked,
+            // Unclassified events always shown (they need attention)
+            UnclassifiedIn: true,
+            UnclassifiedOut: true,
+        },
+        assetClasses: {
+            Crypto: document.getElementById('class-crypto').checked,
+            Stock: document.getElementById('class-stock').checked,
+        },
+        assetSearch: document.getElementById('asset-search').value.toLowerCase(),
+    };
+}
+
+function filterEvents(events, filters) {
+    return events.filter(e => {
+        // Date filter - extract date part from datetime
+        const eventDate = e.datetime.substring(0, 10);
+        if (filters.dateFrom && eventDate < filters.dateFrom) return false;
+        if (filters.dateTo && eventDate > filters.dateTo) return false;
+
+        // Tax year filter
+        if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
+
+        // Event type filter
+        if (e.event_type && !filters.eventTypes[e.event_type]) return false;
+
+        // Asset class filter
+        if (e.asset_class && !filters.assetClasses[e.asset_class]) return false;
+
+        // Asset search
+        if (filters.assetSearch && !e.asset.toLowerCase().includes(filters.assetSearch)) return false;
+
+        return true;
+    });
+}
+
+function formatGbp(value) {
+    const num = parseFloat(value.replace(/[£,]/g, ''));
+    if (isNaN(num)) return value;
+    const prefix = num < 0 ? '-£' : '£';
+    return prefix + Math.abs(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function getEventTypeBadgeClass(eventType) {
+    switch(eventType) {
+        case 'Acquisition': return 'badge-acquisition';
+        case 'Disposal': return 'badge-disposal';
+        case 'StakingReward': return 'badge-staking';
+        case 'GiftIn': return 'badge-acquisition';
+        case 'GiftOut': return 'badge-disposal';
+        case 'UnclassifiedIn': return 'badge-unclassified';
+        case 'UnclassifiedOut': return 'badge-unclassified';
+        default: return '';
+    }
+}
+
+function getRuleBadgeClass(rule) {
+    switch(rule) {
+        case 'Same-Day': return 'badge-sameday';
+        case 'B&B': return 'badge-bnb';
+        case 'Pool': return 'badge-pool';
+        case 'Mixed': return 'badge-mixed';
+        default: return '';
+    }
+}
+
+function getEventTypeLabel(eventType) {
+    switch(eventType) {
+        case 'StakingReward': return 'Staking';
+        case 'GiftIn': return 'Gift In';
+        case 'GiftOut': return 'Gift Out';
+        case 'UnclassifiedIn': return '? In';
+        case 'UnclassifiedOut': return '? Out';
+        default: return eventType;
+    }
+}
+
+function formatDateTime(dt) {
+    // Format "2024-01-15T10:30:00" as "2024-01-15 10:30"
+    const date = dt.substring(0, 10);
+    const time = dt.substring(11, 16);
+    if (time === '00:00') {
+        return date;  // Don't show midnight time
+    }
+    return `${date} ${time}`;
+}
+
+function renderEventsTable(events) {
+    const tbody = document.getElementById('events-body');
+    let html = '';
+
+    events.forEach((e, idx) => {
+        const badgeClass = getEventTypeBadgeClass(e.event_type);
+        const label = getEventTypeLabel(e.event_type);
+        const hasCgt = e.cgt != null;
+        const expandIcon = hasCgt ? '<span class="expand-icon">▶</span>' : '';
+        const expandableClass = hasCgt ? 'expandable' : '';
+
+        // Check for warnings
+        const hasWarnings = hasCgt && e.cgt.warnings && e.cgt.warnings.length > 0;
+        const warningIndicator = hasWarnings ? '<span class="warning-indicator" title="' + e.cgt.warnings.join(', ') + '">⚠</span> ' : '';
+
+        // Gain/Loss column - show CGT gain for disposals, empty for others
+        let gainCell = '<td class="number">-</td>';
+        if (hasCgt) {
+            const gainNum = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, ''));
+            const gainClass = gainNum >= 0 ? 'gain' : 'loss';
+            gainCell = `<td class="number ${gainClass}">${formatGbp(e.cgt.gain_gbp)}</td>`;
+        }
+
+        html += `
+            <tr class="${expandableClass}" data-idx="${idx}" id="row-${idx}" ${hasCgt ? `onclick="toggleCgtDetails(${idx})"` : ''}>
+                <td class="expand-cell">${expandIcon}</td>
+                <td>${formatDateTime(e.datetime)}</td>
+                <td>${warningIndicator}<span class="badge ${badgeClass}">${label}</span></td>
+                <td class="number">${e.quantity}</td>
+                <td>${e.asset}</td>
+                <td class="number">${formatGbp(e.value_gbp)}</td>
+                ${gainCell}
+                <td>${e.description || ''}</td>
+            </tr>
+        `;
+
+        // Add hidden CGT detail rows for disposals
+        if (hasCgt) {
+            // CGT summary row
+            const ruleBadgeClass = getRuleBadgeClass(e.cgt.rule);
+            html += `
+                <tr class="matching-row cgt-summary-row" data-parent="${idx}" style="display: none;">
+                    <td class="expand-cell"></td>
+                    <td colspan="7" class="cgt-summary-label">Cost Basis</td>
+                </tr>
+            `;
+
+            // Add matching component rows as full table rows
+            if (e.cgt.matching_components && e.cgt.matching_components.length > 0) {
+                e.cgt.matching_components.forEach(mc => {
+                    const mcBadgeClass = getRuleBadgeClass(mc.rule);
+                    const hasLinkedRow = mc.matched_row_id != null && mc.rule !== 'Pool';
+                    const clickHandler = hasLinkedRow ? `onclick="navigateToRow(${mc.matched_row_id}); event.stopPropagation();"` : '';
+                    const clickableClass = hasLinkedRow ? 'clickable-ref' : '';
+
+                    // For Same-Day/B&B, show the linked acquisition row with partial qty/value
+                    if (mc.matched_event_type) {
+                        const linkedBadgeClass = getEventTypeBadgeClass(mc.matched_event_type);
+                        const linkedLabel = getEventTypeLabel(mc.matched_event_type);
+                        html += `
+                            <tr class="matching-row ref-row ${clickableClass}" data-parent="${idx}" style="display: none;" ${clickHandler}>
+                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
+                                <td class="ref-text">${mc.matched_date}</td>
+                                <td><span class="badge ${linkedBadgeClass} ref-badge">${linkedLabel}</span> <span class="badge ${mcBadgeClass}">${mc.rule}</span></td>
+                                <td class="number ref-text">${mc.quantity} <span class="ref-original">of ${mc.matched_original_qty}</span></td>
+                                <td class="ref-text">${mc.matched_asset || ''}</td>
+                                <td class="number ref-text">${formatGbp(mc.cost_gbp)} <span class="ref-original">of ${formatGbp(mc.matched_original_value || '0')}</span></td>
+                                <td></td>
+                                <td class="ref-text">${mc.matched_description || ''}</td>
+                            </tr>
+                        `;
+                    } else {
+                        // Pool matching - no linked acquisition
+                        html += `
+                            <tr class="matching-row ref-row" data-parent="${idx}" style="display: none;">
+                                <td class="expand-cell"><span class="ref-arrow">↳</span></td>
+                                <td class="ref-text">-</td>
+                                <td><span class="badge ${mcBadgeClass}">${mc.rule}</span></td>
+                                <td class="number ref-text">${mc.quantity}</td>
+                                <td class="ref-text">${e.asset}</td>
+                                <td class="number ref-text">${formatGbp(mc.cost_gbp)}</td>
+                                <td></td>
+                                <td class="ref-text">Section 104 Pool</td>
+                            </tr>
+                        `;
+                    }
+                });
+            }
+        }
+    });
+
+    tbody.innerHTML = html;
+    document.getElementById('events-count').textContent = `(${events.length})`;
+}
+
+function toggleCgtDetails(idx) {
+    const parentRow = document.querySelector(`tr[data-idx="${idx}"]`);
+    const childRows = document.querySelectorAll(`tr[data-parent="${idx}"]`);
+
+    if (childRows.length === 0) return;
+
+    const isExpanded = parentRow.classList.contains('expanded');
+
+    if (isExpanded) {
+        parentRow.classList.remove('expanded');
+        childRows.forEach(row => row.style.display = 'none');
+    } else {
+        parentRow.classList.add('expanded');
+        childRows.forEach(row => row.style.display = '');
+    }
+}
+
+function navigateToRow(rowIdx) {
+    const targetRow = document.getElementById(`row-${rowIdx}`);
+    if (targetRow) {
+        // Scroll to the row
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Highlight briefly
+        targetRow.classList.add('highlight-flash');
+        setTimeout(() => targetRow.classList.remove('highlight-flash'), 1500);
+    }
+}
+
+function calculateFilteredSummary(events) {
+    // Track classified and all (including unclassified) totals separately
+    let proceeds = 0, costs = 0, gain = 0;
+    let proceedsInc = 0, costsInc = 0, gainInc = 0;
+    let staking = 0;
+    let unclassifiedCount = 0;
+
+    events.forEach(e => {
+        const isUnclassified = e.event_type === 'UnclassifiedIn' || e.event_type === 'UnclassifiedOut';
+        if (isUnclassified) unclassifiedCount++;
+
+        if (e.cgt) {
+            const p = parseFloat(e.cgt.proceeds_gbp.replace(/[£,]/g, '')) || 0;
+            const c = parseFloat(e.cgt.cost_gbp.replace(/[£,]/g, '')) || 0;
+            const g = parseFloat(e.cgt.gain_gbp.replace(/[£,]/g, '')) || 0;
+
+            // Always add to "including unclassified" totals
+            proceedsInc += p;
+            costsInc += c;
+            gainInc += g;
+
+            // Only add to classified totals if not unclassified
+            if (!isUnclassified) {
+                proceeds += p;
+                costs += c;
+                gain += g;
+            }
+        }
+        if (e.event_type === 'StakingReward') {
+            staking += parseFloat(e.value_gbp.replace(/[£,]/g, '')) || 0;
+        }
+    });
+
+    return { proceeds, costs, gain, proceedsInc, costsInc, gainInc, staking, unclassifiedCount };
+}
+
+function updateSummary(events) {
+    const summary = calculateFilteredSummary(events);
+
+    document.getElementById('summary-proceeds').textContent = formatGbp(summary.proceeds.toString());
+    document.getElementById('summary-costs').textContent = formatGbp(summary.costs.toString());
+
+    const gainEl = document.getElementById('summary-gain');
+    gainEl.textContent = formatGbp(summary.gain.toString());
+    gainEl.className = 'value ' + (summary.gain >= 0 ? 'gain' : 'loss');
+
+    // Show "inc. unclassified" sub-values only if there are unclassified events
+    const hasUnclassified = summary.unclassifiedCount > 0;
+    const proceedsIncEl = document.getElementById('summary-proceeds-inc');
+    const costsIncEl = document.getElementById('summary-costs-inc');
+    const gainIncEl = document.getElementById('summary-gain-inc');
+
+    if (hasUnclassified) {
+        proceedsIncEl.textContent = `(${formatGbp(summary.proceedsInc.toString())} inc. unclassified)`;
+        proceedsIncEl.style.display = 'block';
+        costsIncEl.textContent = `(${formatGbp(summary.costsInc.toString())} inc. unclassified)`;
+        costsIncEl.style.display = 'block';
+        gainIncEl.textContent = `(${formatGbp(summary.gainInc.toString())} inc. unclassified)`;
+        gainIncEl.style.display = 'block';
+        gainIncEl.className = 'sub-value ' + (summary.gainInc >= 0 ? 'gain' : 'loss');
+    } else {
+        proceedsIncEl.style.display = 'none';
+        costsIncEl.style.display = 'none';
+        gainIncEl.style.display = 'none';
+    }
+
+    document.getElementById('summary-staking').textContent = formatGbp(summary.staking.toString());
+}
+
+function applyFilters() {
+    const filters = getFilters();
+    const filteredEvents = filterEvents(DATA.events, filters);
+    renderEventsTable(filteredEvents);
+    updateSummary(filteredEvents);
+}
+
+function resetFilters() {
+    document.getElementById('date-from').value = DATA.summary.min_date || '';
+    document.getElementById('date-to').value = DATA.summary.max_date || '';
+    document.getElementById('tax-year').value = '';
+    document.getElementById('asset-search').value = '';
+    document.getElementById('type-acquisition').checked = true;
+    document.getElementById('type-disposal').checked = true;
+    document.getElementById('type-staking').checked = true;
+    document.getElementById('class-crypto').checked = true;
+    document.getElementById('class-stock').checked = true;
+    applyFilters();
+}
+
+document.addEventListener('DOMContentLoaded', init);
 "#;
