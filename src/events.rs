@@ -22,6 +22,19 @@ pub enum Label {
     Gift,
 }
 
+/// Display string for event type and label (used in reports and summaries)
+pub fn display_event_type(event_type: EventType, label: Label) -> &'static str {
+    match (event_type, label) {
+        (EventType::Acquisition, Label::StakingReward) => "StakingReward",
+        (EventType::Acquisition, Label::Gift) => "GiftIn",
+        (EventType::Disposal, Label::Gift) => "GiftOut",
+        (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
+        (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
+        (EventType::Acquisition, _) => "Acquisition",
+        (EventType::Disposal, _) => "Disposal",
+    }
+}
+
 /// Asset class for tax treatment
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
@@ -103,5 +116,37 @@ mod tests {
             description: None,
         };
         assert_eq!(event.total_cost_gbp(), dec!(1000));
+    }
+
+    #[test]
+    fn display_event_type_mappings() {
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Label::Trade),
+            "Acquisition"
+        );
+        assert_eq!(
+            display_event_type(EventType::Disposal, Label::Trade),
+            "Disposal"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Label::StakingReward),
+            "StakingReward"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Label::Unclassified),
+            "UnclassifiedIn"
+        );
+        assert_eq!(
+            display_event_type(EventType::Disposal, Label::Unclassified),
+            "UnclassifiedOut"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Label::Gift),
+            "GiftIn"
+        );
+        assert_eq!(
+            display_event_type(EventType::Disposal, Label::Gift),
+            "GiftOut"
+        );
     }
 }

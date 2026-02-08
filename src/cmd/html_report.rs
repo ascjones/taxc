@@ -3,7 +3,7 @@
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
 use crate::cmd::events::read_events;
-use crate::events::{AssetClass, EventType, Label, TaxableEvent};
+use crate::events::{display_event_type, AssetClass, EventType, Label, TaxableEvent};
 use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
@@ -866,16 +866,7 @@ fn build_report_data(
 }
 
 fn format_event_type(event_type: EventType, label: Label) -> String {
-    match (event_type, label) {
-        (EventType::Acquisition, Label::StakingReward) => "StakingReward",
-        (EventType::Acquisition, Label::Gift) => "GiftIn",
-        (EventType::Disposal, Label::Gift) => "GiftOut",
-        (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
-        (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
-        (EventType::Acquisition, _) => "Acquisition",
-        (EventType::Disposal, _) => "Disposal",
-    }
-    .to_string()
+    display_event_type(event_type, label).to_string()
 }
 
 fn format_asset_class(ac: &AssetClass) -> String {

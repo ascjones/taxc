@@ -1,8 +1,6 @@
 # Improvements Backlog
 
 ## High Priority
-- Fix HTML report disposal lookup to avoid collisions on `description` (use `id` or stable composite key).
-- Centralize event display mapping `(EventType, Label) -> display string` to avoid duplication.
 - Consider making acquisition row linking include non-Trade acquisitions (e.g., staking) when appropriate.
 
 ## Medium Priority

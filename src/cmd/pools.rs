@@ -1,7 +1,7 @@
 //! Pools command - pool balances over time
 
 use crate::cmd::events::read_events;
-use crate::events::{EventType, Label};
+use crate::events::display_event_type;
 use crate::tax::cgt::{calculate_cgt, PoolHistoryEntry, PoolState, YearEndSnapshot};
 use crate::tax::TaxYear;
 use clap::Args;
@@ -122,7 +122,7 @@ impl PoolsCommand {
             .map(|e| DailyRow {
                 date: e.date.format("%Y-%m-%d").to_string(),
                 asset: e.asset.clone(),
-                event: event_type_name(e.event_type, e.label),
+                event: display_event_type(e.event_type, e.label).to_string(),
                 quantity: format_quantity(e.quantity),
                 cost_gbp: format_gbp(e.cost_gbp),
                 cost_basis: format_gbp(cost_basis(e.quantity, e.cost_gbp)),
@@ -233,19 +233,6 @@ fn filter_daily_entries<'a>(
         year.is_none_or(|y| TaxYear::from_date(entry.date) == y)
             && asset_filter.is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
     })
-}
-
-fn event_type_name(event_type: EventType, label: Label) -> String {
-    match (event_type, label) {
-        (EventType::Acquisition, Label::StakingReward) => "StakingReward",
-        (EventType::Acquisition, Label::Gift) => "GiftIn",
-        (EventType::Disposal, Label::Gift) => "GiftOut",
-        (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
-        (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
-        (EventType::Acquisition, _) => "Acquisition",
-        (EventType::Disposal, _) => "Disposal",
-    }
-    .to_string()
 }
 
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
