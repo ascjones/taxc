@@ -105,15 +105,18 @@ taxc validate [OPTIONS] [FILE]
 - `InsufficientCostBasis` - Pool had less than required (partial cost basis)
 - `Unclassified` - Unclassified disposal event that may need review
 
-### Schema - Input Format Reference
+### Schema - Format Reference
 
-Print the expected input format. Useful for coding agents or tooling integration.
+Print JSON schemas for input or output formats. Useful for coding agents or tooling integration.
 
 ```
-taxc schema
+taxc schema [input|output]
 ```
 
-Outputs the JSON Schema for the transaction input format.
+- `taxc schema` or `taxc schema input` - Input transaction format (default)
+- `taxc schema output` - Output report format (JSON mode)
+
+Schemas are also checked into `schema/` for version tracking.
 
 ## Input Format (JSON Transactions)
 

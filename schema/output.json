@@ -1,0 +1,296 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HtmlReportData",
+  "description": "Data structure for embedding in HTML as JSON",
+  "type": "object",
+  "required": [
+    "events",
+    "summary"
+  ],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/EventRow"
+      }
+    },
+    "summary": {
+      "$ref": "#/definitions/Summary"
+    }
+  },
+  "definitions": {
+    "CgtDetails": {
+      "description": "CGT details for disposal events",
+      "type": "object",
+      "required": [
+        "cost_gbp",
+        "gain_gbp",
+        "matching_components",
+        "proceeds_gbp",
+        "rule",
+        "warnings"
+      ],
+      "properties": {
+        "cost_gbp": {
+          "type": "string"
+        },
+        "gain_gbp": {
+          "type": "string"
+        },
+        "matching_components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MatchingComponentRow"
+          }
+        },
+        "proceeds_gbp": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "warnings": {
+          "description": "Warnings for this disposal (e.g., \"Unclassified\", \"NoCostBasis\", \"InsufficientPool\")",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "EventRow": {
+      "type": "object",
+      "required": [
+        "asset",
+        "asset_class",
+        "datetime",
+        "description",
+        "event_type",
+        "fees_gbp",
+        "quantity",
+        "tax_year",
+        "value_gbp"
+      ],
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "asset_class": {
+          "type": "string"
+        },
+        "cgt": {
+          "description": "CGT details for disposal events (None for other event types)",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CgtDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "datetime": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "fees_gbp": {
+          "type": "string"
+        },
+        "id": {
+          "description": "Source data identifier",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quantity": {
+          "type": "string"
+        },
+        "tax_year": {
+          "type": "string"
+        },
+        "value_gbp": {
+          "type": "string"
+        }
+      }
+    },
+    "MatchingComponentRow": {
+      "type": "object",
+      "required": [
+        "cost_gbp",
+        "quantity",
+        "rule"
+      ],
+      "properties": {
+        "cost_gbp": {
+          "type": "string"
+        },
+        "matched_asset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_date": {
+          "description": "For Same-Day/B&B: the linked acquisition date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_event_type": {
+          "description": "Details of the matched acquisition for display",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_original_qty": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_original_value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_row_id": {
+          "description": "Row ID of the matched acquisition (for navigation)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "matched_tax_year": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quantity": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        }
+      }
+    },
+    "Summary": {
+      "type": "object",
+      "required": [
+        "assets",
+        "cost_basis_warning_count",
+        "disposal_count",
+        "event_count",
+        "income_count",
+        "tax_years",
+        "total_costs",
+        "total_costs_with_unclassified",
+        "total_gain",
+        "total_gain_with_unclassified",
+        "total_proceeds",
+        "total_proceeds_with_unclassified",
+        "total_staking",
+        "unclassified_count",
+        "warning_count"
+      ],
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cost_basis_warning_count": {
+          "description": "Count of disposals with cost basis issues (NoCostBasis or InsufficientPool)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "disposal_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "event_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "income_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "min_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tax_years": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_costs": {
+          "type": "string"
+        },
+        "total_costs_with_unclassified": {
+          "type": "string"
+        },
+        "total_gain": {
+          "type": "string"
+        },
+        "total_gain_with_unclassified": {
+          "type": "string"
+        },
+        "total_proceeds": {
+          "type": "string"
+        },
+        "total_proceeds_with_unclassified": {
+          "description": "Totals including unclassified events (for conservative estimates)",
+          "type": "string"
+        },
+        "total_staking": {
+          "type": "string"
+        },
+        "unclassified_count": {
+          "description": "Count of unclassified disposal events (derived from warnings)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "warning_count": {
+          "description": "Count of disposals with any warning",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

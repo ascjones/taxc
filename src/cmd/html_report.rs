@@ -9,6 +9,7 @@ use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
 use clap::Args;
 use rust_decimal::Decimal;
+use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -74,13 +75,13 @@ impl ReportCommand {
 }
 
 /// Data structure for embedding in HTML as JSON
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct HtmlReportData {
     pub events: Vec<EventRow>,
     pub summary: Summary,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct EventRow {
     /// Source data identifier
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,7 +101,7 @@ pub struct EventRow {
 }
 
 /// CGT details for disposal events
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct CgtDetails {
     pub proceeds_gbp: String,
     pub cost_gbp: String,
@@ -111,7 +112,7 @@ pub struct CgtDetails {
     pub warnings: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct MatchingComponentRow {
     pub rule: String,
     pub quantity: String,
@@ -139,7 +140,7 @@ struct AcquisitionDetail {
     description: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct Summary {
     pub total_proceeds: String,
     pub total_costs: String,
