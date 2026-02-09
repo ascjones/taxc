@@ -1,34 +1,26 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TransactionInput",
   "description": "Input root for transaction JSON",
   "type": "object",
-  "required": [
-    "transactions"
-  ],
   "properties": {
     "transactions": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Transaction"
+        "$ref": "#/$defs/Transaction"
       }
     }
   },
-  "definitions": {
+  "required": [
+    "transactions"
+  ],
+  "$defs": {
     "Asset": {
       "type": "object",
-      "required": [
-        "quantity",
-        "symbol"
-      ],
       "properties": {
         "asset_class": {
-          "default": "Crypto",
-          "allOf": [
-            {
-              "$ref": "#/definitions/AssetClass"
-            }
-          ]
+          "$ref": "#/$defs/AssetClass",
+          "default": "Crypto"
         },
         "quantity": {
           "type": "number",
@@ -37,7 +29,11 @@
         "symbol": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "symbol",
+        "quantity"
+      ]
     },
     "AssetClass": {
       "description": "Asset class for tax treatment",
@@ -49,10 +45,6 @@
     },
     "Fee": {
       "type": "object",
-      "required": [
-        "amount",
-        "asset"
-      ],
       "properties": {
         "amount": {
           "type": "number",
@@ -62,25 +54,25 @@
           "type": "string"
         },
         "price": {
-          "default": null,
           "anyOf": [
             {
-              "$ref": "#/definitions/Price"
+              "$ref": "#/$defs/Price"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         }
-      }
+      },
+      "required": [
+        "asset",
+        "amount"
+      ]
     },
     "Price": {
-      "description": "Price for an asset - either direct GBP or foreign currency with FX conversion\n\nFor direct GBP prices: value_gbp = quantity * rate For FX prices: value_gbp = quantity * rate * fx_rate",
+      "description": "Price for an asset - either direct GBP or foreign currency with FX conversion\n\nFor direct GBP prices: value_gbp = quantity * rate\nFor FX prices: value_gbp = quantity * rate * fx_rate",
       "type": "object",
-      "required": [
-        "base",
-        "rate"
-      ],
       "properties": {
         "base": {
           "description": "The asset this price refers to (e.g., \"BTC\", \"ETH\")",
@@ -88,20 +80,20 @@
         },
         "fx_rate": {
           "description": "FX rate to convert quote currency to GBP - requires quote",
-          "default": null,
           "type": [
             "number",
             "null"
           ],
-          "format": "double"
+          "format": "double",
+          "default": null
         },
         "quote": {
           "description": "Foreign currency quote (e.g., \"USD\") - requires fx_rate",
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "rate": {
           "description": "Price per unit (in GBP, or in quote currency if FX fields present)",
@@ -110,118 +102,21 @@
         },
         "source": {
           "description": "Optional source of price data",
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         }
-      }
+      },
+      "required": [
+        "base",
+        "rate"
+      ]
     },
     "Transaction": {
       "description": "Transaction record with common fields + type-specific data",
       "type": "object",
-      "oneOf": [
-        {
-          "description": "Trade one asset for another (includes fiat and crypto-to-crypto)",
-          "type": "object",
-          "required": [
-            "bought",
-            "sold",
-            "type"
-          ],
-          "properties": {
-            "bought": {
-              "$ref": "#/definitions/Asset"
-            },
-            "sold": {
-              "$ref": "#/definitions/Asset"
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "Trade"
-              ]
-            }
-          }
-        },
-        {
-          "description": "Deposit - assets received INTO an account",
-          "type": "object",
-          "required": [
-            "asset",
-            "type"
-          ],
-          "properties": {
-            "asset": {
-              "$ref": "#/definitions/Asset"
-            },
-            "linked_withdrawal": {
-              "default": null,
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "Deposit"
-              ]
-            }
-          }
-        },
-        {
-          "description": "Withdrawal - assets sent FROM an account",
-          "type": "object",
-          "required": [
-            "asset",
-            "type"
-          ],
-          "properties": {
-            "asset": {
-              "$ref": "#/definitions/Asset"
-            },
-            "linked_deposit": {
-              "default": null,
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "Withdrawal"
-              ]
-            }
-          }
-        },
-        {
-          "description": "Staking reward (income + acquisition)",
-          "type": "object",
-          "required": [
-            "asset",
-            "type"
-          ],
-          "properties": {
-            "asset": {
-              "$ref": "#/definitions/Asset"
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "StakingReward"
-              ]
-            }
-          }
-        }
-      ],
-      "required": [
-        "account",
-        "datetime",
-        "id"
-      ],
       "properties": {
         "account": {
           "description": "Account/wallet where this happened (e.g., \"kraken\", \"ledger\")",
@@ -233,23 +128,23 @@
         },
         "description": {
           "description": "Optional description",
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "fee": {
           "description": "Optional fee for this transaction",
-          "default": null,
           "anyOf": [
             {
-              "$ref": "#/definitions/Fee"
+              "$ref": "#/$defs/Fee"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         },
         "id": {
           "description": "Unique identifier for this transaction",
@@ -257,17 +152,110 @@
         },
         "price": {
           "description": "Optional price for valuation (required for crypto-to-crypto trades and staking rewards)",
-          "default": null,
           "anyOf": [
             {
-              "$ref": "#/definitions/Price"
+              "$ref": "#/$defs/Price"
             },
             {
               "type": "null"
             }
+          ],
+          "default": null
+        }
+      },
+      "oneOf": [
+        {
+          "description": "Trade one asset for another (includes fiat and crypto-to-crypto)",
+          "type": "object",
+          "properties": {
+            "bought": {
+              "$ref": "#/$defs/Asset"
+            },
+            "sold": {
+              "$ref": "#/$defs/Asset"
+            },
+            "type": {
+              "type": "string",
+              "const": "Trade"
+            }
+          },
+          "required": [
+            "type",
+            "sold",
+            "bought"
+          ]
+        },
+        {
+          "description": "Deposit - assets received INTO an account",
+          "type": "object",
+          "properties": {
+            "asset": {
+              "$ref": "#/$defs/Asset"
+            },
+            "linked_withdrawal": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "Deposit"
+            }
+          },
+          "required": [
+            "type",
+            "asset"
+          ]
+        },
+        {
+          "description": "Withdrawal - assets sent FROM an account",
+          "type": "object",
+          "properties": {
+            "asset": {
+              "$ref": "#/$defs/Asset"
+            },
+            "linked_deposit": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "Withdrawal"
+            }
+          },
+          "required": [
+            "type",
+            "asset"
+          ]
+        },
+        {
+          "description": "Staking reward (income + acquisition)",
+          "type": "object",
+          "properties": {
+            "asset": {
+              "$ref": "#/$defs/Asset"
+            },
+            "type": {
+              "type": "string",
+              "const": "StakingReward"
+            }
+          },
+          "required": [
+            "type",
+            "asset"
           ]
         }
-      }
+      ],
+      "required": [
+        "id",
+        "datetime",
+        "account"
+      ]
     }
   }
 }
