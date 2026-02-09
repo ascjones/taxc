@@ -1,5 +1,5 @@
 use crate::events::{AssetClass, EventType, Label, TaxableEvent};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -573,17 +573,16 @@ fn parse_datetime(s: &str) -> Result<DateTime<FixedOffset>, TransactionError> {
         return Ok(dt);
     }
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Ok(DateTime::from_utc(dt, FixedOffset::east_opt(0).unwrap()));
+        return Ok(dt.and_utc().fixed_offset());
     }
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Ok(DateTime::from_utc(dt, FixedOffset::east_opt(0).unwrap()));
+        return Ok(dt.and_utc().fixed_offset());
     }
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-        return Ok(DateTime::from_utc(dt, FixedOffset::east_opt(0).unwrap()));
+        return Ok(dt.and_utc().fixed_offset());
     }
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let dt = date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-        return Ok(DateTime::from_utc(dt, FixedOffset::east_opt(0).unwrap()));
+        return Ok(date.and_hms_opt(0, 0, 0).unwrap().and_utc().fixed_offset());
     }
     Err(TransactionError::InvalidDatetime(s.to_string()))
 }

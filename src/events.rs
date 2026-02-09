@@ -71,7 +71,7 @@ pub struct TaxableEvent {
 impl TaxableEvent {
     /// Get just the date portion for tax calculations
     pub fn date(&self) -> NaiveDate {
-        self.datetime.date().naive_utc()
+        self.datetime.date_naive()
     }
 
     pub fn total_cost_gbp(&self) -> Decimal {
