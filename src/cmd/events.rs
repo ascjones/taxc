@@ -218,7 +218,7 @@ fn build_event_rows(
 
     // Build acquisition row number lookup for cross-referencing
     let mut row_num = 1usize;
-    let mut acquisition_row_nums: HashMap<(chrono::NaiveDate, String), usize> = HashMap::new();
+    let mut acquisition_row_nums: HashMap<(chrono::NaiveDate, String), Vec<usize>> = HashMap::new();
 
     // First pass: assign row numbers to acquisitions
     for event in events {
@@ -238,7 +238,10 @@ fn build_event_rows(
         }
 
         if event.event_type == EventType::Acquisition && event.label != Label::Unclassified {
-            acquisition_row_nums.insert((event.date(), event.asset.clone()), row_num);
+            acquisition_row_nums
+                .entry((event.date(), event.asset.clone()))
+                .or_default()
+                .push(row_num);
         }
         row_num += 1;
     }
@@ -374,7 +377,7 @@ fn build_event_rows(
 fn push_component_rows(
     rows: &mut Vec<EventRow>,
     disposal: &DisposalRecord,
-    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), usize>,
+    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), Vec<usize>>,
 ) {
     let total_qty = disposal.quantity;
     for component in &disposal.matching_components {
@@ -427,7 +430,7 @@ fn matches_filter(event: &TaxableEvent, filter: EventTypeFilter) -> bool {
 
 fn format_single_rule(
     disposal: &DisposalRecord,
-    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), usize>,
+    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), Vec<usize>>,
 ) -> (String, String) {
     let warning_prefix = if disposal.has_warnings() { "⚠ " } else { "" };
 
@@ -455,22 +458,22 @@ fn format_single_rule(
 fn format_component_ref(
     rule: &MatchingRule,
     matched_date: Option<chrono::NaiveDate>,
-    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), usize>,
+    acquisition_row_nums: &HashMap<(chrono::NaiveDate, String), Vec<usize>>,
     asset: &str,
 ) -> String {
     match rule {
         MatchingRule::SameDay => {
             if let Some(date) = matched_date {
-                if let Some(&row_num) = acquisition_row_nums.get(&(date, asset.to_string())) {
-                    return format!("→ #{}", row_num);
+                if let Some(rows) = acquisition_row_nums.get(&(date, asset.to_string())) {
+                    return format!("→ {}", format_row_refs(rows));
                 }
             }
             String::new()
         }
         MatchingRule::BedAndBreakfast => {
             if let Some(date) = matched_date {
-                if let Some(&row_num) = acquisition_row_nums.get(&(date, asset.to_string())) {
-                    return format!("→ #{} ({})", row_num, date.format("%m-%d"));
+                if let Some(rows) = acquisition_row_nums.get(&(date, asset.to_string())) {
+                    return format!("→ {} ({})", format_row_refs(rows), date.format("%m-%d"));
                 }
                 // If we don't have a row number (e.g., filtered out), just show date
                 return format!("→ ({})", date.format("%m-%d"));
@@ -479,6 +482,13 @@ fn format_component_ref(
         }
         MatchingRule::Pool => String::new(),
     }
+}
+
+fn format_row_refs(rows: &[usize]) -> String {
+    rows.iter()
+        .map(|r| format!("#{}", r))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn format_gbp(amount: Decimal) -> String {
@@ -549,6 +559,153 @@ mod tests {
         let event_types: Vec<String> = rows.iter().map(|r| r.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "Gift In"));
         assert!(event_types.iter().any(|t| t.contains("Gift Out")));
+    }
+
+    fn dtt(datetime: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        DateTime::parse_from_rfc3339(datetime).unwrap()
+    }
+
+    fn make_event(
+        id: &str,
+        datetime: chrono::DateTime<chrono::FixedOffset>,
+        event_type: EventType,
+        label: Label,
+        asset: &str,
+        quantity: Decimal,
+        value_gbp: Decimal,
+    ) -> TaxableEvent {
+        TaxableEvent {
+            id: Some(id.to_string()),
+            datetime,
+            event_type,
+            label,
+            asset: asset.to_string(),
+            asset_class: AssetClass::Crypto,
+            quantity,
+            value_gbp,
+            fee_gbp: None,
+            description: None,
+        }
+    }
+
+    #[test]
+    fn same_day_duplicate_acquisitions_matched_ref_points_to_first() {
+        // Two acquisitions of BTC on the same day, then a same-day disposal.
+        // The matched_ref should point to the first acquisition row (#1), not #2.
+        let events = vec![
+            make_event(
+                "buy1",
+                dtt("2024-06-15T10:00:00+00:00"),
+                EventType::Acquisition,
+                Label::Trade,
+                "BTC",
+                dec!(1),
+                dec!(30000),
+            ),
+            make_event(
+                "buy2",
+                dtt("2024-06-15T14:00:00+00:00"),
+                EventType::Acquisition,
+                Label::Trade,
+                "BTC",
+                dec!(1),
+                dec!(40000),
+            ),
+            make_event(
+                "sell1",
+                dtt("2024-06-15T16:00:00+00:00"),
+                EventType::Disposal,
+                Label::Trade,
+                "BTC",
+                dec!(2),
+                dec!(80000),
+            ),
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let rows =
+            build_event_rows(&events, &cgt_report, &income_report, None, None, None).unwrap();
+
+        // Row #1 = buy1, Row #2 = buy2, Row #3 = sell1 (same-day match)
+        assert_eq!(rows.len(), 3);
+        let disposal_row = &rows[2];
+        assert!(
+            disposal_row.event_type.contains("Same-Day"),
+            "expected same-day match, got: {}",
+            disposal_row.event_type,
+        );
+        assert_eq!(
+            disposal_row.matched_ref, "→ #1, #2",
+            "matched_ref should reference all acquisitions on that day, got: {}",
+            disposal_row.matched_ref,
+        );
+    }
+
+    #[test]
+    fn bnb_duplicate_acquisitions_matched_ref_points_to_first() {
+        // Disposal with B&B match to a date that has two acquisitions.
+        // The matched_ref should point to the first acquisition on that date.
+        let events = vec![
+            // Pool seed so we have something to dispose
+            make_event(
+                "seed",
+                dtt("2024-01-01T00:00:00+00:00"),
+                EventType::Acquisition,
+                Label::Trade,
+                "BTC",
+                dec!(5),
+                dec!(100000),
+            ),
+            // Disposal
+            make_event(
+                "sell1",
+                dtt("2024-06-01T12:00:00+00:00"),
+                EventType::Disposal,
+                Label::Trade,
+                "BTC",
+                dec!(1),
+                dec!(25000),
+            ),
+            // Two re-acquisitions on same day within 30 days → B&B match
+            make_event(
+                "rebuy1",
+                dtt("2024-06-10T10:00:00+00:00"),
+                EventType::Acquisition,
+                Label::Trade,
+                "BTC",
+                dec!(1),
+                dec!(22000),
+            ),
+            make_event(
+                "rebuy2",
+                dtt("2024-06-10T14:00:00+00:00"),
+                EventType::Acquisition,
+                Label::Trade,
+                "BTC",
+                dec!(1),
+                dec!(24000),
+            ),
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let rows =
+            build_event_rows(&events, &cgt_report, &income_report, None, None, None).unwrap();
+
+        // Row #1 = seed, #2 = sell1, #3 = rebuy1, #4 = rebuy2
+        assert_eq!(rows.len(), 4);
+        let disposal_row = &rows[1];
+        assert!(
+            disposal_row.event_type.contains("B&B"),
+            "expected B&B match, got: {}",
+            disposal_row.event_type,
+        );
+        assert_eq!(
+            disposal_row.matched_ref, "→ #3, #4 (06-10)",
+            "matched_ref should reference all acquisitions on B&B date, got: {}",
+            disposal_row.matched_ref,
+        );
     }
 }
 
