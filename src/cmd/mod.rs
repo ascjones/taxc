@@ -1,4 +1,4 @@
-pub mod html_report;
+pub mod report;
 pub mod pools;
 pub mod schema;
 pub mod summary;

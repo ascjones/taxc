@@ -4,7 +4,7 @@ mod tax;
 mod transaction;
 
 use clap::{Parser, Subcommand};
-use cmd::html_report::ReportCommand;
+use cmd::report::ReportCommand;
 use cmd::pools::PoolsCommand;
 use cmd::schema::SchemaCommand;
 use cmd::summary::SummaryCommand;
