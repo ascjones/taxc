@@ -104,7 +104,7 @@ impl ReportCommand {
 
 /// Data structure for embedding in HTML as JSON
 #[derive(Serialize, JsonSchema)]
-pub struct HtmlReportData {
+pub struct ReportData {
     pub events: Vec<EventRow>,
     pub summary: Summary,
 }
@@ -200,7 +200,7 @@ pub(super) fn build_report_data(
     year: Option<TaxYear>,
     asset_filter: Option<&str>,
     event_type_filter: Option<EventTypeFilter>,
-) -> anyhow::Result<HtmlReportData> {
+) -> anyhow::Result<ReportData> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
 
@@ -395,7 +395,7 @@ pub(super) fn build_report_data(
         .filter(|e| e.event_type == "StakingReward")
         .count();
 
-    Ok(HtmlReportData {
+    Ok(ReportData {
         events: event_rows,
         summary: Summary {
             total_proceeds: format!("{:.2}", total_proceeds),

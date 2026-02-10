@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "HtmlReportData",
+  "title": "ReportData",
   "description": "Data structure for embedding in HTML as JSON",
   "type": "object",
   "properties": {
