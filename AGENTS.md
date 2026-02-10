@@ -26,6 +26,12 @@ Changes that require README updates include:
 ### Module Preferences
 - If a top-level entity has non-trivial logic or multiple associated methods, prefer moving it into its own module/file (e.g., `Price`).
 
+### Architecture: Separate CLI from Domain Logic
+- Keep CLI/IO concerns (argument parsing, file reading, stdout formatting) in `src/cmd/` and `src/main.rs`.
+- Keep domain logic (tax calculations, event enrichment, matching rules) in `src/tax/` and `src/events.rs` as pure functions operating on data — no file IO, no CLI types.
+- `src/cmd/` may depend on `src/tax/` and `src/events.rs`, but never the reverse.
+- When adding new logic, ask: "Does this need IO or CLI context?" If no, it belongs in the domain layer.
+
 ## Testing
 
 Run tests and linting before committing:

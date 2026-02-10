@@ -1,66 +1,81 @@
-//! E2E tests for events and summary command functionality
+//! E2E tests for report, pools, summary, and validate command functionality
 
 use std::process::Command;
 
-/// Test that the events command works with mixed matching rules
+/// Test that the report JSON output includes mixed matching rules
 #[test]
-fn events_mixed_rules() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "events", "tests/data/mixed_rules.json"])
-        .output()
-        .expect("Failed to execute command");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Verify the command succeeded
-    assert!(output.status.success(), "Command failed: {:?}", output);
-
-    // Verify key elements are present in output
-    assert!(stdout.contains("Acquisition"));
-    assert!(stdout.contains("Disposal"));
-    assert!(stdout.contains("Same-Day"));
-    assert!(stdout.contains("B&B"));
-    assert!(stdout.contains("BTC"));
-}
-
-/// Test events CSV output with mixed matching rules
-#[test]
-fn events_csv_mixed_rules() {
+fn report_mixed_rules() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "events",
+            "report",
             "tests/data/mixed_rules.json",
-            "--csv",
+            "--json",
         ])
         .output()
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Verify CSV header
-    assert!(stdout.contains("row_num"));
-    assert!(stdout.contains("date"));
-    assert!(stdout.contains("event_type"));
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
 
-    // Verify both rules are present
-    assert!(stdout.contains("Same-Day"));
-    assert!(stdout.contains("B&B"));
+    let has_acquisition = events
+        .iter()
+        .any(|e| e.get("event_type").and_then(|v| v.as_str()) == Some("Acquisition"));
+    let has_disposal = events
+        .iter()
+        .any(|e| e.get("event_type").and_then(|v| v.as_str()) == Some("Disposal"));
+    let has_btc = events
+        .iter()
+        .any(|e| e.get("asset").and_then(|v| v.as_str()) == Some("BTC"));
+
+    let mut has_same_day = false;
+    let mut has_bnb = false;
+    for e in events {
+        if let Some(cgt) = e.get("cgt") {
+            if let Some(components) = cgt.get("matching_components").and_then(|v| v.as_array()) {
+                for component in components {
+                    match component.get("rule").and_then(|v| v.as_str()) {
+                        Some("Same-Day") => has_same_day = true,
+                        Some("B&B") => has_bnb = true,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        has_acquisition,
+        "Expected acquisition events in report output"
+    );
+    assert!(has_disposal, "Expected disposal events in report output");
+    assert!(
+        has_same_day,
+        "Expected Same-Day matching rule in report output"
+    );
+    assert!(has_bnb, "Expected B&B matching rule in report output");
+    assert!(has_btc, "Expected BTC asset in report output");
 }
 
 /// Test filtering by event type
 #[test]
-fn events_filter_by_type() {
+fn report_filter_by_type() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "events",
+            "report",
             "tests/data/mixed_rules.json",
+            "--json",
             "--event-type",
             "disposal",
         ])
@@ -69,12 +84,23 @@ fn events_filter_by_type() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Should only see disposal-related entries
-    assert!(stdout.contains("Disposal"));
-    // Should not have "Acquisition" as a main row type (only in sub-rows or references)
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
+
+    assert!(!events.is_empty(), "Expected filtered events");
+    for e in events {
+        assert_eq!(
+            e.get("event_type").and_then(|v| v.as_str()),
+            Some("Disposal"),
+            "Expected only disposal events"
+        );
+    }
 }
 
 /// Test JSON input format using summary command
@@ -124,40 +150,53 @@ fn summary_json_output() {
     assert!(stdout.contains("\"total_tax_liability\""));
 }
 
-/// Test events command with year filter
+/// Test report command with year filter
 #[test]
-fn events_filter_by_year() {
+fn report_filter_by_year() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "events",
+            "report",
             "tests/data/mixed_rules.json",
             "--year",
             "2025",
+            "--json",
         ])
         .output()
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Should show events in 2024/25 tax year
-    assert!(stdout.contains("2024/25"));
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
+
+    assert!(!events.is_empty(), "Expected filtered events");
+    for e in events {
+        assert_eq!(
+            e.get("tax_year").and_then(|v| v.as_str()),
+            Some("2024/25"),
+            "Expected all events in tax year 2024/25"
+        );
+    }
 }
 
 /// Ensure multiple disposals on the same date/asset map to the correct CGT record
 #[test]
-fn events_multiple_disposals_same_day() {
+fn report_multiple_disposals_same_day() {
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "events",
+            "report",
             "tests/data/duplicate_disposals.json",
-            "--csv",
+            "--json",
         ])
         .output()
         .expect("Failed to execute command");
@@ -165,30 +204,27 @@ fn events_multiple_disposals_same_day() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
-    let headers = rdr.headers().expect("missing CSV headers").clone();
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
 
-    let row_num_idx = headers
-        .iter()
-        .position(|h| h == "row_num")
-        .expect("row_num header missing");
-    let event_type_idx = headers
-        .iter()
-        .position(|h| h == "event_type")
-        .expect("event_type header missing");
-    let proceeds_idx = headers
-        .iter()
-        .position(|h| h == "proceeds")
-        .expect("proceeds header missing");
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
 
     let mut proceeds = Vec::new();
-    for result in rdr.records() {
-        let record = result.expect("invalid CSV record");
-        let row_num = record.get(row_num_idx).unwrap_or_default();
-        let event_type = record.get(event_type_idx).unwrap_or_default();
-        let proceeds_val = record.get(proceeds_idx).unwrap_or_default();
-        if row_num.starts_with('#') && event_type.contains("Disposal") {
-            proceeds.push(proceeds_val.to_string());
+    for e in events {
+        let event_type = e.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
+        if event_type.contains("Disposal") {
+            let proceeds_gbp = e
+                .get("cgt")
+                .and_then(|c| c.get("proceeds_gbp"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !proceeds_gbp.is_empty() {
+                proceeds.push(proceeds_gbp);
+            }
         }
     }
 
@@ -196,12 +232,12 @@ fn events_multiple_disposals_same_day() {
     proceeds.dedup();
 
     assert!(
-        proceeds.contains(&"£12000.00".to_string()),
+        proceeds.contains(&"12000.00".to_string()),
         "Expected proceeds for first disposal not found. Got: {:?}",
         proceeds
     );
     assert!(
-        proceeds.contains(&"£9000.00".to_string()),
+        proceeds.contains(&"9000.00".to_string()),
         "Expected proceeds for second disposal not found. Got: {:?}",
         proceeds
     );
@@ -260,53 +296,6 @@ fn report_duplicate_descriptions() {
         proceeds.contains(&"9000.00".to_string()),
         "Expected proceeds for second disposal not found. Got: {:?}",
         proceeds
-    );
-}
-
-/// Matched reference should link to staking acquisition rows when applicable
-#[test]
-fn events_matched_reference_staking() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "events",
-            "tests/data/staking_matched.json",
-            "--csv",
-        ])
-        .output()
-        .expect("Failed to execute command");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Command failed: {:?}", output);
-
-    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
-    let headers = rdr.headers().expect("missing CSV headers").clone();
-
-    let event_type_idx = headers
-        .iter()
-        .position(|h| h == "event_type")
-        .expect("event_type header missing");
-    let matched_ref_idx = headers
-        .iter()
-        .position(|h| h == "matched_ref")
-        .expect("matched_ref header missing");
-
-    let mut matched_ref = None;
-    for result in rdr.records() {
-        let record = result.expect("invalid CSV record");
-        let event_type = record.get(event_type_idx).unwrap_or_default();
-        if event_type.contains("Disposal") {
-            matched_ref = Some(record.get(matched_ref_idx).unwrap_or_default().to_string());
-            break;
-        }
-    }
-
-    let matched_ref = matched_ref.expect("No disposal row found in CSV output");
-    assert!(
-        matched_ref.trim().starts_with("→ #"),
-        "Expected matched reference for disposal to point to staking acquisition row, got: {}",
-        matched_ref
     );
 }
 

@@ -16,24 +16,8 @@ All commands accept an optional positional `FILE` (JSON). If omitted or set to `
 
 ```
 cat transactions.json | taxc summary --year 2025
-taxc events - < transactions.json
+taxc report - < transactions.json
 ```
-
-### Events - Transaction View
-
-Show all transactions/events in a detailed table:
-
-```
-taxc events [OPTIONS] [FILE]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
-| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking` |
-| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
-| `--csv` | Output as CSV instead of formatted table |
-| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Summary - Tax Calculations
 
@@ -64,6 +48,8 @@ taxc report [OPTIONS] [FILE]
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
+| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking` |
+| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
 ### Pools - Pool Balances
@@ -238,14 +224,6 @@ Fee pricing rules:
 ```
 
 ## Example Output
-
-### Events Command
-
-```
-taxc events transactions.json
-```
-
-Shows a detailed table with all transactions, including sub-rows for disposals matched via multiple rules (Same-Day, B&B, Pool).
 
 ### Summary Command
 

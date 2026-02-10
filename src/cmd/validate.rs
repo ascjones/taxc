@@ -1,6 +1,6 @@
 //! Validate command - surface data quality issues without generating full reports
 
-use crate::cmd::events::read_events;
+use super::read_events;
 use crate::tax::cgt::{calculate_cgt, DisposalWarning};
 use crate::tax::TaxYear;
 use clap::Args;

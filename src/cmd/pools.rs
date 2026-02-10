@@ -1,6 +1,6 @@
 //! Pools command - pool balances over time
 
-use crate::cmd::events::read_events;
+use super::read_events;
 use crate::events::display_event_type;
 use crate::tax::cgt::{calculate_cgt, PoolHistoryEntry, PoolState, YearEndSnapshot};
 use crate::tax::TaxYear;

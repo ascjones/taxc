@@ -3,7 +3,7 @@ use crate::tax::uk::TaxYear;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 fn serialize_date<S: Serializer>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&date.format("%Y-%m-%d").to_string())
@@ -640,6 +640,83 @@ fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapsh
     YearEndSnapshot {
         tax_year: year,
         pools: pool_states,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DisposalKey {
+    date: NaiveDate,
+    datetime: String,
+    asset: String,
+    quantity: String,
+    proceeds: String,
+}
+
+impl DisposalKey {
+    fn from_disposal(disposal: &DisposalRecord) -> Self {
+        DisposalKey {
+            date: disposal.date,
+            datetime: disposal.datetime.to_rfc3339(),
+            asset: disposal.asset.clone(),
+            quantity: format_decimal_key(disposal.quantity, 8),
+            proceeds: format_decimal_key(disposal.proceeds_gbp, 2),
+        }
+    }
+
+    fn from_event(event: &TaxableEvent) -> Self {
+        DisposalKey {
+            date: event.date(),
+            datetime: event.datetime.to_rfc3339(),
+            asset: event.asset.clone(),
+            quantity: format_decimal_key(event.quantity, 8),
+            proceeds: format_decimal_key(event.value_gbp, 2),
+        }
+    }
+}
+
+fn format_decimal_key(value: Decimal, dp: u32) -> String {
+    let s = format!("{:.*}", dp as usize, value);
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    trimmed.to_string()
+}
+
+pub struct DisposalIndex<'a> {
+    report: &'a CgtReport,
+    by_id: HashMap<String, usize>,
+    by_key: HashMap<DisposalKey, VecDeque<usize>>,
+}
+
+impl<'a> DisposalIndex<'a> {
+    pub fn new(report: &'a CgtReport) -> Self {
+        let mut by_id = HashMap::new();
+        let mut by_key: HashMap<DisposalKey, VecDeque<usize>> = HashMap::new();
+        for (idx, d) in report.disposals.iter().enumerate() {
+            if let Some(id) = d.id.as_ref() {
+                by_id.insert(id.clone(), idx);
+            }
+            let key = DisposalKey::from_disposal(d);
+            by_key.entry(key).or_default().push_back(idx);
+        }
+
+        DisposalIndex {
+            report,
+            by_id,
+            by_key,
+        }
+    }
+
+    pub fn find(&mut self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
+        if let Some(id) = event.id.as_ref() {
+            if let Some(&idx) = self.by_id.get(id) {
+                return self.report.disposals.get(idx);
+            }
+        }
+
+        let key = DisposalKey::from_event(event);
+        self.by_key
+            .get_mut(&key)
+            .and_then(|queue| queue.pop_front())
+            .and_then(|idx| self.report.disposals.get(idx))
     }
 }
 

@@ -4,7 +4,6 @@ mod tax;
 mod transaction;
 
 use clap::{Parser, Subcommand};
-use cmd::events::EventsCommand;
 use cmd::html_report::ReportCommand;
 use cmd::pools::PoolsCommand;
 use cmd::schema::SchemaCommand;
@@ -21,10 +20,6 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Show all transactions/events in a detailed table
-    #[command(alias = "txs")]
-    Events(EventsCommand),
-
     /// Show aggregated tax summary
     Summary(SummaryCommand),
 
@@ -44,7 +39,6 @@ enum Command {
 impl Command {
     fn exec(&self) -> anyhow::Result<()> {
         match self {
-            Command::Events(events) => events.exec(),
             Command::Summary(summary) => summary.exec(),
             Command::Report(report) => report.exec(),
             Command::Pools(pools) => pools.exec(),

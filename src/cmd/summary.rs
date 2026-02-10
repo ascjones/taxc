@@ -1,6 +1,6 @@
 //! Summary command - aggregated totals and tax calculations
 
-use crate::cmd::events::read_events;
+use super::read_events;
 use crate::tax::cgt::calculate_cgt;
 use crate::tax::income::calculate_income_tax;
 use crate::tax::{TaxBand, TaxYear};

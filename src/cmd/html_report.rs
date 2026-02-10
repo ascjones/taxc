@@ -2,16 +2,15 @@
 //!
 //! Generates a self-contained HTML file with embedded CSS/JS for interactive filtering.
 
-use crate::cmd::events::read_events;
+use super::read_events;
 use crate::events::{display_event_type, AssetClass, EventType, Label, TaxableEvent};
-use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalWarning, MatchingRule};
+use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalIndex, DisposalWarning, MatchingRule};
 use crate::tax::income::{calculate_income_tax, IncomeReport};
 use crate::tax::TaxYear;
-use clap::Args;
+use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -32,9 +31,24 @@ pub struct ReportCommand {
     #[arg(long)]
     json: bool,
 
+    /// Filter by event type
+    #[arg(short = 't', long, value_enum)]
+    event_type: Option<EventTypeFilter>,
+
+    /// Filter by asset (e.g., BTC, ETH)
+    #[arg(short, long)]
+    asset: Option<String>,
+
     /// Don't include unlinked deposits/withdrawals in calculations
     #[arg(long)]
     exclude_unlinked: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum EventTypeFilter {
+    Acquisition,
+    Disposal,
+    Staking,
 }
 
 impl ReportCommand {
@@ -46,7 +60,14 @@ impl ReportCommand {
         let income_report = calculate_income_tax(events.clone())?;
 
         if self.json {
-            let data = build_report_data(&events, &cgt_report, &income_report, tax_year)?;
+            let data = build_report_data(
+                &events,
+                &cgt_report,
+                &income_report,
+                tax_year,
+                self.asset.as_deref(),
+                self.event_type,
+            )?;
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -56,7 +77,14 @@ impl ReportCommand {
                 println!("{}", json);
             }
         } else {
-            let html = generate(&events, &cgt_report, &income_report, tax_year)?;
+            let html = generate(
+                &events,
+                &cgt_report,
+                &income_report,
+                tax_year,
+                self.asset.as_deref(),
+                self.event_type,
+            )?;
 
             if let Some(ref output_path) = self.output {
                 std::fs::write(output_path, &html)?;
@@ -171,8 +199,17 @@ pub fn generate(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
+    asset_filter: Option<&str>,
+    event_type_filter: Option<EventTypeFilter>,
 ) -> anyhow::Result<String> {
-    let data = build_report_data(events, cgt_report, income_report, year)?;
+    let data = build_report_data(
+        events,
+        cgt_report,
+        income_report,
+        year,
+        asset_filter,
+        event_type_filter,
+    )?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
     let js = JS.replace("__JSON_DATA__", &json_data);
 
@@ -296,6 +333,8 @@ fn build_report_data(
     cgt_report: &CgtReport,
     income_report: &IncomeReport,
     year: Option<TaxYear>,
+    asset_filter: Option<&str>,
+    event_type_filter: Option<EventTypeFilter>,
 ) -> anyhow::Result<HtmlReportData> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
@@ -304,6 +343,8 @@ fn build_report_data(
     let filtered_events: Vec<_> = events
         .iter()
         .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
+        .filter(|e| asset_filter.is_none_or(|asset| e.asset.eq_ignore_ascii_case(asset)))
+        .filter(|e| event_type_filter.is_none_or(|filter| matches_filter(e, filter)))
         .collect();
 
     // Build index of acquisitions by (date, asset) -> row index for navigation
@@ -335,16 +376,8 @@ fn build_report_data(
         }
     }
 
-    // Build CGT lookup maps: prefer id, fallback to a composite key
-    let mut cgt_by_id: HashMap<String, usize> = HashMap::new();
-    let mut cgt_by_key: HashMap<CgtKey, VecDeque<usize>> = HashMap::new();
-    for (idx, d) in cgt_report.disposals.iter().enumerate() {
-        if let Some(id) = d.id.as_ref() {
-            cgt_by_id.insert(id.clone(), idx);
-        }
-        let key = CgtKey::from_disposal(d);
-        cgt_by_key.entry(key).or_default().push_back(idx);
-    }
+    // Build CGT lookup: prefer id, fallback to a composite key
+    let mut disposal_index = DisposalIndex::new(cgt_report);
 
     // Build events list with CGT details for disposals
     let event_rows: Vec<EventRow> = filtered_events
@@ -352,7 +385,7 @@ fn build_report_data(
         .map(|e| {
             // Look up CGT details for disposal events
             let cgt = if e.event_type == EventType::Disposal {
-                find_cgt(e, cgt_report, &cgt_by_id, &mut cgt_by_key).map(|d| {
+                disposal_index.find(e).map(|d| {
                     // Determine primary matching rule
                     let rule = if d.matching_components.is_empty() {
                         "Pool".to_string()
@@ -525,6 +558,20 @@ fn format_event_type(event_type: EventType, label: Label) -> String {
     display_event_type(event_type, label).to_string()
 }
 
+fn matches_filter(event: &TaxableEvent, filter: EventTypeFilter) -> bool {
+    match filter {
+        EventTypeFilter::Acquisition => {
+            event.event_type == EventType::Acquisition && event.label == Label::Trade
+        }
+        EventTypeFilter::Disposal => {
+            event.event_type == EventType::Disposal && event.label == Label::Trade
+        }
+        EventTypeFilter::Staking => {
+            event.event_type == EventType::Acquisition && event.label == Label::StakingReward
+        }
+    }
+}
+
 fn format_asset_class(ac: &AssetClass) -> String {
     match ac {
         AssetClass::Crypto => "Crypto",
@@ -556,62 +603,6 @@ fn format_disposal_warning(warning: &DisposalWarning) -> String {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct CgtKey {
-    date: chrono::NaiveDate,
-    datetime: String,
-    asset: String,
-    quantity: String,
-    proceeds: String,
-}
-
-impl CgtKey {
-    fn from_disposal(disposal: &crate::tax::cgt::DisposalRecord) -> Self {
-        CgtKey {
-            date: disposal.date,
-            datetime: disposal.datetime.to_rfc3339(),
-            asset: disposal.asset.clone(),
-            quantity: format_decimal_key(disposal.quantity, 8),
-            proceeds: format_decimal_key(disposal.proceeds_gbp, 2),
-        }
-    }
-
-    fn from_event(event: &TaxableEvent) -> Self {
-        CgtKey {
-            date: event.date(),
-            datetime: event.datetime.to_rfc3339(),
-            asset: event.asset.clone(),
-            quantity: format_decimal_key(event.quantity, 8),
-            proceeds: format_decimal_key(event.value_gbp, 2),
-        }
-    }
-}
-
-fn find_cgt<'a>(
-    event: &TaxableEvent,
-    cgt_report: &'a CgtReport,
-    cgt_by_id: &HashMap<String, usize>,
-    cgt_by_key: &mut HashMap<CgtKey, VecDeque<usize>>,
-) -> Option<&'a crate::tax::cgt::DisposalRecord> {
-    if let Some(id) = event.id.as_ref() {
-        if let Some(&idx) = cgt_by_id.get(id) {
-            return cgt_report.disposals.get(idx);
-        }
-    }
-
-    let key = CgtKey::from_event(event);
-    cgt_by_key
-        .get_mut(&key)
-        .and_then(|queue| queue.pop_front())
-        .and_then(|idx| cgt_report.disposals.get(idx))
-}
-
-fn format_decimal_key(value: Decimal, dp: u32) -> String {
-    let s = format!("{:.*}", dp as usize, value);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
 }
 
 #[cfg(test)]
@@ -656,11 +647,148 @@ mod tests {
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None).unwrap();
+        let data =
+            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
 
         let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "GiftIn"));
         assert!(event_types.iter().any(|t| t == "GiftOut"));
+    }
+
+    #[test]
+    fn same_day_duplicate_acquisitions_link_to_first_row() {
+        let events = vec![
+            TaxableEvent {
+                id: Some("buy1".to_string()),
+                datetime: dt("2024-06-15"),
+                event_type: EventType::Acquisition,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(30000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("buy2".to_string()),
+                datetime: dt("2024-06-15"),
+                event_type: EventType::Acquisition,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(40000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("sell1".to_string()),
+                datetime: dt("2024-06-15"),
+                event_type: EventType::Disposal,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(2),
+                value_gbp: dec!(80000),
+                fee_gbp: None,
+                description: None,
+            },
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let data =
+            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+
+        let disposal = data
+            .events
+            .iter()
+            .find(|e| e.event_type == "Disposal")
+            .and_then(|e| e.cgt.as_ref())
+            .expect("expected disposal with CGT details");
+
+        for component in &disposal.matching_components {
+            assert_eq!(
+                component.matched_row_id,
+                Some(0),
+                "expected same-day match to point to first acquisition row"
+            );
+        }
+    }
+
+    #[test]
+    fn bnb_duplicate_acquisitions_link_to_first_row() {
+        let events = vec![
+            TaxableEvent {
+                id: Some("seed".to_string()),
+                datetime: dt("2024-01-01"),
+                event_type: EventType::Acquisition,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(5),
+                value_gbp: dec!(100000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("sell1".to_string()),
+                datetime: dt("2024-06-01"),
+                event_type: EventType::Disposal,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(25000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("rebuy1".to_string()),
+                datetime: dt("2024-06-10"),
+                event_type: EventType::Acquisition,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(22000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: Some("rebuy2".to_string()),
+                datetime: dt("2024-06-10"),
+                event_type: EventType::Acquisition,
+                label: Label::Trade,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(1),
+                value_gbp: dec!(24000),
+                fee_gbp: None,
+                description: None,
+            },
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let data =
+            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+
+        let disposal = data
+            .events
+            .iter()
+            .find(|e| e.event_type == "Disposal")
+            .and_then(|e| e.cgt.as_ref())
+            .expect("expected disposal with CGT details");
+
+        for component in &disposal.matching_components {
+            assert_eq!(
+                component.matched_row_id,
+                Some(2),
+                "expected B&B match to point to first acquisition row for the matched date"
+            );
+        }
     }
 }
 
