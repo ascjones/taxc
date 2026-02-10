@@ -23,6 +23,9 @@ Changes that require README updates include:
   - `income.rs` - Income tax calculations
 - `src/events.rs` - Event types and parsing
 
+### Module Preferences
+- If a top-level entity has non-trivial logic or multiple associated methods, prefer moving it into its own module/file (e.g., `Price`).
+
 ## Testing
 
 Run tests and linting before committing:
