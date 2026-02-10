@@ -1,5 +1,25 @@
 {
   "enabledPlugins": {
     "claude-mem@thedotmack": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo run:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(git log:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(sqlite3:*)",
+      "Bash(./scripts/serve-report.sh:*)",
+      "Skill(bump-version)"
+    ]
   }
 }
