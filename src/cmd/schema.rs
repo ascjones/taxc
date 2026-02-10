@@ -1,7 +1,7 @@
 //! Schema command - print JSON schemas for input/output formats
 
-use crate::cmd::html_report::HtmlReportData;
-use crate::transaction::TransactionInput;
+use crate::cmd::report::HtmlReportData;
+use crate::core::TransactionInput;
 use clap::{Args, ValueEnum};
 use schemars::schema_for;
 

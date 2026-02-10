@@ -1,11 +1,9 @@
 mod cmd;
-mod events;
-mod tax;
-mod transaction;
+mod core;
 
 use clap::{Parser, Subcommand};
-use cmd::report::ReportCommand;
 use cmd::pools::PoolsCommand;
+use cmd::report::ReportCommand;
 use cmd::schema::SchemaCommand;
 use cmd::summary::SummaryCommand;
 use cmd::validate::ValidateCommand;

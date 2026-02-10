@@ -1,5 +1,5 @@
-use crate::events::{EventType, Label, TaxableEvent};
-use crate::tax::uk::TaxYear;
+use super::events::{EventType, Label, TaxableEvent};
+use super::uk::TaxYear;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
@@ -723,7 +723,7 @@ impl<'a> DisposalIndex<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AssetClass, Label};
+    use crate::core::{AssetClass, Label};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 

@@ -1,9 +1,9 @@
 //! Pools command - pool balances over time
 
 use super::read_events;
-use crate::events::display_event_type;
-use crate::tax::cgt::{calculate_cgt, PoolHistoryEntry, PoolState, YearEndSnapshot};
-use crate::tax::TaxYear;
+use crate::core::{
+    calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, TaxYear, YearEndSnapshot,
+};
 use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;

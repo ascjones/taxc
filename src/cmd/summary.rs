@@ -1,9 +1,7 @@
 //! Summary command - aggregated totals and tax calculations
 
 use super::read_events;
-use crate::tax::cgt::calculate_cgt;
-use crate::tax::income::calculate_income_tax;
-use crate::tax::{TaxBand, TaxYear};
+use crate::core::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -117,8 +115,8 @@ impl SummaryCommand {
 
     fn print_summary(
         &self,
-        cgt_report: &crate::tax::cgt::CgtReport,
-        income_report: &crate::tax::income::IncomeReport,
+        cgt_report: &crate::core::CgtReport,
+        income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
         band: TaxBand,
     ) {
@@ -230,8 +228,8 @@ impl SummaryCommand {
 
     fn print_json(
         &self,
-        cgt_report: &crate::tax::cgt::CgtReport,
-        income_report: &crate::tax::income::IncomeReport,
+        cgt_report: &crate::core::CgtReport,
+        income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
         band: TaxBand,
     ) -> anyhow::Result<()> {

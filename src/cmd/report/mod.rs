@@ -3,10 +3,10 @@
 pub mod html;
 
 use super::read_events;
-use crate::events::{display_event_type, AssetClass, EventType, Label, TaxableEvent};
-use crate::tax::cgt::{calculate_cgt, CgtReport, DisposalIndex, DisposalWarning, MatchingRule};
-use crate::tax::income::{calculate_income_tax, IncomeReport};
-use crate::tax::TaxYear;
+use crate::core::{
+    calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
+    DisposalWarning, EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent,
+};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
@@ -473,7 +473,7 @@ fn format_disposal_warning(warning: &DisposalWarning) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AssetClass, EventType, Label, TaxableEvent};
+    use crate::core::{AssetClass, EventType, Label, TaxableEvent};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 

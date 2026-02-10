@@ -1,13 +1,11 @@
-use crate::events::{AssetClass, EventType, Label, TaxableEvent};
+use super::events::{AssetClass, EventType, Label, TaxableEvent};
+use super::price::Price;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
-
-mod price;
-pub use price::Price;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TransactionError {

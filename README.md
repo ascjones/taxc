@@ -291,6 +291,12 @@ Enable pre-commit hooks (runs fmt, clippy, and tests):
 git config core.hooksPath .githooks
 ```
 
+## Project Structure
+
+- `src/main.rs` - CLI entry point
+- `src/cmd/` - CLI command implementations
+- `src/core/` - Domain logic and tax calculations (flat public surface via re-exports)
+
 ## License
 
 MIT

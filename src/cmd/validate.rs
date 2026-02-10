@@ -1,8 +1,7 @@
 //! Validate command - surface data quality issues without generating full reports
 
 use super::read_events;
-use crate::tax::cgt::{calculate_cgt, DisposalWarning};
-use crate::tax::TaxYear;
+use crate::core::{calculate_cgt, DisposalWarning, TaxYear};
 use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;

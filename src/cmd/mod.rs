@@ -1,11 +1,10 @@
-pub mod report;
 pub mod pools;
+pub mod report;
 pub mod schema;
 pub mod summary;
 pub mod validate;
 
-use crate::events::TaxableEvent;
-use crate::transaction::{self, ConversionOptions};
+use crate::core::{self, ConversionOptions, TaxableEvent};
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
@@ -23,8 +22,8 @@ pub fn read_events(path: &Path, exclude_unlinked: bool) -> anyhow::Result<Vec<Ta
 fn read_from_file(path: &Path, options: ConversionOptions) -> anyhow::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let transactions = transaction::read_transactions_json(reader)?;
-    let events = transaction::transactions_to_events(&transactions, options)?;
+    let transactions = core::read_transactions_json(reader)?;
+    let events = core::transactions_to_events(&transactions, options)?;
     Ok(events)
 }
 
@@ -40,7 +39,7 @@ fn read_from_stdin(options: ConversionOptions) -> anyhow::Result<Vec<TaxableEven
     }
 
     let cursor = io::Cursor::new(buffer);
-    let transactions = transaction::read_transactions_json(cursor)?;
-    let events = transaction::transactions_to_events(&transactions, options)?;
+    let transactions = core::read_transactions_json(cursor)?;
+    let events = core::transactions_to_events(&transactions, options)?;
     Ok(events)
 }

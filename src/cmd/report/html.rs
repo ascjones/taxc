@@ -1,10 +1,7 @@
 //! HTML report generation.
 
 use super::{build_report_data, EventTypeFilter};
-use crate::events::TaxableEvent;
-use crate::tax::cgt::CgtReport;
-use crate::tax::income::IncomeReport;
-use crate::tax::TaxYear;
+use crate::core::{CgtReport, IncomeReport, TaxYear, TaxableEvent};
 
 /// Generate HTML report content
 pub fn generate_html(

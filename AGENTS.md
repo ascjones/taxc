@@ -15,21 +15,27 @@ Changes that require README updates include:
 
 - `src/main.rs` - CLI entry point with clap command definitions
 - `src/cmd/` - Command implementations
-  - `events.rs` - Transaction view command
   - `summary.rs` - Tax summary command
-  - `html_report.rs` - HTML/JSON report generation
-- `src/tax/` - Tax calculation logic
+  - `report/mod.rs` - Report command + data model
+  - `report/html.rs` - HTML report generation
+  - `pools.rs` - Pool history command
+  - `validate.rs` - Data quality checks
+  - `schema.rs` - JSON schema output
+- `src/core/` - Domain logic and tax calculations (flat public surface via re-exports)
+  - `events.rs` - Event types and display helpers
+  - `transaction.rs` - Transaction parsing and conversion to events
+  - `price.rs` - Price model and conversions
   - `cgt.rs` - Capital gains tax with HMRC share identification rules
   - `income.rs` - Income tax calculations
-- `src/events.rs` - Event types and parsing
+  - `uk.rs` - UK tax year and rate rules
 
 ### Module Preferences
 - If a top-level entity has non-trivial logic or multiple associated methods, prefer moving it into its own module/file (e.g., `Price`).
 
 ### Architecture: Separate CLI from Domain Logic
 - Keep CLI/IO concerns (argument parsing, file reading, stdout formatting) in `src/cmd/` and `src/main.rs`.
-- Keep domain logic (tax calculations, event enrichment, matching rules) in `src/tax/` and `src/events.rs` as pure functions operating on data — no file IO, no CLI types.
-- `src/cmd/` may depend on `src/tax/` and `src/events.rs`, but never the reverse.
+- Keep domain logic (tax calculations, event enrichment, matching rules) in `src/core/` as pure functions operating on data — no file IO, no CLI types.
+- `src/cmd/` may depend on `src/core/`, but never the reverse.
 - When adding new logic, ask: "Does this need IO or CLI context?" If no, it belongs in the domain layer.
 
 ## Testing

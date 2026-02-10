@@ -1,5 +1,5 @@
-use crate::events::{EventType, Label, TaxableEvent};
-use crate::tax::uk::TaxYear;
+use super::events::{EventType, Label, TaxableEvent};
+use super::uk::TaxYear;
 use rust_decimal::Decimal;
 
 /// Income tax report
@@ -37,7 +37,7 @@ pub fn calculate_income_tax(events: Vec<TaxableEvent>) -> anyhow::Result<IncomeR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AssetClass, Label};
+    use crate::core::{AssetClass, Label};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
