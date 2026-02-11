@@ -690,7 +690,7 @@ mod tests {
     ) -> TaxableEvent {
         TaxableEvent {
             id: 0,
-            source_transaction_id: None,
+            source_transaction_id: "tx-test".to_string(),
             datetime: dt(date),
             event_type,
             label,
@@ -1698,7 +1698,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: 1,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -1711,7 +1711,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 2,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,

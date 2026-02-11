@@ -115,8 +115,7 @@ pub struct EventRow {
     /// Sequential event identifier
     pub id: usize,
     /// Source transaction identifier from input
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_transaction_id: Option<String>,
+    pub source_transaction_id: String,
     pub datetime: String,
     pub tax_year: String,
     pub event_type: String,
@@ -385,11 +384,7 @@ pub(super) fn build_report_data(
         .iter()
         .flat_map(|event| {
             event.warnings.iter().map(move |warning| {
-                let source_transaction_ids = event
-                    .source_transaction_id
-                    .clone()
-                    .map(|id| vec![id])
-                    .unwrap_or_default();
+                let source_transaction_ids = vec![event.source_transaction_id.clone()];
                 let related_event_ids = vec![event.id];
 
                 WarningRecord {
@@ -552,7 +547,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: 1,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Gift,
@@ -565,7 +560,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 2,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-02-01"),
                 event_type: EventType::Disposal,
                 label: Label::Gift,
@@ -593,7 +588,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: 1,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -606,7 +601,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 2,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -619,7 +614,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 3,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -658,7 +653,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: 1,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -671,7 +666,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 2,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -684,7 +679,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 3,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -697,7 +692,7 @@ mod tests {
             },
             TaxableEvent {
                 id: 4,
-                source_transaction_id: None,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -735,7 +730,7 @@ mod tests {
     fn warning_records_link_source_transaction_and_event_ids() {
         let events = vec![TaxableEvent {
             id: 1,
-            source_transaction_id: Some("tx-1".to_string()),
+            source_transaction_id: "tx-1".to_string(),
             datetime: dt("2024-06-01"),
             event_type: EventType::Disposal,
             label: Label::Trade,

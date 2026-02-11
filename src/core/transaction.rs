@@ -240,7 +240,7 @@ impl Transaction {
                 if has_disposal {
                     events.push(TaxableEvent {
                         id: next_event_id(),
-                        source_transaction_id: Some(id.clone()),
+                        source_transaction_id: id.clone(),
                         event_type: EventType::Disposal,
                         label: Label::Trade,
                         datetime: *datetime,
@@ -257,7 +257,7 @@ impl Transaction {
                     let acquisition_fee = if !has_disposal { fee_gbp } else { None };
                     events.push(TaxableEvent {
                         id: next_event_id(),
-                        source_transaction_id: Some(id.clone()),
+                        source_transaction_id: id.clone(),
                         event_type: EventType::Acquisition,
                         label: Label::Trade,
                         datetime: *datetime,
@@ -311,7 +311,7 @@ impl Transaction {
                 );
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
-                    source_transaction_id: Some(id.clone()),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Acquisition,
                     label: Label::Unclassified,
                     datetime: *datetime,
@@ -362,7 +362,7 @@ impl Transaction {
                 );
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
-                    source_transaction_id: Some(id.clone()),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Disposal,
                     label: Label::Unclassified,
                     datetime: *datetime,
@@ -400,7 +400,7 @@ impl Transaction {
 
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
-                    source_transaction_id: Some(id.clone()),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Acquisition,
                     label: Label::StakingReward,
                     datetime: *datetime,
