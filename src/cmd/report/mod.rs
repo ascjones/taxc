@@ -6,6 +6,7 @@ use super::read_events;
 use crate::core::{
     calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
     EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent, Warning,
+    TRADE_ACQUISITION_EVENT_ID_SUFFIX, TRADE_DISPOSAL_EVENT_ID_SUFFIX,
 };
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
@@ -531,15 +532,13 @@ fn format_event_warning(warning: &Warning) -> String {
                 format!("InsufficientCostBasis({}/{})", available, required)
             }
         }
-        Warning::MissingAirdropPrice => "MissingAirdropPrice".to_string(),
-        Warning::IgnoredAirdropPrice => "IgnoredAirdropPrice".to_string(),
     }
 }
 
 fn source_transaction_id(event_id: &str) -> String {
     event_id
-        .strip_suffix("-disposal")
-        .or_else(|| event_id.strip_suffix("-acquisition"))
+        .strip_suffix(TRADE_DISPOSAL_EVENT_ID_SUFFIX)
+        .or_else(|| event_id.strip_suffix(TRADE_ACQUISITION_EVENT_ID_SUFFIX))
         .unwrap_or(event_id)
         .to_string()
 }

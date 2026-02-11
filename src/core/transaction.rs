@@ -7,6 +7,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 
+pub const TRADE_DISPOSAL_EVENT_ID_SUFFIX: &str = "-disposal";
+pub const TRADE_ACQUISITION_EVENT_ID_SUFFIX: &str = "-acquisition";
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TransactionError {
     #[error("duplicate transaction id: {0}")]
@@ -229,7 +232,7 @@ impl Transaction {
 
                 if has_disposal {
                     events.push(TaxableEvent {
-                        id: Some(format!("{id}-disposal")),
+                        id: Some(format!("{id}{TRADE_DISPOSAL_EVENT_ID_SUFFIX}")),
                         event_type: EventType::Disposal,
                         label: Label::Trade,
                         datetime: *datetime,
@@ -245,7 +248,7 @@ impl Transaction {
                 if has_acquisition {
                     let acquisition_fee = if !has_disposal { fee_gbp } else { None };
                     events.push(TaxableEvent {
-                        id: Some(format!("{id}-acquisition")),
+                        id: Some(format!("{id}{TRADE_ACQUISITION_EVENT_ID_SUFFIX}")),
                         event_type: EventType::Acquisition,
                         label: Label::Trade,
                         datetime: *datetime,

@@ -16,8 +16,4 @@ pub enum Warning {
         #[schemars(with = "f64")]
         required: Decimal,
     },
-    /// Income airdrop had no market price available.
-    MissingAirdropPrice,
-    /// Non-income airdrop provided a price that was ignored.
-    IgnoredAirdropPrice,
 }
