@@ -605,10 +605,20 @@ function formatRuleBadge(rule) {
 
 function formatEventType(type, warnings) {
     let className = `type-${type.toLowerCase().replace(/\s+/g, '-')}`;
-    if (warnings && warnings.includes('Unclassified')) {
+    if (hasWarningType(warnings, 'UnclassifiedEvent')) {
         className = 'type-unclassified';
     }
     return `<span class="event-type ${className}">${type}</span>`;
+}
+
+function warningTypeName(warning) {
+    if (!warning) return '';
+    if (typeof warning === 'string') return warning;
+    return warning.type || '';
+}
+
+function hasWarningType(warnings, warningType) {
+    return !!warnings && warnings.some(w => warningTypeName(w) === warningType);
 }
 
 function formatWarnings(warnings) {
@@ -633,7 +643,7 @@ function renderEventsTable(events) {
         row.innerHTML = `
             <td>${expandButton}</td>
             <td>${formatDateTime(e.datetime)}</td>
-            <td>${formatEventType(e.event_type, e.cgt?.warnings)}</td>
+            <td>${formatEventType(e.event_type, e.warnings)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
@@ -797,13 +807,13 @@ function calculateFilteredSummary(events) {
             totalProceeds += parseFloat(e.cgt.proceeds_gbp) || 0;
             totalCosts += parseFloat(e.cgt.cost_gbp) || 0;
             totalGain += parseFloat(e.cgt.gain_gbp) || 0;
+        }
 
-            if (e.cgt.warnings && e.cgt.warnings.length > 0) {
-                warningCount++;
-                if (e.cgt.warnings.includes('Unclassified')) unclassifiedCount++;
-                if (e.cgt.warnings.some(w => w.startsWith('NoCostBasis') || w.startsWith('InsufficientCostBasis')))
-                    costBasisWarningCount++;
-            }
+        if (e.warnings && e.warnings.length > 0) {
+            warningCount++;
+            if (hasWarningType(e.warnings, 'UnclassifiedEvent')) unclassifiedCount++;
+            if (hasWarningType(e.warnings, 'InsufficientCostBasis'))
+                costBasisWarningCount++;
         }
         if (e.event_type.toLowerCase().includes('staking')) {
             totalStaking += parseFloat(e.value_gbp) || 0;
@@ -839,7 +849,7 @@ function updateSummary(events) {
     const warningsBanner = document.getElementById('warnings-banner');
     if (summary.warningCount > 0) {
         warningsBanner.style.display = 'flex';
-        let warningText = `${summary.warningCount} disposals with warnings`;
+        let warningText = `${summary.warningCount} events with warnings`;
         if (summary.unclassifiedCount > 0) warningText += `, ${summary.unclassifiedCount} unclassified`;
         if (summary.costBasisWarningCount > 0)
             warningText += `, ${summary.costBasisWarningCount} cost basis issues`;

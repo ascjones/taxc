@@ -6,7 +6,6 @@ use cmd::pools::PoolsCommand;
 use cmd::report::ReportCommand;
 use cmd::schema::SchemaCommand;
 use cmd::summary::SummaryCommand;
-use cmd::validate::ValidateCommand;
 
 #[derive(Parser, Debug)]
 #[command(name = "taxc", version)]
@@ -27,9 +26,6 @@ enum Command {
     /// Show pool balances over time
     Pools(PoolsCommand),
 
-    /// Validate data quality and surface issues
-    Validate(ValidateCommand),
-
     /// Print expected JSON input schema
     Schema(SchemaCommand),
 }
@@ -40,7 +36,6 @@ impl Command {
             Command::Summary(summary) => summary.exec(),
             Command::Report(report) => report.exec(),
             Command::Pools(pools) => pools.exec(),
-            Command::Validate(validate) => validate.exec(),
             Command::Schema(schema) => schema.exec(),
         }
     }
