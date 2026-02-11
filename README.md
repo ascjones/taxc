@@ -249,6 +249,8 @@ taxc report transactions.json --json > report.json
 
 Report JSON includes:
 - Per-event `warnings` attached to each event row
+- Per-event `source_transaction_id` to link warnings/events back to input transactions
+- Event `id` values generated as `<transaction-id>-<n>` (unique per event, incremented per transaction)
 - A top-level `warnings` list with `source_transaction_ids` and `related_event_ids`
 
 ## HMRC Share Identification Rules

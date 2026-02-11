@@ -6,7 +6,6 @@ use super::read_events;
 use crate::core::{
     calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
     EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent, Warning,
-    TRADE_ACQUISITION_EVENT_ID_SUFFIX, TRADE_DISPOSAL_EVENT_ID_SUFFIX,
 };
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
@@ -116,6 +115,9 @@ pub struct EventRow {
     /// Source data identifier
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Source transaction identifier from input
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_transaction_id: Option<String>,
     pub datetime: String,
     pub tax_year: String,
     pub event_type: String,
@@ -364,6 +366,7 @@ pub(super) fn build_report_data(
 
             Ok(EventRow {
                 id: e.id.clone(),
+                source_transaction_id: e.source_transaction_id.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_type: format_event_type(e.event_type, e.label),
@@ -384,9 +387,8 @@ pub(super) fn build_report_data(
         .flat_map(|event| {
             event.warnings.iter().map(move |warning| {
                 let source_transaction_ids = event
-                    .id
-                    .as_deref()
-                    .map(source_transaction_id)
+                    .source_transaction_id
+                    .clone()
                     .map(|id| vec![id])
                     .unwrap_or_default();
                 let related_event_ids = event.id.clone().map(|id| vec![id]).unwrap_or_default();
@@ -535,14 +537,6 @@ fn format_event_warning(warning: &Warning) -> String {
     }
 }
 
-fn source_transaction_id(event_id: &str) -> String {
-    event_id
-        .strip_suffix(TRADE_DISPOSAL_EVENT_ID_SUFFIX)
-        .or_else(|| event_id.strip_suffix(TRADE_ACQUISITION_EVENT_ID_SUFFIX))
-        .unwrap_or(event_id)
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +553,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: Some("gift-in".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Gift,
@@ -571,6 +566,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("gift-out".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-02-01"),
                 event_type: EventType::Disposal,
                 label: Label::Gift,
@@ -598,6 +594,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: Some("buy1".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -610,6 +607,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("buy2".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -622,6 +620,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("sell1".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -660,6 +659,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: Some("seed".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -672,6 +672,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("sell1".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -684,6 +685,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("rebuy1".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -696,6 +698,7 @@ mod tests {
             },
             TaxableEvent {
                 id: Some("rebuy2".to_string()),
+                source_transaction_id: None,
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -732,7 +735,8 @@ mod tests {
     #[test]
     fn warning_records_link_source_transaction_and_event_ids() {
         let events = vec![TaxableEvent {
-            id: Some("tx-1-disposal".to_string()),
+            id: Some("tx-1-1".to_string()),
+            source_transaction_id: Some("tx-1".to_string()),
             datetime: dt("2024-06-01"),
             event_type: EventType::Disposal,
             label: Label::Trade,
@@ -754,6 +758,6 @@ mod tests {
             Warning::InsufficientCostBasis { .. }
         ) && w.source_transaction_ids
             == vec!["tx-1".to_string()]
-            && w.related_event_ids == vec!["tx-1-disposal".to_string()]));
+            && w.related_event_ids == vec!["tx-1-1".to_string()]));
     }
 }

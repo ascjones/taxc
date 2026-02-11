@@ -49,6 +49,9 @@ pub struct TaxableEvent {
     /// Optional identifier to link back to source data
     #[serde(default)]
     pub id: Option<String>,
+    /// Original input transaction ID for this event
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_transaction_id: Option<String>,
     #[serde(rename = "date")]
     #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
@@ -88,6 +91,7 @@ mod tests {
     fn total_cost_includes_fees() {
         let event = TaxableEvent {
             id: None,
+            source_transaction_id: None,
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             label: Label::Trade,
@@ -105,6 +109,7 @@ mod tests {
     fn total_cost_without_fees() {
         let event = TaxableEvent {
             id: None,
+            source_transaction_id: None,
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             label: Label::Trade,

@@ -48,6 +48,7 @@ mod tests {
     fn staking(date: &str, value: Decimal) -> TaxableEvent {
         TaxableEvent {
             id: None,
+            source_transaction_id: None,
             datetime: dt(date),
             event_type: EventType::Acquisition,
             label: Label::StakingReward,
@@ -77,6 +78,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: None,
+                source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -89,6 +91,7 @@ mod tests {
             },
             TaxableEvent {
                 id: None,
+                source_transaction_id: None,
                 datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -111,6 +114,7 @@ mod tests {
         let events = vec![
             TaxableEvent {
                 id: None,
+                source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Gift,
@@ -123,6 +127,7 @@ mod tests {
             },
             TaxableEvent {
                 id: None,
+                source_transaction_id: None,
                 datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
                 label: Label::Gift,

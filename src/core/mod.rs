@@ -15,7 +15,7 @@ pub use events::{display_event_type, AssetClass, EventType, Label, TaxableEvent}
 pub use income::{calculate_income_tax, IncomeReport};
 pub use transaction::{
     read_transactions_json, transactions_to_events, ConversionOptions, TransactionError,
-    TransactionInput, TRADE_ACQUISITION_EVENT_ID_SUFFIX, TRADE_DISPOSAL_EVENT_ID_SUFFIX,
+    TransactionInput,
 };
 pub use uk::{TaxBand, TaxYear};
 pub use warnings::Warning;
