@@ -112,9 +112,8 @@ pub struct ReportData {
 
 #[derive(Serialize, JsonSchema)]
 pub struct EventRow {
-    /// Source data identifier
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    /// Sequential event identifier
+    pub id: usize,
     /// Source transaction identifier from input
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_transaction_id: Option<String>,
@@ -143,7 +142,7 @@ pub struct WarningRecord {
     pub source_transaction_ids: Vec<String>,
     /// Output event IDs related to this warning.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub related_event_ids: Vec<String>,
+    pub related_event_ids: Vec<usize>,
 }
 
 /// CGT details for disposal events
@@ -365,7 +364,7 @@ pub(super) fn build_report_data(
                 .unwrap_or_default();
 
             Ok(EventRow {
-                id: e.id.clone(),
+                id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
@@ -391,7 +390,7 @@ pub(super) fn build_report_data(
                     .clone()
                     .map(|id| vec![id])
                     .unwrap_or_default();
-                let related_event_ids = event.id.clone().map(|id| vec![id]).unwrap_or_default();
+                let related_event_ids = vec![event.id];
 
                 WarningRecord {
                     warning: warning.clone(),
@@ -552,7 +551,7 @@ mod tests {
     fn gift_event_types_in_report_data() {
         let events = vec![
             TaxableEvent {
-                id: Some("gift-in".to_string()),
+                id: 1,
                 source_transaction_id: None,
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
@@ -565,7 +564,7 @@ mod tests {
                 description: Some("Gift received".to_string()),
             },
             TaxableEvent {
-                id: Some("gift-out".to_string()),
+                id: 2,
                 source_transaction_id: None,
                 datetime: dt("2024-02-01"),
                 event_type: EventType::Disposal,
@@ -593,7 +592,7 @@ mod tests {
     fn same_day_duplicate_acquisitions_link_to_first_row() {
         let events = vec![
             TaxableEvent {
-                id: Some("buy1".to_string()),
+                id: 1,
                 source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
@@ -606,7 +605,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("buy2".to_string()),
+                id: 2,
                 source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
@@ -619,7 +618,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("sell1".to_string()),
+                id: 3,
                 source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
@@ -658,7 +657,7 @@ mod tests {
     fn bnb_duplicate_acquisitions_link_to_first_row() {
         let events = vec![
             TaxableEvent {
-                id: Some("seed".to_string()),
+                id: 1,
                 source_transaction_id: None,
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
@@ -671,7 +670,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("sell1".to_string()),
+                id: 2,
                 source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Disposal,
@@ -684,7 +683,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("rebuy1".to_string()),
+                id: 3,
                 source_transaction_id: None,
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
@@ -697,7 +696,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("rebuy2".to_string()),
+                id: 4,
                 source_transaction_id: None,
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
@@ -735,7 +734,7 @@ mod tests {
     #[test]
     fn warning_records_link_source_transaction_and_event_ids() {
         let events = vec![TaxableEvent {
-            id: Some("tx-1-1".to_string()),
+            id: 1,
             source_transaction_id: Some("tx-1".to_string()),
             datetime: dt("2024-06-01"),
             event_type: EventType::Disposal,
@@ -758,6 +757,6 @@ mod tests {
             Warning::InsufficientCostBasis { .. }
         ) && w.source_transaction_ids
             == vec!["tx-1".to_string()]
-            && w.related_event_ids == vec!["tx-1-1".to_string()]));
+            && w.related_event_ids == vec![1]));
     }
 }

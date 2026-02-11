@@ -184,8 +184,8 @@ impl Pool {
 /// Record of a disposal for CGT purposes
 #[derive(Debug, Clone)]
 pub struct DisposalRecord {
-    /// Optional identifier from source data
-    pub id: Option<String>,
+    /// Event identifier from source data
+    pub id: usize,
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub tax_year: TaxYear,
@@ -534,7 +534,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                 }
 
                 disposals.push(DisposalRecord {
-                    id: event.id.clone(),
+                    id: event.id,
                     datetime: event.datetime,
                     date: event.date(),
                     tax_year,
@@ -634,7 +634,7 @@ fn format_decimal_key(value: Decimal, dp: u32) -> String {
 
 pub struct DisposalIndex<'a> {
     report: &'a CgtReport,
-    by_id: HashMap<String, usize>,
+    by_id: HashMap<usize, usize>,
     by_key: HashMap<DisposalKey, VecDeque<usize>>,
 }
 
@@ -643,9 +643,7 @@ impl<'a> DisposalIndex<'a> {
         let mut by_id = HashMap::new();
         let mut by_key: HashMap<DisposalKey, VecDeque<usize>> = HashMap::new();
         for (idx, d) in report.disposals.iter().enumerate() {
-            if let Some(id) = d.id.as_ref() {
-                by_id.insert(id.clone(), idx);
-            }
+            by_id.insert(d.id, idx);
             let key = DisposalKey::from_disposal(d);
             by_key.entry(key).or_default().push_back(idx);
         }
@@ -658,10 +656,8 @@ impl<'a> DisposalIndex<'a> {
     }
 
     pub fn find(&mut self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
-        if let Some(id) = event.id.as_ref() {
-            if let Some(&idx) = self.by_id.get(id) {
-                return self.report.disposals.get(idx);
-            }
+        if let Some(&idx) = self.by_id.get(&event.id) {
+            return self.report.disposals.get(idx);
         }
 
         let key = DisposalKey::from_event(event);
@@ -693,7 +689,7 @@ mod tests {
         fee: Option<Decimal>,
     ) -> TaxableEvent {
         TaxableEvent {
-            id: None,
+            id: 0,
             source_transaction_id: None,
             datetime: dt(date),
             event_type,
@@ -1701,7 +1697,7 @@ mod tests {
         // Create events with explicit ids
         let events = vec![
             TaxableEvent {
-                id: Some("acq-001".to_string()),
+                id: 1,
                 source_transaction_id: None,
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
@@ -1714,7 +1710,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("disp-001".to_string()),
+                id: 2,
                 source_transaction_id: None,
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
@@ -1734,7 +1730,7 @@ mod tests {
         let disposal = &report.disposals[0];
 
         // The disposal record should have the id from the source event
-        assert_eq!(disposal.id, Some("disp-001".to_string()));
+        assert_eq!(disposal.id, 2);
     }
 
     #[test]

@@ -47,7 +47,7 @@ mod tests {
 
     fn staking(date: &str, value: Decimal) -> TaxableEvent {
         TaxableEvent {
-            id: None,
+            id: 0,
             source_transaction_id: None,
             datetime: dt(date),
             event_type: EventType::Acquisition,
@@ -77,7 +77,7 @@ mod tests {
     fn acquisitions_and_disposals_ignored() {
         let events = vec![
             TaxableEvent {
-                id: None,
+                id: 0,
                 source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
@@ -90,7 +90,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: None,
+                id: 0,
                 source_transaction_id: None,
                 datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
@@ -113,7 +113,7 @@ mod tests {
     fn gifts_not_counted_as_income() {
         let events = vec![
             TaxableEvent {
-                id: None,
+                id: 0,
                 source_transaction_id: None,
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Acquisition,
@@ -126,7 +126,7 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: None,
+                id: 0,
                 source_transaction_id: None,
                 datetime: dt("2024-07-01"),
                 event_type: EventType::Disposal,
