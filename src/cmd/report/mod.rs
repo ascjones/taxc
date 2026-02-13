@@ -411,20 +411,27 @@ pub(super) fn build_report_data(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let warnings: Vec<WarningRecord> = event_rows
-        .iter()
-        .flat_map(|event| {
-            event.warnings.iter().map(move |warning| {
-                let source_transaction_ids = vec![event.source_transaction_id.clone()];
-                let related_event_ids = vec![event.id];
-
-                WarningRecord {
-                    warning: warning.clone(),
-                    source_transaction_ids,
-                    related_event_ids,
-                }
-            })
-        })
+    let mut warning_map: HashMap<Warning, (Vec<String>, Vec<usize>)> = HashMap::new();
+    for event in &event_rows {
+        for warning in &event.warnings {
+            let entry = warning_map.entry(warning.clone()).or_default();
+            if !entry.0.contains(&event.source_transaction_id) {
+                entry.0.push(event.source_transaction_id.clone());
+            }
+            if !entry.1.contains(&event.id) {
+                entry.1.push(event.id);
+            }
+        }
+    }
+    let warnings: Vec<WarningRecord> = warning_map
+        .into_iter()
+        .map(
+            |(warning, (source_transaction_ids, related_event_ids))| WarningRecord {
+                warning,
+                source_transaction_ids,
+                related_event_ids,
+            },
+        )
         .collect();
 
     // Build asset -> asset_class mapping from events
