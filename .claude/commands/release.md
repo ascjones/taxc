@@ -1,11 +1,11 @@
 ---
-allowed-tools: Bash(git describe:*), Bash(git log:*), Bash(git show:*), Bash(git rev-list:*), Bash(cargo check:*), Bash(cargo run:*), Bash(git add:*), Bash(git commit:*), Bash(git tag:*), Bash(diff:*)
-description: Analyze commits and bump version (minor for interface changes, patch for internal)
+allowed-tools: Bash(git describe:*), Bash(git log:*), Bash(git show:*), Bash(git rev-list:*), Bash(cargo check:*), Bash(cargo run:*), Bash(git add:*), Bash(git commit:*), Bash(git tag:*), Bash(git push:*), Bash(gh release create:*), Bash(diff:*)
+description: Analyze commits, bump version, and publish a GitHub release
 ---
 
-# Bump Version
+# Release
 
-Analyze commits since the last version tag and determine the appropriate semver bump.
+Analyze commits since the last version tag, determine the appropriate semver bump, generate release notes, and publish a GitHub release.
 
 ## Version Rules (pre-1.0)
 
@@ -79,13 +79,27 @@ Analyze commits since the last version tag and determine the appropriate semver 
     cargo run --quiet -- schema output > schema/output.json
     ```
 
-13. Ask the user if they want to create the release commit and tag
+13. **Generate release notes** by composing a markdown body with:
+    - A **Breaking Changes** section (if any) listing removed commands, changed formats, etc.
+    - A **Changes** section summarizing user-visible improvements
+    - An **Internal** section briefly listing non-user-facing changes
+    - Omit any section that has no entries
 
-14. If yes, run:
+14. Show the release notes and ask the user if they want to proceed with the release
+
+15. If yes, create the release commit, tag, and push:
     ```bash
     git add Cargo.toml Cargo.lock schema/
-    git commit -m "chore: release vX.Y.Z"
+    git commit -m "chore: release vX.Y.Z
+
+    <release notes body>"
     git tag vX.Y.Z
+    git push && git push --tags
     ```
 
-15. Report success with the new version and tag name
+16. Create a GitHub release with the same notes:
+    ```bash
+    gh release create vX.Y.Z --title "vX.Y.Z" --notes "<release notes body>"
+    ```
+
+17. Report success with the new version, tag name, and release URL
