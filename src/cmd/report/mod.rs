@@ -170,8 +170,6 @@ pub struct CgtDetails {
     pub gain_gbp: String,
     pub rule: String,
     pub matching_components: Vec<MatchingComponentRow>,
-    /// Warnings for this disposal (e.g., "Unclassified", "NoCostBasis", "InsufficientPool")
-    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -363,17 +361,12 @@ pub(super) fn build_report_data(
                         })
                         .collect();
 
-                    // Convert warnings to display strings
-                    let warnings: Vec<String> =
-                        d.warnings.iter().map(format_event_warning).collect();
-
                     CgtDetails {
                         proceeds_gbp: gbp_2dp(d.proceeds_gbp),
                         cost_gbp: gbp_2dp(d.allowable_cost_gbp),
                         gain_gbp: gbp_2dp(d.gain_gbp),
                         rule,
                         matching_components,
-                        warnings,
                     }
                 })
             } else {
@@ -687,22 +680,6 @@ fn format_matching_rule(rule: &MatchingRule) -> String {
         MatchingRule::Pool => "Pool",
     }
     .to_string()
-}
-
-fn format_event_warning(warning: &Warning) -> String {
-    match warning {
-        Warning::UnclassifiedEvent => "Unclassified".to_string(),
-        Warning::InsufficientCostBasis {
-            available,
-            required,
-        } => {
-            if available.is_zero() {
-                "NoCostBasis".to_string()
-            } else {
-                format!("InsufficientCostBasis({}/{})", available, required)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
