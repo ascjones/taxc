@@ -12,10 +12,17 @@
     },
     "summary": {
       "$ref": "#/$defs/Summary"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WarningRecord"
+      }
     }
   },
   "required": [
     "events",
+    "warnings",
     "summary"
   ],
   "$defs": {
@@ -91,13 +98,16 @@
           "type": "string"
         },
         "id": {
-          "description": "Source data identifier",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "Sequential event identifier",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
         },
         "quantity": {
+          "type": "string"
+        },
+        "source_transaction_id": {
+          "description": "Source transaction identifier from input",
           "type": "string"
         },
         "tax_year": {
@@ -105,9 +115,18 @@
         },
         "value_gbp": {
           "type": "string"
+        },
+        "warnings": {
+          "description": "Warnings attached to this event.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          }
         }
       },
       "required": [
+        "id",
+        "source_transaction_id",
         "datetime",
         "tax_year",
         "event_type",
@@ -201,7 +220,7 @@
           }
         },
         "cost_basis_warning_count": {
-          "description": "Count of disposals with cost basis issues (NoCostBasis or InsufficientPool)",
+          "description": "Count of events with cost basis issues",
           "type": "integer",
           "format": "uint",
           "minimum": 0
@@ -262,13 +281,13 @@
           "type": "string"
         },
         "unclassified_count": {
-          "description": "Count of unclassified disposal events (derived from warnings)",
+          "description": "Count of unclassified events",
           "type": "integer",
           "format": "uint",
           "minimum": 0
         },
         "warning_count": {
-          "description": "Count of disposals with any warning",
+          "description": "Count of events with any warning",
           "type": "integer",
           "format": "uint",
           "minimum": 0
@@ -290,6 +309,74 @@
         "cost_basis_warning_count",
         "tax_years",
         "assets"
+      ]
+    },
+    "Warning": {
+      "description": "Domain warning types emitted during conversion/calculation.",
+      "oneOf": [
+        {
+          "description": "Event was unclassified and may need manual review.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "UnclassifiedEvent"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Pool had insufficient quantity to cover the disposal.\nWhen `available = 0`, this means no cost basis at all.",
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "number",
+              "format": "double"
+            },
+            "required": {
+              "type": "number",
+              "format": "double"
+            },
+            "type": {
+              "type": "string",
+              "const": "InsufficientCostBasis"
+            }
+          },
+          "required": [
+            "type",
+            "available",
+            "required"
+          ]
+        }
+      ]
+    },
+    "WarningRecord": {
+      "type": "object",
+      "properties": {
+        "related_event_ids": {
+          "description": "Output event IDs related to this warning.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "source_transaction_ids": {
+          "description": "Input transaction IDs related to this warning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warning": {
+          "$ref": "#/$defs/Warning"
+        }
+      },
+      "required": [
+        "warning"
       ]
     }
   }
