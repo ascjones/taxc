@@ -68,29 +68,6 @@ taxc pools [OPTIONS] [FILE]
 | `--json` | Output as JSON instead of formatted table |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
-### Validate - Data Quality Check
-
-Surface data quality issues without generating full reports. Useful for quick checks or CI/CD pipelines.
-
-```
-taxc validate [OPTIONS] [FILE]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
-| `--json` | Output as JSON instead of formatted text |
-| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
-
-**Exit codes:**
-- `0` - No issues found
-- `1` - Issues found (useful for CI)
-
-**Issue types detected:**
-- `NoCostBasis` - Disposal with no matching acquisitions (cost basis is £0)
-- `InsufficientCostBasis` - Pool had less than required (partial cost basis)
-- `Unclassified` - Unclassified disposal event that may need review
-
 ### Schema - Format Reference
 
 Print JSON schemas for input or output formats. Useful for coding agents or tooling integration.
@@ -269,6 +246,12 @@ Use `--json` to output the report data as JSON (for integration with other tools
 ```
 taxc report transactions.json --json > report.json
 ```
+
+Report JSON includes:
+- Per-event `warnings` attached to each event row
+- Per-event `source_transaction_id` to link warnings/events back to input transactions
+- Event `id` values are sequential integers (`1..n`) in event order
+- A top-level `warnings` list with `source_transaction_ids` and `related_event_ids`
 
 ## HMRC Share Identification Rules
 

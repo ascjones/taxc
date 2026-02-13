@@ -176,6 +176,9 @@ pub fn transactions_to_events(
     }
 
     events.sort_by_key(|e| e.datetime);
+    for (idx, event) in events.iter_mut().enumerate() {
+        event.id = idx + 1;
+    }
     Ok(events)
 }
 
@@ -193,6 +196,13 @@ impl Transaction {
             details,
             ..
         } = self;
+
+        let mut event_index = 1usize;
+        let mut next_event_id = || {
+            let event_id = event_index;
+            event_index += 1;
+            event_id
+        };
 
         match details {
             TransactionType::Trade { sold, bought } => {
@@ -229,7 +239,8 @@ impl Transaction {
 
                 if has_disposal {
                     events.push(TaxableEvent {
-                        id: Some(format!("{id}-disposal")),
+                        id: next_event_id(),
+                        source_transaction_id: id.clone(),
                         event_type: EventType::Disposal,
                         label: Label::Trade,
                         datetime: *datetime,
@@ -245,7 +256,8 @@ impl Transaction {
                 if has_acquisition {
                     let acquisition_fee = if !has_disposal { fee_gbp } else { None };
                     events.push(TaxableEvent {
-                        id: Some(format!("{id}-acquisition")),
+                        id: next_event_id(),
+                        source_transaction_id: id.clone(),
                         event_type: EventType::Acquisition,
                         label: Label::Trade,
                         datetime: *datetime,
@@ -298,7 +310,8 @@ impl Transaction {
                     asset.symbol
                 );
                 Ok(vec![TaxableEvent {
-                    id: Some(id.clone()),
+                    id: next_event_id(),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Acquisition,
                     label: Label::Unclassified,
                     datetime: *datetime,
@@ -348,7 +361,8 @@ impl Transaction {
                     asset.symbol
                 );
                 Ok(vec![TaxableEvent {
-                    id: Some(id.clone()),
+                    id: next_event_id(),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Disposal,
                     label: Label::Unclassified,
                     datetime: *datetime,
@@ -385,7 +399,8 @@ impl Transaction {
                 };
 
                 Ok(vec![TaxableEvent {
-                    id: Some(id.clone()),
+                    id: next_event_id(),
+                    source_transaction_id: id.clone(),
                     event_type: EventType::Acquisition,
                     label: Label::StakingReward,
                     datetime: *datetime,
@@ -625,6 +640,57 @@ mod tests {
         assert_eq!(events[0].event_type, EventType::Disposal);
         assert_eq!(events[1].event_type, EventType::Acquisition);
         assert_eq!(events[0].value_gbp, events[1].value_gbp);
+    }
+
+    #[test]
+    fn transactions_to_events_assigns_sequential_event_ids() {
+        let tx1 = Transaction {
+            id: "tx-1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
+            fee: None,
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.5),
+                    asset_class: AssetClass::Crypto,
+                },
+            },
+        };
+
+        let tx2 = Transaction {
+            id: "tx-2".to_string(),
+            datetime: dt("2024-01-02T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
+            fee: None,
+            details: TransactionType::StakingReward {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+            },
+        };
+
+        let events = transactions_to_events(
+            &[tx1, tx2],
+            ConversionOptions {
+                exclude_unlinked: false,
+            },
+        )
+        .unwrap();
+
+        let ids: Vec<usize> = events.iter().map(|e| e.id).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
     }
 
     #[test]

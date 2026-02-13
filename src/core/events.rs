@@ -46,9 +46,10 @@ pub enum AssetClass {
 /// A taxable event (acquisition, disposal, or income)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TaxableEvent {
-    /// Optional identifier to link back to source data
-    #[serde(default)]
-    pub id: Option<String>,
+    /// Sequential event identifier assigned during conversion
+    pub id: usize,
+    /// Original input transaction ID for this event
+    pub source_transaction_id: String,
     #[serde(rename = "date")]
     #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
@@ -87,7 +88,8 @@ mod tests {
     #[test]
     fn total_cost_includes_fees() {
         let event = TaxableEvent {
-            id: None,
+            id: 1,
+            source_transaction_id: "tx-1".to_string(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             label: Label::Trade,
@@ -104,7 +106,8 @@ mod tests {
     #[test]
     fn total_cost_without_fees() {
         let event = TaxableEvent {
-            id: None,
+            id: 1,
+            source_transaction_id: "tx-1".to_string(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             label: Label::Trade,

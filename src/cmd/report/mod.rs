@@ -5,7 +5,7 @@ pub mod html;
 use super::read_events;
 use crate::core::{
     calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
-    DisposalWarning, EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent,
+    EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent, Warning,
 };
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
@@ -106,14 +106,16 @@ impl ReportCommand {
 #[derive(Serialize, JsonSchema)]
 pub struct ReportData {
     pub events: Vec<EventRow>,
+    pub warnings: Vec<WarningRecord>,
     pub summary: Summary,
 }
 
 #[derive(Serialize, JsonSchema)]
 pub struct EventRow {
-    /// Source data identifier
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    /// Sequential event identifier
+    pub id: usize,
+    /// Source transaction identifier from input
+    pub source_transaction_id: String,
     pub datetime: String,
     pub tax_year: String,
     pub event_type: String,
@@ -123,9 +125,23 @@ pub struct EventRow {
     pub value_gbp: String,
     pub fees_gbp: String,
     pub description: String,
+    /// Warnings attached to this event.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Warning>,
     /// CGT details for disposal events (None for other event types)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cgt: Option<CgtDetails>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct WarningRecord {
+    pub warning: Warning,
+    /// Input transaction IDs related to this warning.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_transaction_ids: Vec<String>,
+    /// Output event IDs related to this warning.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_event_ids: Vec<usize>,
 }
 
 /// CGT details for disposal events
@@ -181,11 +197,11 @@ pub struct Summary {
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
-    /// Count of disposals with any warning
+    /// Count of events with any warning
     pub warning_count: usize,
-    /// Count of unclassified disposal events (derived from warnings)
+    /// Count of unclassified events
     pub unclassified_count: usize,
-    /// Count of disposals with cost basis issues (NoCostBasis or InsufficientPool)
+    /// Count of events with cost basis issues
     pub cost_basis_warning_count: usize,
     pub tax_years: Vec<String>,
     pub assets: Vec<String>,
@@ -249,8 +265,20 @@ pub(super) fn build_report_data(
         .iter()
         .map(|e| {
             // Look up CGT details for disposal events
+            let mut event_warnings = if e.label == Label::Unclassified {
+                vec![Warning::UnclassifiedEvent]
+            } else {
+                Vec::new()
+            };
+
             let cgt = if e.event_type == EventType::Disposal {
                 disposal_index.find(e).map(|d| {
+                    for warning in &d.warnings {
+                        if !event_warnings.contains(warning) {
+                            event_warnings.push(warning.clone());
+                        }
+                    }
+
                     // Determine primary matching rule
                     let rule = if d.matching_components.is_empty() {
                         "Pool".to_string()
@@ -314,7 +342,7 @@ pub(super) fn build_report_data(
 
                     // Convert warnings to display strings
                     let warnings: Vec<String> =
-                        d.warnings.iter().map(format_disposal_warning).collect();
+                        d.warnings.iter().map(format_event_warning).collect();
 
                     CgtDetails {
                         proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
@@ -335,7 +363,8 @@ pub(super) fn build_report_data(
                 .unwrap_or_default();
 
             Ok(EventRow {
-                id: e.id.clone(),
+                id: e.id,
+                source_transaction_id: e.source_transaction_id.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_type: format_event_type(e.event_type, e.label),
@@ -345,10 +374,27 @@ pub(super) fn build_report_data(
                 value_gbp: format!("{:.2}", e.value_gbp),
                 fees_gbp,
                 description: e.description.clone().unwrap_or_default(),
+                warnings: event_warnings,
                 cgt,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let warnings: Vec<WarningRecord> = event_rows
+        .iter()
+        .flat_map(|event| {
+            event.warnings.iter().map(move |warning| {
+                let source_transaction_ids = vec![event.source_transaction_id.clone()];
+                let related_event_ids = vec![event.id];
+
+                WarningRecord {
+                    warning: warning.clone(),
+                    source_transaction_ids,
+                    related_event_ids,
+                }
+            })
+        })
+        .collect();
 
     // Calculate summary (classified events only)
     let total_proceeds = cgt_report.total_proceeds(year);
@@ -361,9 +407,23 @@ pub(super) fn build_report_data(
     let total_gain_with_unclassified = cgt_report.total_gain_with_unclassified(year);
 
     // Warning counts
-    let warning_count = cgt_report.warning_count(year);
-    let unclassified_count = cgt_report.unclassified_count(year);
-    let cost_basis_warning_count = cgt_report.cost_basis_warning_count(year);
+    let warning_count = event_rows.iter().filter(|e| !e.warnings.is_empty()).count();
+    let unclassified_count = event_rows
+        .iter()
+        .filter(|e| {
+            e.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::UnclassifiedEvent))
+        })
+        .count();
+    let cost_basis_warning_count = event_rows
+        .iter()
+        .filter(|e| {
+            e.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::InsufficientCostBasis { .. }))
+        })
+        .count();
 
     let total_staking: Decimal = income_report
         .staking_events
@@ -397,6 +457,7 @@ pub(super) fn build_report_data(
 
     Ok(ReportData {
         events: event_rows,
+        warnings,
         summary: Summary {
             total_proceeds: format!("{:.2}", total_proceeds),
             total_costs: format!("{:.2}", total_costs),
@@ -454,10 +515,10 @@ fn format_matching_rule(rule: &MatchingRule) -> String {
     .to_string()
 }
 
-fn format_disposal_warning(warning: &DisposalWarning) -> String {
+fn format_event_warning(warning: &Warning) -> String {
     match warning {
-        DisposalWarning::Unclassified => "Unclassified".to_string(),
-        DisposalWarning::InsufficientCostBasis {
+        Warning::UnclassifiedEvent => "Unclassified".to_string(),
+        Warning::InsufficientCostBasis {
             available,
             required,
         } => {
@@ -485,7 +546,8 @@ mod tests {
     fn gift_event_types_in_report_data() {
         let events = vec![
             TaxableEvent {
-                id: Some("gift-in".to_string()),
+                id: 1,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Gift,
@@ -497,7 +559,8 @@ mod tests {
                 description: Some("Gift received".to_string()),
             },
             TaxableEvent {
-                id: Some("gift-out".to_string()),
+                id: 2,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-02-01"),
                 event_type: EventType::Disposal,
                 label: Label::Gift,
@@ -524,7 +587,8 @@ mod tests {
     fn same_day_duplicate_acquisitions_link_to_first_row() {
         let events = vec![
             TaxableEvent {
-                id: Some("buy1".to_string()),
+                id: 1,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -536,7 +600,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("buy2".to_string()),
+                id: 2,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -548,7 +613,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("sell1".to_string()),
+                id: 3,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -586,7 +652,8 @@ mod tests {
     fn bnb_duplicate_acquisitions_link_to_first_row() {
         let events = vec![
             TaxableEvent {
-                id: Some("seed".to_string()),
+                id: 1,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -598,7 +665,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("sell1".to_string()),
+                id: 2,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -610,7 +678,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("rebuy1".to_string()),
+                id: 3,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -622,7 +691,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("rebuy2".to_string()),
+                id: 4,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -654,5 +724,34 @@ mod tests {
                 "expected B&B match to point to first acquisition row for the matched date"
             );
         }
+    }
+
+    #[test]
+    fn warning_records_link_source_transaction_and_event_ids() {
+        let events = vec![TaxableEvent {
+            id: 1,
+            source_transaction_id: "tx-1".to_string(),
+            datetime: dt("2024-06-01"),
+            event_type: EventType::Disposal,
+            label: Label::Trade,
+            asset: "BTC".to_string(),
+            asset_class: AssetClass::Crypto,
+            quantity: dec!(1),
+            value_gbp: dec!(25000),
+            fee_gbp: None,
+            description: None,
+        }];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let data =
+            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+
+        assert!(data.warnings.iter().any(|w| matches!(
+            w.warning,
+            Warning::InsufficientCostBasis { .. }
+        ) && w.source_transaction_ids
+            == vec!["tx-1".to_string()]
+            && w.related_event_ids == vec![1]));
     }
 }

@@ -1,5 +1,6 @@
 use super::events::{EventType, Label, TaxableEvent};
 use super::uk::TaxYear;
+use super::warnings::Warning;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
@@ -80,21 +81,6 @@ pub enum MatchingRule {
     SameDay,
     BedAndBreakfast,
     Pool,
-}
-
-/// Warning types for disposal records
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type")]
-pub enum DisposalWarning {
-    /// Event was Unclassified - may need review
-    Unclassified,
-    /// Pool had insufficient quantity to cover the disposal
-    /// When available = 0, this means no cost basis at all
-    /// When available > 0, this means partial cost basis
-    InsufficientCostBasis {
-        available: Decimal,
-        required: Decimal,
-    },
 }
 
 impl MatchingRule {
@@ -198,8 +184,8 @@ impl Pool {
 /// Record of a disposal for CGT purposes
 #[derive(Debug, Clone)]
 pub struct DisposalRecord {
-    /// Optional identifier from source data
-    pub id: Option<String>,
+    /// Event identifier from source data
+    pub id: usize,
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub tax_year: TaxYear,
@@ -215,18 +201,13 @@ pub struct DisposalRecord {
     /// Breakdown by matching rule for detailed reporting
     pub matching_components: Vec<MatchingComponent>,
     /// Warnings for this disposal (unclassified, no cost basis, insufficient pool, etc.)
-    pub warnings: Vec<DisposalWarning>,
+    pub warnings: Vec<Warning>,
 }
 
 impl DisposalRecord {
     /// Check if this disposal came from an unclassified event
     pub fn is_unclassified(&self) -> bool {
-        self.warnings.contains(&DisposalWarning::Unclassified)
-    }
-
-    /// Check if this disposal has any warnings
-    pub fn has_warnings(&self) -> bool {
-        !self.warnings.is_empty()
+        self.warnings.contains(&Warning::UnclassifiedEvent)
     }
 }
 
@@ -277,35 +258,6 @@ impl CgtReport {
     /// Total gain/loss including unclassified events
     pub fn total_gain_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, false).map(|d| d.gain_gbp).sum()
-    }
-
-    /// Count of unclassified disposal events
-    pub fn unclassified_count(&self, year: Option<TaxYear>) -> usize {
-        self.disposals
-            .iter()
-            .filter(|d| d.is_unclassified() && year.is_none_or(|y| d.tax_year == y))
-            .count()
-    }
-
-    /// Count of disposals with any warning
-    pub fn warning_count(&self, year: Option<TaxYear>) -> usize {
-        self.disposals
-            .iter()
-            .filter(|d| d.has_warnings() && year.is_none_or(|y| d.tax_year == y))
-            .count()
-    }
-
-    /// Count of disposals with cost basis warnings (InsufficientCostBasis)
-    pub fn cost_basis_warning_count(&self, year: Option<TaxYear>) -> usize {
-        self.disposals
-            .iter()
-            .filter(|d| {
-                year.is_none_or(|y| d.tax_year == y)
-                    && d.warnings
-                        .iter()
-                        .any(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }))
-            })
-            .count()
     }
 
     #[cfg(test)]
@@ -570,19 +522,19 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                 // Build warnings
                 let mut warnings = Vec::new();
                 if event.label == Label::Unclassified {
-                    warnings.push(DisposalWarning::Unclassified);
+                    warnings.push(Warning::UnclassifiedEvent);
                 }
                 // Insufficient cost basis: pool didn't have enough to cover the disposal
                 // This includes the "no cost basis" case when available = 0
                 if insufficient_pool {
-                    warnings.push(DisposalWarning::InsufficientCostBasis {
+                    warnings.push(Warning::InsufficientCostBasis {
                         available: pool_qty_before,
                         required: remaining_to_match,
                     });
                 }
 
                 disposals.push(DisposalRecord {
-                    id: event.id.clone(),
+                    id: event.id,
                     datetime: event.datetime,
                     date: event.date(),
                     tax_year,
@@ -682,7 +634,7 @@ fn format_decimal_key(value: Decimal, dp: u32) -> String {
 
 pub struct DisposalIndex<'a> {
     report: &'a CgtReport,
-    by_id: HashMap<String, usize>,
+    by_id: HashMap<usize, usize>,
     by_key: HashMap<DisposalKey, VecDeque<usize>>,
 }
 
@@ -691,9 +643,7 @@ impl<'a> DisposalIndex<'a> {
         let mut by_id = HashMap::new();
         let mut by_key: HashMap<DisposalKey, VecDeque<usize>> = HashMap::new();
         for (idx, d) in report.disposals.iter().enumerate() {
-            if let Some(id) = d.id.as_ref() {
-                by_id.insert(id.clone(), idx);
-            }
+            by_id.insert(d.id, idx);
             let key = DisposalKey::from_disposal(d);
             by_key.entry(key).or_default().push_back(idx);
         }
@@ -706,10 +656,8 @@ impl<'a> DisposalIndex<'a> {
     }
 
     pub fn find(&mut self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
-        if let Some(id) = event.id.as_ref() {
-            if let Some(&idx) = self.by_id.get(id) {
-                return self.report.disposals.get(idx);
-            }
+        if let Some(&idx) = self.by_id.get(&event.id) {
+            return self.report.disposals.get(idx);
         }
 
         let key = DisposalKey::from_event(event);
@@ -741,7 +689,8 @@ mod tests {
         fee: Option<Decimal>,
     ) -> TaxableEvent {
         TaxableEvent {
-            id: None,
+            id: 0,
+            source_transaction_id: "tx-test".to_string(),
             datetime: dt(date),
             event_type,
             label,
@@ -1540,14 +1489,14 @@ mod tests {
         let warning = disposal
             .warnings
             .iter()
-            .find(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }));
+            .find(|w| matches!(w, Warning::InsufficientCostBasis { .. }));
         assert!(
             warning.is_some(),
             "Expected InsufficientCostBasis warning, got: {:?}",
             disposal.warnings
         );
 
-        if let Some(DisposalWarning::InsufficientCostBasis {
+        if let Some(Warning::InsufficientCostBasis {
             available,
             required,
         }) = warning
@@ -1574,7 +1523,7 @@ mod tests {
         let has_insufficient = disposal
             .warnings
             .iter()
-            .any(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }));
+            .any(|w| matches!(w, Warning::InsufficientCostBasis { .. }));
         assert!(
             has_insufficient,
             "Expected InsufficientCostBasis warning, got: {:?}",
@@ -1582,13 +1531,13 @@ mod tests {
         );
 
         // Check the values in the warning
-        if let Some(DisposalWarning::InsufficientCostBasis {
+        if let Some(Warning::InsufficientCostBasis {
             available,
             required,
         }) = disposal
             .warnings
             .iter()
-            .find(|w| matches!(w, DisposalWarning::InsufficientCostBasis { .. }))
+            .find(|w| matches!(w, Warning::InsufficientCostBasis { .. }))
         {
             assert_eq!(*available, dec!(5));
             assert_eq!(*required, dec!(10));
@@ -1618,7 +1567,7 @@ mod tests {
 
         // Should have Unclassified warning
         assert!(
-            disposal.warnings.contains(&DisposalWarning::Unclassified),
+            disposal.warnings.contains(&Warning::UnclassifiedEvent),
             "Expected Unclassified warning, got: {:?}",
             disposal.warnings
         );
@@ -1629,7 +1578,7 @@ mod tests {
 
     #[test]
     fn warning_count_methods() {
-        // Test the warning count methods on CgtReport
+        // Test warning counting semantics directly from disposal records.
         let events = vec![
             acq("2024-01-01", "BTC", dec!(5), dec!(50000)),
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)), // Insufficient pool
@@ -1646,14 +1595,30 @@ mod tests {
 
         let report = calculate_cgt(events).unwrap();
 
-        // Should have 2 disposals with warnings
-        assert_eq!(report.warning_count(None), 2);
+        let warning_count = report
+            .disposals
+            .iter()
+            .filter(|d| !d.warnings.is_empty())
+            .count();
+        assert_eq!(warning_count, 2);
 
-        // Should have 1 unclassified
-        assert_eq!(report.unclassified_count(None), 1);
+        let unclassified_count = report
+            .disposals
+            .iter()
+            .filter(|d| d.warnings.contains(&Warning::UnclassifiedEvent))
+            .count();
+        assert_eq!(unclassified_count, 1);
 
-        // Should have 2 with cost basis warnings
-        assert_eq!(report.cost_basis_warning_count(None), 2);
+        let cost_basis_warning_count = report
+            .disposals
+            .iter()
+            .filter(|d| {
+                d.warnings
+                    .iter()
+                    .any(|w| matches!(w, Warning::InsufficientCostBasis { .. }))
+            })
+            .count();
+        assert_eq!(cost_basis_warning_count, 2);
     }
 
     #[test]
@@ -1675,7 +1640,6 @@ mod tests {
             "Expected no warnings, got: {:?}",
             disposal.warnings
         );
-        assert!(!disposal.has_warnings());
     }
 
     #[test]
@@ -1733,7 +1697,8 @@ mod tests {
         // Create events with explicit ids
         let events = vec![
             TaxableEvent {
-                id: Some("acq-001".to_string()),
+                id: 1,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
                 label: Label::Trade,
@@ -1745,7 +1710,8 @@ mod tests {
                 description: None,
             },
             TaxableEvent {
-                id: Some("disp-001".to_string()),
+                id: 2,
+                source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
                 label: Label::Trade,
@@ -1764,7 +1730,7 @@ mod tests {
         let disposal = &report.disposals[0];
 
         // The disposal record should have the id from the source event
-        assert_eq!(disposal.id, Some("disp-001".to_string()));
+        assert_eq!(disposal.id, 2);
     }
 
     #[test]

@@ -2,7 +2,6 @@ pub mod pools;
 pub mod report;
 pub mod schema;
 pub mod summary;
-pub mod validate;
 
 use crate::core::{self, ConversionOptions, TaxableEvent};
 use std::fs::File;
