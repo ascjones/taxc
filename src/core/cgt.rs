@@ -1,4 +1,4 @@
-use super::events::{EventType, Label, TaxableEvent};
+use super::events::{EventType, Tag, TaxableEvent};
 use super::uk::TaxYear;
 use super::warnings::Warning;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
@@ -44,7 +44,7 @@ pub struct PoolHistoryEntry {
     pub date: NaiveDate,
     pub asset: String,
     pub event_type: EventType,
-    pub label: Label,
+    pub tag: Tag,
     #[serde(serialize_with = "serialize_quantity")]
     pub quantity: Decimal,
     #[serde(serialize_with = "serialize_decimal_2dp")]
@@ -521,7 +521,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
 
                 // Build warnings
                 let mut warnings = Vec::new();
-                if event.label == Label::Unclassified {
+                if event.tag == Tag::Unclassified {
                     warnings.push(Warning::UnclassifiedEvent);
                 }
                 // Insufficient cost basis: pool didn't have enough to cover the disposal
@@ -557,7 +557,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                 date: event.date(),
                 asset: event.asset.clone(),
                 event_type: event.event_type,
-                label: event.label,
+                tag: event.tag,
                 quantity: pool.quantity,
                 cost_gbp: pool.cost_gbp,
             });
@@ -671,7 +671,7 @@ impl<'a> DisposalIndex<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{AssetClass, Label};
+    use crate::core::{AssetClass, Tag};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
@@ -681,7 +681,7 @@ mod tests {
 
     fn event(
         event_type: EventType,
-        label: Label,
+        tag: Tag,
         date: &str,
         asset: &str,
         qty: Decimal,
@@ -693,7 +693,7 @@ mod tests {
             source_transaction_id: "tx-test".to_string(),
             datetime: dt(date),
             event_type,
-            label,
+            tag,
             asset: asset.to_string(),
             asset_class: AssetClass::Crypto,
             quantity: qty,
@@ -706,7 +706,7 @@ mod tests {
     fn acq(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         event(
             EventType::Acquisition,
-            Label::Trade,
+            Tag::Trade,
             date,
             asset,
             qty,
@@ -724,7 +724,7 @@ mod tests {
     ) -> TaxableEvent {
         event(
             EventType::Acquisition,
-            Label::Trade,
+            Tag::Trade,
             date,
             asset,
             qty,
@@ -736,7 +736,7 @@ mod tests {
     fn disp(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         event(
             EventType::Disposal,
-            Label::Trade,
+            Tag::Trade,
             date,
             asset,
             qty,
@@ -754,7 +754,7 @@ mod tests {
     ) -> TaxableEvent {
         event(
             EventType::Disposal,
-            Label::Trade,
+            Tag::Trade,
             date,
             asset,
             qty,
@@ -766,7 +766,7 @@ mod tests {
     fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
         event(
             EventType::Acquisition,
-            Label::StakingReward,
+            Tag::StakingReward,
             date,
             asset,
             qty,
@@ -1551,7 +1551,7 @@ mod tests {
             acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
             event(
                 EventType::Disposal,
-                Label::Unclassified,
+                Tag::Unclassified,
                 "2024-06-15",
                 "BTC",
                 dec!(5),
@@ -1584,7 +1584,7 @@ mod tests {
             disp("2024-06-15", "BTC", dec!(10), dec!(150000)), // Insufficient pool
             event(
                 EventType::Disposal,
-                Label::Unclassified,
+                Tag::Unclassified,
                 "2024-06-16",
                 "ETH",
                 dec!(10),
@@ -1701,7 +1701,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(10),
@@ -1714,7 +1714,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(5),
@@ -1857,7 +1857,7 @@ mod tests {
             report.pool_history.entries[0].event_type,
             EventType::Acquisition
         );
-        assert_eq!(report.pool_history.entries[0].label, Label::StakingReward);
+        assert_eq!(report.pool_history.entries[0].tag, Tag::StakingReward);
         assert_eq!(report.pool_history.entries[1].quantity, dec!(150)); // Accumulated
     }
 }

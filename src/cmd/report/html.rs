@@ -1,6 +1,6 @@
 //! HTML report generation.
 
-use super::{build_report_data, EventTypeFilter};
+use super::build_report_data;
 use crate::core::{CgtReport, IncomeReport, TaxYear, TaxableEvent};
 
 /// Generate HTML report content
@@ -10,16 +10,8 @@ pub fn generate_html(
     income_report: &IncomeReport,
     year: Option<TaxYear>,
     asset_filter: Option<&str>,
-    event_type_filter: Option<EventTypeFilter>,
 ) -> anyhow::Result<String> {
-    let data = build_report_data(
-        events,
-        cgt_report,
-        income_report,
-        year,
-        asset_filter,
-        event_type_filter,
-    )?;
+    let data = build_report_data(events, cgt_report, income_report, year, asset_filter)?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
     let js = JS.replace("__JSON_DATA__", &json_data);
 
@@ -64,7 +56,19 @@ pub fn generate_html(
                     <div class="checkbox-group">
                         <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
                         <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
-                        <label><input type="checkbox" id="type-staking" checked onchange="applyFilters()"> Staking</label>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Tag</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
+                        <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> StakingReward</label>
+                        <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
+                        <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> OtherIncome</label>
+                        <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
+                        <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> AirdropIncome</label>
+                        <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
+                        <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
                     </div>
                 </div>
                 <div class="filter-group">
@@ -97,8 +101,8 @@ pub fn generate_html(
                 <p class="sub-value" id="summary-gain-inc">-</p>
             </div>
             <div class="card">
-                <h3>Staking Income</h3>
-                <p class="value" id="summary-staking">-</p>
+                <h3>Total Income</h3>
+                <p class="value" id="summary-income">-</p>
             </div>
         </section>
         <div class="warnings-banner" id="warnings-banner" style="display: none;">
@@ -156,8 +160,8 @@ const CSS: &str = r#"
     --type-acquisition-bg: #d1fae5;
     --type-disposal: #dc2626;
     --type-disposal-bg: #fee2e2;
-    --type-staking: #7c3aed;
-    --type-staking-bg: #ede9fe;
+    --type-income: #7c3aed;
+    --type-income-bg: #ede9fe;
     /* Matching rule colors */
     --rule-sameday: #2563eb;
     --rule-sameday-bg: #dbeafe;
@@ -403,9 +407,32 @@ main {
     color: var(--type-disposal);
 }
 
-.type-staking {
-    background: var(--type-staking-bg);
-    color: var(--type-staking);
+.tag-stakingreward,
+.tag-salary,
+.tag-otherincome,
+.tag-airdropincome {
+    background: var(--type-income-bg);
+    color: var(--type-income);
+}
+
+.tag-airdrop {
+    background: #ecfeff;
+    color: #0e7490;
+}
+
+.tag-gift {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.tag-trade {
+    background: var(--type-acquisition-bg);
+    color: var(--type-acquisition);
+}
+
+.tag-unclassified {
+    background: var(--type-unclassified-bg);
+    color: var(--type-unclassified);
 }
 
 .type-unclassified {
@@ -603,10 +630,10 @@ function formatRuleBadge(rule) {
     return `<span class="rule-badge rule-${className}">${rule}</span>`;
 }
 
-function formatEventType(type, warnings) {
-    let className = `type-${type.toLowerCase().replace(/\s+/g, '-')}`;
+function formatEventType(type, tag, warnings) {
+    let className = `tag-${(tag || '').toLowerCase()}`;
     if (hasWarningType(warnings, 'UnclassifiedEvent')) {
-        className = 'type-unclassified';
+        className = 'tag-unclassified';
     }
     return `<span class="event-type ${className}">${type}</span>`;
 }
@@ -643,7 +670,7 @@ function renderEventsTable(events) {
         row.innerHTML = `
             <td>${expandButton}</td>
             <td>${formatDateTime(e.datetime)}</td>
-            <td>${formatEventType(e.event_type, e.warnings)}</td>
+            <td>${formatEventType(e.event_type, e.tag, e.warnings)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
@@ -759,8 +786,17 @@ function applyFilters() {
         assetSearch: document.getElementById('asset-search').value.toLowerCase(),
         types: {
             acquisition: document.getElementById('type-acquisition').checked,
-            disposal: document.getElementById('type-disposal').checked,
-            staking: document.getElementById('type-staking').checked
+            disposal: document.getElementById('type-disposal').checked
+        },
+        tags: {
+            trade: document.getElementById('tag-trade').checked,
+            stakingreward: document.getElementById('tag-stakingreward').checked,
+            salary: document.getElementById('tag-salary').checked,
+            otherincome: document.getElementById('tag-otherincome').checked,
+            airdrop: document.getElementById('tag-airdrop').checked,
+            airdropincome: document.getElementById('tag-airdropincome').checked,
+            gift: document.getElementById('tag-gift').checked,
+            unclassified: document.getElementById('tag-unclassified').checked
         },
         classes: {
             crypto: document.getElementById('class-crypto').checked,
@@ -780,10 +816,18 @@ function filterEvents(events, filters) {
         if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
         if (filters.assetSearch && !e.asset.toLowerCase().includes(filters.assetSearch)) return false;
 
-        const type = e.event_type.toLowerCase();
-        if (type.includes('acquisition') && !filters.types.acquisition) return false;
-        if (type.includes('disposal') && !filters.types.disposal) return false;
-        if (type.includes('staking') && !filters.types.staking) return false;
+        const eventKind = (e.event_kind || '').toLowerCase();
+        if (eventKind === 'acquisition' && !filters.types.acquisition) return false;
+        if (eventKind === 'disposal' && !filters.types.disposal) return false;
+
+        const tag = (e.tag || '').toLowerCase();
+        if (
+            tag &&
+            Object.prototype.hasOwnProperty.call(filters.tags, tag) &&
+            !filters.tags[tag]
+        ) {
+            return false;
+        }
 
         const assetClass = e.asset_class.toLowerCase();
         if (assetClass === 'crypto' && !filters.classes.crypto) return false;
@@ -797,7 +841,7 @@ function calculateFilteredSummary(events) {
     let totalProceeds = 0;
     let totalCosts = 0;
     let totalGain = 0;
-    let totalStaking = 0;
+    let totalIncome = 0;
     let warningCount = 0;
     let unclassifiedCount = 0;
     let costBasisWarningCount = 0;
@@ -815,8 +859,9 @@ function calculateFilteredSummary(events) {
             if (hasWarningType(e.warnings, 'InsufficientCostBasis'))
                 costBasisWarningCount++;
         }
-        if (e.event_type.toLowerCase().includes('staking')) {
-            totalStaking += parseFloat(e.value_gbp) || 0;
+        const tag = (e.tag || '').toLowerCase();
+        if (['stakingreward', 'salary', 'otherincome', 'airdropincome'].includes(tag)) {
+            totalIncome += parseFloat(e.value_gbp) || 0;
         }
     });
 
@@ -824,7 +869,7 @@ function calculateFilteredSummary(events) {
         totalProceeds,
         totalCosts,
         totalGain,
-        totalStaking,
+        totalIncome,
         warningCount,
         unclassifiedCount,
         costBasisWarningCount
@@ -837,7 +882,7 @@ function updateSummary(events) {
     document.getElementById('summary-proceeds').textContent = formatCurrency(summary.totalProceeds);
     document.getElementById('summary-costs').textContent = formatCurrency(summary.totalCosts);
     document.getElementById('summary-gain').textContent = formatCurrency(summary.totalGain);
-    document.getElementById('summary-staking').textContent = formatCurrency(summary.totalStaking);
+    document.getElementById('summary-income').textContent = formatCurrency(summary.totalIncome);
 
     const gainCard = document.querySelector('.card.gain');
     if (summary.totalGain < 0) {
@@ -882,7 +927,14 @@ function resetFilters() {
     document.getElementById('asset-search').value = '';
     document.getElementById('type-acquisition').checked = true;
     document.getElementById('type-disposal').checked = true;
-    document.getElementById('type-staking').checked = true;
+    document.getElementById('tag-trade').checked = true;
+    document.getElementById('tag-stakingreward').checked = true;
+    document.getElementById('tag-salary').checked = true;
+    document.getElementById('tag-otherincome').checked = true;
+    document.getElementById('tag-airdrop').checked = true;
+    document.getElementById('tag-airdropincome').checked = true;
+    document.getElementById('tag-gift').checked = true;
+    document.getElementById('tag-unclassified').checked = true;
     document.getElementById('class-crypto').checked = true;
     document.getElementById('class-stock').checked = true;
     applyFilters();

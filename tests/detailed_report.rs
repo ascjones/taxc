@@ -66,9 +66,9 @@ fn report_mixed_rules() {
     assert!(has_btc, "Expected BTC asset in report output");
 }
 
-/// Test filtering by event type
+/// Test filtering by asset
 #[test]
-fn report_filter_by_type() {
+fn report_filter_by_asset() {
     let output = Command::new("cargo")
         .args([
             "run",
@@ -76,8 +76,8 @@ fn report_filter_by_type() {
             "report",
             "tests/data/mixed_rules.json",
             "--json",
-            "--event-type",
-            "disposal",
+            "--asset",
+            "BTC",
         ])
         .output()
         .expect("Failed to execute command");
@@ -96,9 +96,9 @@ fn report_filter_by_type() {
     assert!(!events.is_empty(), "Expected filtered events");
     for e in events {
         assert_eq!(
-            e.get("event_type").and_then(|v| v.as_str()),
-            Some("Disposal"),
-            "Expected only disposal events"
+            e.get("asset").and_then(|v| v.as_str()),
+            Some("BTC"),
+            "Expected only BTC events"
         );
     }
 }

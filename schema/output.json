@@ -91,6 +91,9 @@
         "description": {
           "type": "string"
         },
+        "event_kind": {
+          "type": "string"
+        },
         "event_type": {
           "type": "string"
         },
@@ -109,6 +112,9 @@
         "source_transaction_id": {
           "description": "Source transaction identifier from input",
           "type": "string"
+        },
+        "tag": {
+          "$ref": "#/$defs/Tag"
         },
         "tax_year": {
           "type": "string"
@@ -129,6 +135,8 @@
         "source_transaction_id",
         "datetime",
         "tax_year",
+        "event_kind",
+        "tag",
         "event_type",
         "asset",
         "asset_class",
@@ -270,14 +278,14 @@
         "total_gain_with_unclassified": {
           "type": "string"
         },
+        "total_income": {
+          "type": "string"
+        },
         "total_proceeds": {
           "type": "string"
         },
         "total_proceeds_with_unclassified": {
           "description": "Totals including unclassified events (for conservative estimates)",
-          "type": "string"
-        },
-        "total_staking": {
           "type": "string"
         },
         "unclassified_count": {
@@ -300,7 +308,7 @@
         "total_proceeds_with_unclassified",
         "total_costs_with_unclassified",
         "total_gain_with_unclassified",
-        "total_staking",
+        "total_income",
         "event_count",
         "disposal_count",
         "income_count",
@@ -309,6 +317,28 @@
         "cost_basis_warning_count",
         "tax_years",
         "assets"
+      ]
+    },
+    "Tag": {
+      "description": "Classification tag for a taxable event",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Trade",
+            "StakingReward",
+            "Salary",
+            "OtherIncome",
+            "Airdrop",
+            "AirdropIncome",
+            "Gift"
+          ]
+        },
+        {
+          "description": "Unclassified event - needs review",
+          "type": "string",
+          "const": "Unclassified"
+        }
       ]
     },
     "Warning": {

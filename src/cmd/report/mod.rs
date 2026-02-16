@@ -5,9 +5,9 @@ pub mod html;
 use super::read_events;
 use crate::core::{
     calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
-    EventType, IncomeReport, Label, MatchingRule, TaxYear, TaxableEvent, Warning,
+    EventType, IncomeReport, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
 };
-use clap::{Args, ValueEnum};
+use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -31,10 +31,6 @@ pub struct ReportCommand {
     #[arg(long)]
     json: bool,
 
-    /// Filter by event type
-    #[arg(short = 't', long, value_enum)]
-    event_type: Option<EventTypeFilter>,
-
     /// Filter by asset (e.g., BTC, ETH)
     #[arg(short, long)]
     asset: Option<String>,
@@ -42,13 +38,6 @@ pub struct ReportCommand {
     /// Don't include unlinked deposits/withdrawals in calculations
     #[arg(long)]
     exclude_unlinked: bool,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum EventTypeFilter {
-    Acquisition,
-    Disposal,
-    Staking,
 }
 
 impl ReportCommand {
@@ -66,7 +55,6 @@ impl ReportCommand {
                 &income_report,
                 tax_year,
                 self.asset.as_deref(),
-                self.event_type,
             )?;
             let json = serde_json::to_string_pretty(&data)?;
 
@@ -83,7 +71,6 @@ impl ReportCommand {
                 &income_report,
                 tax_year,
                 self.asset.as_deref(),
-                self.event_type,
             )?;
 
             if let Some(ref output_path) = self.output {
@@ -118,6 +105,8 @@ pub struct EventRow {
     pub source_transaction_id: String,
     pub datetime: String,
     pub tax_year: String,
+    pub event_kind: String,
+    pub tag: Tag,
     pub event_type: String,
     pub asset: String,
     pub asset_class: String,
@@ -193,7 +182,7 @@ pub struct Summary {
     pub total_proceeds_with_unclassified: String,
     pub total_costs_with_unclassified: String,
     pub total_gain_with_unclassified: String,
-    pub total_staking: String,
+    pub total_income: String,
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
@@ -215,7 +204,6 @@ pub(super) fn build_report_data(
     income_report: &IncomeReport,
     year: Option<TaxYear>,
     asset_filter: Option<&str>,
-    event_type_filter: Option<EventTypeFilter>,
 ) -> anyhow::Result<ReportData> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
@@ -225,14 +213,13 @@ pub(super) fn build_report_data(
         .iter()
         .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
         .filter(|e| asset_filter.is_none_or(|asset| e.asset.eq_ignore_ascii_case(asset)))
-        .filter(|e| event_type_filter.is_none_or(|filter| matches_filter(e, filter)))
         .collect();
 
     // Build index of acquisitions by (date, asset) -> row index for navigation
     // Multiple acquisitions on the same day for the same asset share a row index (first one)
     let mut acquisition_row_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
     for (idx, e) in filtered_events.iter().enumerate() {
-        if e.event_type == EventType::Acquisition && e.label != Label::Unclassified {
+        if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
             let key = (e.date(), e.asset.clone());
             acquisition_row_index.entry(key).or_insert(idx);
         }
@@ -242,12 +229,12 @@ pub(super) fn build_report_data(
     // Aggregates multiple acquisitions on the same day
     let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
     for e in &filtered_events {
-        if e.event_type == EventType::Acquisition && e.label != Label::Unclassified {
+        if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
             let key = (e.date(), e.asset.clone());
             let detail = acquisition_details
                 .entry(key)
                 .or_insert_with(|| AcquisitionDetail {
-                    event_type: format_event_type(e.event_type, e.label),
+                    event_type: format_event_type(e.event_type, e.tag),
                     tax_year: TaxYear::from_date(e.date()).display(),
                     description: e.description.clone().unwrap_or_default(),
                     ..Default::default()
@@ -265,7 +252,7 @@ pub(super) fn build_report_data(
         .iter()
         .map(|e| {
             // Look up CGT details for disposal events
-            let mut event_warnings = if e.label == Label::Unclassified {
+            let mut event_warnings = if e.tag == Tag::Unclassified {
                 vec![Warning::UnclassifiedEvent]
             } else {
                 Vec::new()
@@ -367,7 +354,12 @@ pub(super) fn build_report_data(
                 source_transaction_id: e.source_transaction_id.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
-                event_type: format_event_type(e.event_type, e.label),
+                event_kind: match e.event_type {
+                    EventType::Acquisition => "acquisition".to_string(),
+                    EventType::Disposal => "disposal".to_string(),
+                },
+                tag: e.tag,
+                event_type: format_event_type(e.event_type, e.tag),
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
                 quantity: e.quantity.to_string(),
@@ -425,8 +417,8 @@ pub(super) fn build_report_data(
         })
         .count();
 
-    let total_staking: Decimal = income_report
-        .staking_events
+    let total_income: Decimal = income_report
+        .income_events
         .iter()
         .filter(|e| year.is_none_or(|y| e.tax_year == y))
         .map(|e| e.value_gbp)
@@ -450,9 +442,9 @@ pub(super) fn build_report_data(
     let max_date = filtered_events.iter().map(|e| e.date()).max();
 
     let disposal_count = event_rows.iter().filter(|e| e.cgt.is_some()).count();
-    let income_count = event_rows
+    let income_count = filtered_events
         .iter()
-        .filter(|e| e.event_type == "StakingReward")
+        .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
         .count();
 
     Ok(ReportData {
@@ -465,8 +457,8 @@ pub(super) fn build_report_data(
             total_proceeds_with_unclassified: format!("{:.2}", total_proceeds_with_unclassified),
             total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
             total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
-            total_staking: format!("{:.2}", total_staking),
-            event_count: events.len(),
+            total_income: format!("{:.2}", total_income),
+            event_count: filtered_events.len(),
             disposal_count,
             income_count,
             warning_count,
@@ -480,22 +472,8 @@ pub(super) fn build_report_data(
     })
 }
 
-fn format_event_type(event_type: EventType, label: Label) -> String {
-    display_event_type(event_type, label).to_string()
-}
-
-fn matches_filter(event: &TaxableEvent, filter: EventTypeFilter) -> bool {
-    match filter {
-        EventTypeFilter::Acquisition => {
-            event.event_type == EventType::Acquisition && event.label == Label::Trade
-        }
-        EventTypeFilter::Disposal => {
-            event.event_type == EventType::Disposal && event.label == Label::Trade
-        }
-        EventTypeFilter::Staking => {
-            event.event_type == EventType::Acquisition && event.label == Label::StakingReward
-        }
-    }
+fn format_event_type(event_type: EventType, tag: Tag) -> String {
+    display_event_type(event_type, tag).to_string()
 }
 
 fn format_asset_class(ac: &AssetClass) -> String {
@@ -534,7 +512,7 @@ fn format_event_warning(warning: &Warning) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{AssetClass, EventType, Label, TaxableEvent};
+    use crate::core::{AssetClass, EventType, Tag, TaxableEvent};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
@@ -550,7 +528,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
-                label: Label::Gift,
+                tag: Tag::Gift,
                 asset: "ETH".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(2),
@@ -563,7 +541,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-02-01"),
                 event_type: EventType::Disposal,
-                label: Label::Gift,
+                tag: Tag::Gift,
                 asset: "ETH".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -575,8 +553,7 @@ mod tests {
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data =
-            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
 
         let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "GiftIn"));
@@ -591,7 +568,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -604,7 +581,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -617,7 +594,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-15"),
                 event_type: EventType::Disposal,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(2),
@@ -629,8 +606,7 @@ mod tests {
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data =
-            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
 
         let disposal = data
             .events
@@ -656,7 +632,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-01-01"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(5),
@@ -669,7 +645,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-01"),
                 event_type: EventType::Disposal,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -682,7 +658,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -695,7 +671,7 @@ mod tests {
                 source_transaction_id: "tx-test".to_string(),
                 datetime: dt("2024-06-10"),
                 event_type: EventType::Acquisition,
-                label: Label::Trade,
+                tag: Tag::Trade,
                 asset: "BTC".to_string(),
                 asset_class: AssetClass::Crypto,
                 quantity: dec!(1),
@@ -707,8 +683,7 @@ mod tests {
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data =
-            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
 
         let disposal = data
             .events
@@ -733,7 +708,7 @@ mod tests {
             source_transaction_id: "tx-1".to_string(),
             datetime: dt("2024-06-01"),
             event_type: EventType::Disposal,
-            label: Label::Trade,
+            tag: Tag::Trade,
             asset: "BTC".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: dec!(1),
@@ -744,8 +719,7 @@ mod tests {
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
         let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data =
-            build_report_data(&events, &cgt_report, &income_report, None, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
 
         assert!(data.warnings.iter().any(|w| matches!(
             w.warning,

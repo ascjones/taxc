@@ -11,25 +11,42 @@ pub enum EventType {
     Disposal,
 }
 
-/// Classification label for a taxable event
+/// Classification tag for a taxable event
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
-pub enum Label {
+pub enum Tag {
     /// Unclassified event - needs review
     #[default]
     Unclassified,
     Trade,
     StakingReward,
+    Salary,
+    OtherIncome,
+    Airdrop,
+    AirdropIncome,
     Gift,
 }
 
-/// Display string for event type and label (used in reports and summaries)
-pub fn display_event_type(event_type: EventType, label: Label) -> &'static str {
-    match (event_type, label) {
-        (EventType::Acquisition, Label::StakingReward) => "StakingReward",
-        (EventType::Acquisition, Label::Gift) => "GiftIn",
-        (EventType::Disposal, Label::Gift) => "GiftOut",
-        (EventType::Acquisition, Label::Unclassified) => "UnclassifiedIn",
-        (EventType::Disposal, Label::Unclassified) => "UnclassifiedOut",
+impl Tag {
+    pub fn is_income(self) -> bool {
+        matches!(
+            self,
+            Tag::StakingReward | Tag::Salary | Tag::OtherIncome | Tag::AirdropIncome
+        )
+    }
+}
+
+/// Display string for event type and tag (used in reports and summaries)
+pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
+    match (event_type, tag) {
+        (EventType::Acquisition, Tag::StakingReward) => "StakingReward",
+        (EventType::Acquisition, Tag::Salary) => "Salary",
+        (EventType::Acquisition, Tag::OtherIncome) => "OtherIncome",
+        (EventType::Acquisition, Tag::Airdrop) => "Airdrop",
+        (EventType::Acquisition, Tag::AirdropIncome) => "AirdropIncome",
+        (EventType::Acquisition, Tag::Gift) => "GiftIn",
+        (EventType::Disposal, Tag::Gift) => "GiftOut",
+        (EventType::Acquisition, Tag::Unclassified) => "UnclassifiedIn",
+        (EventType::Disposal, Tag::Unclassified) => "UnclassifiedOut",
         (EventType::Acquisition, _) => "Acquisition",
         (EventType::Disposal, _) => "Disposal",
     }
@@ -55,7 +72,7 @@ pub struct TaxableEvent {
     pub datetime: DateTime<FixedOffset>,
     pub event_type: EventType,
     #[serde(default)]
-    pub label: Label,
+    pub tag: Tag,
     pub asset: String,
     pub asset_class: AssetClass,
     #[schemars(with = "f64")]
@@ -92,7 +109,7 @@ mod tests {
             source_transaction_id: "tx-1".to_string(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
-            label: Label::Trade,
+            tag: Tag::Trade,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: dec!(1000),
@@ -110,7 +127,7 @@ mod tests {
             source_transaction_id: "tx-1".to_string(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
-            label: Label::Trade,
+            tag: Tag::Trade,
             asset: "GBP".to_string(),
             asset_class: AssetClass::Crypto,
             quantity: dec!(1000),
@@ -124,32 +141,60 @@ mod tests {
     #[test]
     fn display_event_type_mappings() {
         assert_eq!(
-            display_event_type(EventType::Acquisition, Label::Trade),
+            display_event_type(EventType::Acquisition, Tag::Trade),
             "Acquisition"
         );
         assert_eq!(
-            display_event_type(EventType::Disposal, Label::Trade),
+            display_event_type(EventType::Disposal, Tag::Trade),
             "Disposal"
         );
         assert_eq!(
-            display_event_type(EventType::Acquisition, Label::StakingReward),
+            display_event_type(EventType::Acquisition, Tag::StakingReward),
             "StakingReward"
         );
         assert_eq!(
-            display_event_type(EventType::Acquisition, Label::Unclassified),
+            display_event_type(EventType::Acquisition, Tag::Unclassified),
             "UnclassifiedIn"
         );
         assert_eq!(
-            display_event_type(EventType::Disposal, Label::Unclassified),
+            display_event_type(EventType::Disposal, Tag::Unclassified),
             "UnclassifiedOut"
         );
         assert_eq!(
-            display_event_type(EventType::Acquisition, Label::Gift),
+            display_event_type(EventType::Acquisition, Tag::Gift),
             "GiftIn"
         );
         assert_eq!(
-            display_event_type(EventType::Disposal, Label::Gift),
+            display_event_type(EventType::Disposal, Tag::Gift),
             "GiftOut"
         );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::Salary),
+            "Salary"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::OtherIncome),
+            "OtherIncome"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::Airdrop),
+            "Airdrop"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::AirdropIncome),
+            "AirdropIncome"
+        );
+    }
+
+    #[test]
+    fn income_tags_identified() {
+        assert!(Tag::StakingReward.is_income());
+        assert!(Tag::Salary.is_income());
+        assert!(Tag::OtherIncome.is_income());
+        assert!(Tag::AirdropIncome.is_income());
+        assert!(!Tag::Trade.is_income());
+        assert!(!Tag::Gift.is_income());
+        assert!(!Tag::Airdrop.is_income());
+        assert!(!Tag::Unclassified.is_income());
     }
 }

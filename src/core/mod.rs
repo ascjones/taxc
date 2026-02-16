@@ -11,7 +11,7 @@ pub use cgt::{
     calculate_cgt, CgtReport, DisposalIndex, MatchingRule, PoolHistoryEntry, PoolState,
     YearEndSnapshot,
 };
-pub use events::{display_event_type, AssetClass, EventType, Label, TaxableEvent};
+pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
 pub use income::{calculate_income_tax, IncomeReport};
 pub use transaction::{
     read_transactions_json, transactions_to_events, ConversionOptions, TransactionError,

@@ -5,7 +5,8 @@
       "datetime": "2024-01-01T10:00:00+00:00",
       "account": "ledger",
       "description": "Staking reward",
-      "type": "StakingReward",
+      "type": "Deposit",
+      "tag": "StakingReward",
       "asset": { "symbol": "ETH", "quantity": 1.0 },
       "price": { "base": "ETH", "rate": 2000 }
     },

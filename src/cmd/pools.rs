@@ -122,7 +122,7 @@ impl PoolsCommand {
             .map(|e| DailyRow {
                 date: e.date.format("%Y-%m-%d").to_string(),
                 asset: e.asset.clone(),
-                event: display_event_type(e.event_type, e.label).to_string(),
+                event: display_event_type(e.event_type, e.tag).to_string(),
                 quantity: format_quantity(e.quantity),
                 cost_gbp: format_gbp(e.cost_gbp),
                 cost_basis: format_gbp(cost_basis(e.quantity, e.cost_gbp)),

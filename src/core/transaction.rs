@@ -1,4 +1,4 @@
-use super::events::{AssetClass, EventType, Label, TaxableEvent};
+use super::events::{AssetClass, EventType, Tag, TaxableEvent};
 use super::price::Price;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
@@ -19,8 +19,24 @@ pub enum TransactionError {
     LinkedTransactionNotReciprocal { id: String, linked_id: String },
     #[error("price required when neither side is GBP: {id}")]
     MissingTradePrice { id: String },
-    #[error("price required for staking reward: {id}")]
-    MissingStakingPrice { id: String },
+    #[error("price required for {tag} {tx_type}: {id}")]
+    MissingTaggedPrice {
+        id: String,
+        tag: String,
+        tx_type: String,
+    },
+    #[error("tagged deposit cannot have linked_withdrawal: {id}")]
+    TaggedDepositLinked { id: String },
+    #[error("tagged withdrawal cannot have linked_deposit: {id}")]
+    TaggedWithdrawalLinked { id: String },
+    #[error("airdrop deposit must not include price: {id}")]
+    AirdropPriceNotAllowed { id: String },
+    #[error("{tag} tag not allowed on {tx_type}: {id}")]
+    InvalidTagForType {
+        id: String,
+        tag: String,
+        tx_type: String,
+    },
     #[error("price base '{base}' does not match expected asset '{expected}': {id}")]
     PriceBaseMismatch {
         id: String,
@@ -55,12 +71,15 @@ pub struct Transaction {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
-    /// Optional price for valuation (required for crypto-to-crypto trades and staking rewards)
+    /// Optional price for valuation
     #[serde(default)]
     pub price: Option<Price>,
     /// Optional fee for this transaction
     #[serde(default)]
     pub fee: Option<Fee>,
+    /// Optional transaction tag used for classification
+    #[serde(default)]
+    pub tag: Tag,
     /// The transaction details
     #[serde(flatten)]
     pub details: TransactionType,
@@ -85,9 +104,6 @@ pub enum TransactionType {
         #[serde(default)]
         linked_deposit: Option<String>,
     },
-
-    /// Staking reward (income + acquisition)
-    StakingReward { asset: Asset },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -115,7 +131,7 @@ impl Fee {
     /// matches the priced_asset and a price is provided, use that price.
     ///
     /// - For Trade: priced_asset is the bought asset, price is the trade price
-    /// - For StakingReward: priced_asset is the reward asset, price is the staking price
+    /// - For tagged Deposit/Withdrawal: priced_asset is the transaction asset, price is tx price
     /// - For Deposit/Withdrawal: no price available, fee must have explicit price or be GBP
     pub fn to_gbp_with_context(
         &self,
@@ -193,6 +209,7 @@ impl Transaction {
             description,
             price,
             fee,
+            tag,
             details,
             ..
         } = self;
@@ -206,6 +223,14 @@ impl Transaction {
 
         match details {
             TransactionType::Trade { sold, bought } => {
+                if !matches!(tag, Tag::Unclassified | Tag::Trade) {
+                    return Err(TransactionError::InvalidTagForType {
+                        id: id.clone(),
+                        tag: tag_name(*tag).to_string(),
+                        tx_type: "trade".to_string(),
+                    });
+                }
+
                 // Validate price.base matches bought asset if price is provided
                 if let Some(p) = price {
                     let price_base = normalize_currency(&p.base);
@@ -242,7 +267,7 @@ impl Transaction {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
                         event_type: EventType::Disposal,
-                        label: Label::Trade,
+                        tag: Tag::Trade,
                         datetime: *datetime,
                         asset: normalize_currency(&sold.symbol),
                         asset_class: sold.asset_class.clone(),
@@ -259,7 +284,7 @@ impl Transaction {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
                         event_type: EventType::Acquisition,
-                        label: Label::Trade,
+                        tag: Tag::Trade,
                         datetime: *datetime,
                         asset: normalize_currency(&bought.symbol),
                         asset_class: bought.asset_class.clone(),
@@ -277,6 +302,70 @@ impl Transaction {
                 asset,
                 linked_withdrawal,
             } => {
+                if *tag != Tag::Unclassified {
+                    if linked_withdrawal.is_some() {
+                        return Err(TransactionError::TaggedDepositLinked { id: id.clone() });
+                    }
+
+                    let value_gbp = match tag {
+                        Tag::StakingReward
+                        | Tag::Salary
+                        | Tag::OtherIncome
+                        | Tag::AirdropIncome => {
+                            let tx_price =
+                                require_tagged_price(id, *tag, "deposit", price.as_ref())?;
+                            validate_price_base(id, tx_price, &asset.symbol)?;
+                            tx_price.to_gbp(asset.quantity)?
+                        }
+                        Tag::Gift => {
+                            let tx_price =
+                                require_tagged_price(id, *tag, "deposit", price.as_ref())?;
+                            validate_price_base(id, tx_price, &asset.symbol)?;
+                            tx_price.to_gbp(asset.quantity)?
+                        }
+                        Tag::Airdrop => {
+                            if price.is_some() {
+                                return Err(TransactionError::AirdropPriceNotAllowed {
+                                    id: id.clone(),
+                                });
+                            }
+                            Decimal::ZERO
+                        }
+                        Tag::Trade | Tag::Unclassified => {
+                            return Err(TransactionError::InvalidTagForType {
+                                id: id.clone(),
+                                tag: tag_name(*tag).to_string(),
+                                tx_type: "deposit".to_string(),
+                            });
+                        }
+                    };
+
+                    // For zero-cost airdrops, only explicit fee prices (or GBP fees) are valid.
+                    let (priced_asset, tx_price) = if *tag == Tag::Airdrop {
+                        (None, None)
+                    } else {
+                        (Some(asset.symbol.as_str()), price.as_ref())
+                    };
+                    let fee_gbp = match fee {
+                        Some(f) => Some(f.to_gbp_with_context(priced_asset, tx_price)?),
+                        None => None,
+                    };
+
+                    return Ok(vec![TaxableEvent {
+                        id: next_event_id(),
+                        source_transaction_id: id.clone(),
+                        event_type: EventType::Acquisition,
+                        tag: *tag,
+                        datetime: *datetime,
+                        asset: normalize_currency(&asset.symbol),
+                        asset_class: asset.asset_class.clone(),
+                        quantity: asset.quantity,
+                        value_gbp,
+                        fee_gbp,
+                        description: description.clone(),
+                    }]);
+                }
+
                 if linked_withdrawal.is_some() || is_gbp(&asset.symbol) {
                     return Ok(vec![]);
                 }
@@ -290,7 +379,6 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
-                // Deposits can optionally have a price for valuation
                 let fee_gbp = match fee {
                     Some(f) => Some(f.to_gbp_with_context(
                         price.as_ref().map(|p| p.base.as_str()),
@@ -313,7 +401,7 @@ impl Transaction {
                     id: next_event_id(),
                     source_transaction_id: id.clone(),
                     event_type: EventType::Acquisition,
-                    label: Label::Unclassified,
+                    tag: Tag::Unclassified,
                     datetime: *datetime,
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
@@ -328,6 +416,43 @@ impl Transaction {
                 asset,
                 linked_deposit,
             } => {
+                if *tag != Tag::Unclassified {
+                    if linked_deposit.is_some() {
+                        return Err(TransactionError::TaggedWithdrawalLinked { id: id.clone() });
+                    }
+
+                    if *tag != Tag::Gift {
+                        return Err(TransactionError::InvalidTagForType {
+                            id: id.clone(),
+                            tag: tag_name(*tag).to_string(),
+                            tx_type: "withdrawal".to_string(),
+                        });
+                    }
+
+                    let tx_price = require_tagged_price(id, *tag, "withdrawal", price.as_ref())?;
+                    validate_price_base(id, tx_price, &asset.symbol)?;
+                    let fee_gbp = match fee {
+                        Some(f) => {
+                            Some(f.to_gbp_with_context(Some(&asset.symbol), Some(tx_price))?)
+                        }
+                        None => None,
+                    };
+
+                    return Ok(vec![TaxableEvent {
+                        id: next_event_id(),
+                        source_transaction_id: id.clone(),
+                        event_type: EventType::Disposal,
+                        tag: Tag::Gift,
+                        datetime: *datetime,
+                        asset: normalize_currency(&asset.symbol),
+                        asset_class: asset.asset_class.clone(),
+                        quantity: asset.quantity,
+                        value_gbp: tx_price.to_gbp(asset.quantity)?,
+                        fee_gbp,
+                        description: description.clone(),
+                    }]);
+                }
+
                 if linked_deposit.is_some() || is_gbp(&asset.symbol) {
                     return Ok(vec![]);
                 }
@@ -341,7 +466,6 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
-                // Withdrawals can optionally have a price for valuation
                 let fee_gbp = match fee {
                     Some(f) => Some(f.to_gbp_with_context(
                         price.as_ref().map(|p| p.base.as_str()),
@@ -364,7 +488,7 @@ impl Transaction {
                     id: next_event_id(),
                     source_transaction_id: id.clone(),
                     event_type: EventType::Disposal,
-                    label: Label::Unclassified,
+                    tag: Tag::Unclassified,
                     datetime: *datetime,
                     asset: normalize_currency(&asset.symbol),
                     asset_class: asset.asset_class.clone(),
@@ -374,46 +498,51 @@ impl Transaction {
                     description: description.clone(),
                 }])
             }
-
-            TransactionType::StakingReward { asset } => {
-                // Staking rewards require a price
-                let price = price
-                    .as_ref()
-                    .ok_or_else(|| TransactionError::MissingStakingPrice { id: id.clone() })?;
-
-                // Validate price.base matches asset
-                let price_base = normalize_currency(&price.base);
-                let asset_symbol = normalize_currency(&asset.symbol);
-                if price_base != asset_symbol {
-                    return Err(TransactionError::PriceBaseMismatch {
-                        id: id.clone(),
-                        base: price.base.clone(),
-                        expected: asset.symbol.clone(),
-                    });
-                }
-
-                // Fee uses staking price if fee asset matches reward asset
-                let fee_gbp = match fee {
-                    Some(f) => Some(f.to_gbp_with_context(Some(&asset.symbol), Some(price))?),
-                    None => None,
-                };
-
-                Ok(vec![TaxableEvent {
-                    id: next_event_id(),
-                    source_transaction_id: id.clone(),
-                    event_type: EventType::Acquisition,
-                    label: Label::StakingReward,
-                    datetime: *datetime,
-                    asset: normalize_currency(&asset.symbol),
-                    asset_class: asset.asset_class.clone(),
-                    quantity: asset.quantity,
-                    value_gbp: price.to_gbp(asset.quantity)?,
-                    fee_gbp,
-                    description: description.clone(),
-                }])
-            }
         }
     }
+}
+
+fn tag_name(tag: Tag) -> &'static str {
+    match tag {
+        Tag::Unclassified => "Unclassified",
+        Tag::Trade => "Trade",
+        Tag::StakingReward => "StakingReward",
+        Tag::Salary => "Salary",
+        Tag::OtherIncome => "OtherIncome",
+        Tag::Airdrop => "Airdrop",
+        Tag::AirdropIncome => "AirdropIncome",
+        Tag::Gift => "Gift",
+    }
+}
+
+fn require_tagged_price<'a>(
+    id: &str,
+    tag: Tag,
+    tx_type: &str,
+    price: Option<&'a Price>,
+) -> Result<&'a Price, TransactionError> {
+    price.ok_or_else(|| TransactionError::MissingTaggedPrice {
+        id: id.to_string(),
+        tag: tag_name(tag).to_string(),
+        tx_type: tx_type.to_string(),
+    })
+}
+
+fn validate_price_base(
+    id: &str,
+    price: &Price,
+    expected_asset: &str,
+) -> Result<(), TransactionError> {
+    let price_base = normalize_currency(&price.base);
+    let expected = normalize_currency(expected_asset);
+    if price_base != expected {
+        return Err(TransactionError::PriceBaseMismatch {
+            id: id.to_string(),
+            base: price.base.clone(),
+            expected: expected_asset.to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> {
@@ -432,7 +561,7 @@ fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> 
             TransactionType::Deposit {
                 linked_withdrawal: Some(withdrawal_id),
                 ..
-            } => {
+            } if tx.tag == Tag::Unclassified => {
                 let withdrawal = index.get(withdrawal_id.as_str()).ok_or_else(|| {
                     TransactionError::LinkedTransactionNotFound {
                         id: tx.id.clone(),
@@ -461,7 +590,7 @@ fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> 
             TransactionType::Withdrawal {
                 linked_deposit: Some(deposit_id),
                 ..
-            } => {
+            } if tx.tag == Tag::Unclassified => {
                 let deposit = index.get(deposit_id.as_str()).ok_or_else(|| {
                     TransactionError::LinkedTransactionNotFound {
                         id: tx.id.clone(),
@@ -525,9 +654,6 @@ fn normalize_transactions(transactions: &mut [Transaction]) {
                 asset.symbol = normalize_currency(&asset.symbol);
             }
             TransactionType::Withdrawal { asset, .. } => {
-                asset.symbol = normalize_currency(&asset.symbol);
-            }
-            TransactionType::StakingReward { asset } => {
                 asset.symbol = normalize_currency(&asset.symbol);
             }
         }
@@ -621,6 +747,7 @@ mod tests {
             description: None,
             price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -651,6 +778,7 @@ mod tests {
             description: None,
             price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -672,12 +800,14 @@ mod tests {
             description: None,
             price: Some(gbp_price("ETH", dec!(2000))),
             fee: None,
-            details: TransactionType::StakingReward {
+            tag: Tag::StakingReward,
+            details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
                     quantity: dec!(0.01),
                     asset_class: AssetClass::Crypto,
                 },
+                linked_withdrawal: None,
             },
         };
 
@@ -702,6 +832,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "GBP".to_string(),
@@ -731,6 +862,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -760,6 +892,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -792,6 +925,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -808,6 +942,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Withdrawal {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -837,6 +972,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
@@ -856,7 +992,7 @@ mod tests {
         .unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Acquisition);
-        assert_eq!(events[0].label, Label::Unclassified);
+        assert_eq!(events[0].tag, Tag::Unclassified);
     }
 
     #[test]
@@ -868,6 +1004,7 @@ mod tests {
             description: None,
             price: None,
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Withdrawal {
                 asset: Asset {
                     symbol: "BTC".to_string(),
@@ -897,19 +1034,21 @@ mod tests {
             description: None,
             price: Some(gbp_price("ETH", dec!(2000))),
             fee: None,
-            details: TransactionType::StakingReward {
+            tag: Tag::StakingReward,
+            details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
                     quantity: dec!(0.01),
                     asset_class: AssetClass::Crypto,
                 },
+                linked_withdrawal: None,
             },
         };
 
         let events = tx.to_taxable_events(false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Acquisition);
-        assert_eq!(events[0].label, Label::StakingReward);
+        assert_eq!(events[0].tag, Tag::StakingReward);
         assert_eq!(events[0].value_gbp, dec!(20));
     }
 
@@ -926,6 +1065,7 @@ mod tests {
                 amount: dec!(5),
                 price: None,
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "BTC".to_string(),
@@ -962,6 +1102,7 @@ mod tests {
                 amount: dec!(0.0001),
                 price: None,
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),
@@ -998,6 +1139,7 @@ mod tests {
                 amount: dec!(0.01),
                 price: None,
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),
@@ -1036,6 +1178,7 @@ mod tests {
                 // Explicit price overrides trade price
                 price: Some(gbp_price("BTC", dec!(20000))),
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),
@@ -1070,6 +1213,7 @@ mod tests {
                 amount: dec!(5),
                 price: None,
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),
@@ -1107,6 +1251,7 @@ mod tests {
                 amount: dec!(0.0001),
                 price: None,
             }),
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),
@@ -1135,10 +1280,198 @@ mod tests {
             description: None,
             price: None,
             fee: None,
-            details: TransactionType::StakingReward {
+            tag: Tag::StakingReward,
+            details: TransactionType::Deposit {
                 asset: Asset {
                     symbol: "ETH".to_string(),
                     quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingTaggedPrice {
+                id: "s1".to_string(),
+                tag: "StakingReward".to_string(),
+                tx_type: "deposit".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn income_deposit_with_mismatched_price_base_errors() {
+        let tx = Transaction {
+            id: "s1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("BTC", dec!(2000))),
+            fee: None,
+            tag: Tag::StakingReward,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::PriceBaseMismatch {
+                id: "s1".to_string(),
+                base: "BTC".to_string(),
+                expected: "ETH".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn tagged_deposit_with_linked_withdrawal_errors() {
+        let tx = Transaction {
+            id: "s1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
+            fee: None,
+            tag: Tag::StakingReward,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: Some("w1".to_string()),
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::TaggedDepositLinked {
+                id: "s1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn tagged_withdrawal_with_linked_deposit_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
+            fee: None,
+            tag: Tag::Gift,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: Some("d1".to_string()),
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::TaggedWithdrawalLinked {
+                id: "w1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn income_tag_on_withdrawal_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
+            fee: None,
+            tag: Tag::StakingReward,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "w1".to_string(),
+                tag: "StakingReward".to_string(),
+                tx_type: "withdrawal".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn airdrop_tag_on_withdrawal_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(2000))),
+            fee: None,
+            tag: Tag::Airdrop,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(0.01),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "w1".to_string(),
+                tag: "Airdrop".to_string(),
+                tx_type: "withdrawal".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn non_trade_tag_on_trade_errors() {
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "kraken".to_string(),
+            description: None,
+            price: Some(gbp_price("BTC", dec!(2000))),
+            fee: None,
+            tag: Tag::StakingReward,
+            details: TransactionType::Trade {
+                sold: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                bought: Asset {
+                    symbol: "BTC".to_string(),
+                    quantity: dec!(0.05),
                     asset_class: AssetClass::Crypto,
                 },
             },
@@ -1147,10 +1480,316 @@ mod tests {
         let err = tx.to_taxable_events(false).unwrap_err();
         assert_eq!(
             err,
-            TransactionError::MissingStakingPrice {
-                id: "s1".to_string()
+            TransactionError::InvalidTagForType {
+                id: "t1".to_string(),
+                tag: "StakingReward".to_string(),
+                tx_type: "trade".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn gift_deposit_missing_price_errors() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Gift,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingTaggedPrice {
+                id: "d1".to_string(),
+                tag: "Gift".to_string(),
+                tx_type: "deposit".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn gift_withdrawal_missing_price_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Gift,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingTaggedPrice {
+                id: "w1".to_string(),
+                tag: "Gift".to_string(),
+                tx_type: "withdrawal".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn trade_tag_on_deposit_errors() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Trade,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "d1".to_string(),
+                tag: "Trade".to_string(),
+                tx_type: "deposit".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn trade_tag_on_withdrawal_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Trade,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "w1".to_string(),
+                tag: "Trade".to_string(),
+                tx_type: "withdrawal".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn airdrop_deposit_with_price_errors() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::Airdrop,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::AirdropPriceNotAllowed {
+                id: "d1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn gift_deposit_creates_gift_in() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::Gift,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(2),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Acquisition);
+        assert_eq!(events[0].tag, Tag::Gift);
+        assert_eq!(events[0].value_gbp, dec!(2000));
+    }
+
+    #[test]
+    fn gift_withdrawal_creates_gift_out() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::Gift,
+            details: TransactionType::Withdrawal {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(2),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Disposal);
+        assert_eq!(events[0].tag, Tag::Gift);
+        assert_eq!(events[0].value_gbp, dec!(2000));
+    }
+
+    #[test]
+    fn airdrop_deposit_creates_zero_cost_acquisition() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Airdrop,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(2),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].tag, Tag::Airdrop);
+        assert_eq!(events[0].value_gbp, Decimal::ZERO);
+    }
+
+    #[test]
+    fn airdrop_income_deposit_requires_price_and_counts_as_income_tag() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::AirdropIncome,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(2),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let events = tx.to_taxable_events(false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].tag, Tag::AirdropIncome);
+        assert_eq!(events[0].value_gbp, dec!(2000));
+    }
+
+    #[test]
+    fn salary_and_other_income_deposits_are_supported() {
+        let salary = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::Salary,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let other_income = Transaction {
+            id: "d2".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "ledger".to_string(),
+            description: None,
+            price: Some(gbp_price("ETH", dec!(1000))),
+            fee: None,
+            tag: Tag::OtherIncome,
+            details: TransactionType::Deposit {
+                asset: Asset {
+                    symbol: "ETH".to_string(),
+                    quantity: dec!(1),
+                    asset_class: AssetClass::Crypto,
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let salary_events = salary.to_taxable_events(false).unwrap();
+        let other_events = other_income.to_taxable_events(false).unwrap();
+
+        assert_eq!(salary_events[0].tag, Tag::Salary);
+        assert_eq!(other_events[0].tag, Tag::OtherIncome);
     }
 
     #[test]
@@ -1162,6 +1801,7 @@ mod tests {
             description: None,
             price: Some(gbp_price("ETH", dec!(2000))), // Wrong base - should be BTC
             fee: None,
+            tag: Tag::Unclassified,
             details: TransactionType::Trade {
                 sold: Asset {
                     symbol: "ETH".to_string(),

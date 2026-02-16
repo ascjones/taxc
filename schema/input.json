@@ -114,6 +114,28 @@
         "rate"
       ]
     },
+    "Tag": {
+      "description": "Classification tag for a taxable event",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Trade",
+            "StakingReward",
+            "Salary",
+            "OtherIncome",
+            "Airdrop",
+            "AirdropIncome",
+            "Gift"
+          ]
+        },
+        {
+          "description": "Unclassified event - needs review",
+          "type": "string",
+          "const": "Unclassified"
+        }
+      ]
+    },
     "Transaction": {
       "description": "Transaction record with common fields + type-specific data",
       "type": "object",
@@ -151,7 +173,7 @@
           "type": "string"
         },
         "price": {
-          "description": "Optional price for valuation (required for crypto-to-crypto trades and staking rewards)",
+          "description": "Optional price for valuation",
           "anyOf": [
             {
               "$ref": "#/$defs/Price"
@@ -161,6 +183,11 @@
             }
           ],
           "default": null
+        },
+        "tag": {
+          "description": "Optional transaction tag used for classification",
+          "$ref": "#/$defs/Tag",
+          "default": "Unclassified"
         }
       },
       "oneOf": [
@@ -226,23 +253,6 @@
             "type": {
               "type": "string",
               "const": "Withdrawal"
-            }
-          },
-          "required": [
-            "type",
-            "asset"
-          ]
-        },
-        {
-          "description": "Staking reward (income + acquisition)",
-          "type": "object",
-          "properties": {
-            "asset": {
-              "$ref": "#/$defs/Asset"
-            },
-            "type": {
-              "type": "string",
-              "const": "StakingReward"
             }
           },
           "required": [

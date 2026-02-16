@@ -48,7 +48,6 @@ taxc report [OPTIONS] [FILE]
 | `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
-| `-t, --event-type <TYPE>` | Filter by event type: `acquisition`, `disposal`, `staking` |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
 
@@ -95,7 +94,8 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 | `datetime` | RFC3339 datetime with offset |
 | `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
 | `description` | Optional description |
-| `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal`, `StakingReward` |
+| `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal` |
+| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Gift` |
 | `price` | Optional price for valuation (see Price section below) |
 | `fee` | Optional fee (see Fee section below) |
 
@@ -105,15 +105,22 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 - `sold`: asset you gave up
 - `bought`: asset you received
 - Requires `price` when neither side is GBP (price.base must match bought asset)
+- `tag` must be `Unclassified` (default) or `Trade`
 
-**Deposit / Withdrawal**
+**Deposit**
 - `asset`
-- `linked_withdrawal` or `linked_deposit` to mark transfers
-- Optional `price` for valuing unlinked deposits/withdrawals
+- `linked_withdrawal` to mark transfers
+- `tag: Unclassified` (default): existing transfer/unclassified behavior
+- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`): require `price` and create income acquisitions
+- `tag: Gift`: requires `price` and creates `GiftIn`
+- `tag: Airdrop`: must not include `price`, creates zero-cost acquisition
 
-**StakingReward**
+**Withdrawal**
 - `asset`
-- Requires `price` (price.base must match asset)
+- `linked_deposit` to mark transfers
+- `tag: Unclassified` (default): existing transfer/unclassified behavior
+- `tag: Gift`: requires `price` and creates `GiftOut`
+- Other explicit tags on withdrawals are rejected
 
 ### Asset
 
@@ -148,11 +155,12 @@ Fee pricing rules:
 - GBP fees need no price
 - If the fee has an explicit `price`, that is used
 - For Trade: if fee asset matches the `bought` asset, the trade's `price` is used
-- For StakingReward: if fee asset matches the reward asset, the staking `price` is used
-- For Deposit/Withdrawal: fee must be GBP or have an explicit `price`
+- For tagged Deposit/Withdrawal with price: if fee asset matches the transaction asset, transaction `price` is used
+- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `price` is present and fee asset matches `price.base`
+- For `Airdrop` deposits (no price): fee must be GBP or have an explicit `price`
 
 **Notes**
-- Unlinked crypto deposits/withdrawals become unclassified events (shown as `Unclassified In/Out`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
+- Unlinked crypto deposits/withdrawals with `tag: Unclassified` become unclassified events (`UnclassifiedIn`/`UnclassifiedOut`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
 - For crypto-to-crypto trades, the GBP value is taken from the acquired asset price.
 
 ### Example JSON
@@ -192,7 +200,8 @@ Fee pricing rules:
       "datetime": "2024-10-01T00:00:00+00:00",
       "account": "ledger",
       "description": "ETH staking reward",
-      "type": "StakingReward",
+      "type": "Deposit",
+      "tag": "StakingReward",
       "asset": { "symbol": "ETH", "quantity": 0.01 },
       "price": { "base": "ETH", "rate": 2000 }
     }
@@ -218,7 +227,7 @@ CAPITAL GAINS
   CGT @ 18%: £353.25 | @ 24%: £471.00
 
 INCOME
-  Staking: £250.00 (Tax @ 20%: £50.00)
+  Income: £250.00 (Tax @ 20%: £50.00)
 
 TOTAL TAX LIABILITY: £403.25 (basic)
 ```
@@ -231,10 +240,10 @@ taxc report transactions.json
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
 
-- **Summary cards** - Total proceeds, costs, gains/losses, staking income
-- **Interactive filtering** - Filter by date range, tax year, event type, asset class, or search by asset
-- **Three data tables** - All taxable events, CGT disposals, and income events
-- **Color-coded event types** - Badges for Acquisition (green), Disposal (red), Staking (purple)
+- **Summary cards** - Total proceeds, costs, gains/losses, total income
+- **Interactive filtering** - Filter by date range, tax year, event type, tag, asset class, or search by asset
+- **Event table with drill-down** - All taxable events with expandable disposal matching details
+- **Color-coded tags** - Badges for income tags, trade, gift, airdrop, and unclassified events
 - **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
 - **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
 - **Color-coded gains/losses** - Green for gains, red for losses

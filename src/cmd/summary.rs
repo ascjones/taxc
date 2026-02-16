@@ -81,9 +81,9 @@ struct CapitalGainsSummary {
 
 #[derive(Debug, Serialize)]
 struct IncomeSummary {
-    staking_income: String,
-    staking_tax: String,
-    staking_rate_pct: String,
+    income: String,
+    tax: String,
+    rate_pct: String,
 }
 
 impl SummaryCommand {
@@ -188,25 +188,25 @@ impl SummaryCommand {
         let income_rate = rate_year.income_rate(band);
 
         // Calculate income totals
-        let staking_income: Decimal = income_report
-            .staking_events
+        let income: Decimal = income_report
+            .income_events
             .iter()
             .filter(|e| year.is_none_or(|y| e.tax_year == y))
             .map(|e| e.value_gbp)
             .sum();
 
-        let staking_tax = (staking_income * income_rate).round_dp(2);
+        let income_tax = (income * income_rate).round_dp(2);
 
         println!("INCOME");
-        if staking_income > Decimal::ZERO {
+        if income > Decimal::ZERO {
             println!(
-                "  Staking: {} (Tax @ {:.0}%: {})",
-                format_gbp(staking_income),
+                "  Income: {} (Tax @ {:.0}%: {})",
+                format_gbp(income),
                 income_rate * dec!(100),
-                format_gbp(staking_tax)
+                format_gbp(income_tax)
             );
         } else {
-            println!("  Staking: £0.00");
+            println!("  Income: £0.00");
         }
         println!();
 
@@ -216,7 +216,7 @@ impl SummaryCommand {
             TaxBand::Basic => tax_basic,
             TaxBand::Higher | TaxBand::Additional => tax_higher,
         };
-        let total_tax = cgt_tax + staking_tax;
+        let total_tax = cgt_tax + income_tax;
 
         println!(
             "TOTAL TAX LIABILITY: {} ({})",
@@ -264,20 +264,20 @@ impl SummaryCommand {
         // Calculate income values
         let income_rate = rate_year.income_rate(band);
 
-        let staking_income: Decimal = income_report
-            .staking_events
+        let income: Decimal = income_report
+            .income_events
             .iter()
             .filter(|e| year.is_none_or(|y| e.tax_year == y))
             .map(|e| e.value_gbp)
             .sum();
 
-        let staking_tax = (staking_income * income_rate).round_dp(2);
+        let income_tax = (income * income_rate).round_dp(2);
 
         let cgt_tax = match band {
             TaxBand::Basic => tax_basic,
             TaxBand::Higher | TaxBand::Additional => tax_higher,
         };
-        let total_tax = cgt_tax + staking_tax;
+        let total_tax = cgt_tax + income_tax;
 
         let data = SummaryData {
             tax_year: year_str,
@@ -296,9 +296,9 @@ impl SummaryCommand {
                 higher_rate_pct: format!("{:.0}", higher_rate * dec!(100)),
             },
             income: IncomeSummary {
-                staking_income: format!("{:.2}", staking_income),
-                staking_tax: format!("{:.2}", staking_tax),
-                staking_rate_pct: format!("{:.0}", income_rate * dec!(100)),
+                income: format!("{:.2}", income),
+                tax: format!("{:.2}", income_tax),
+                rate_pct: format!("{:.0}", income_rate * dec!(100)),
             },
             total_tax_liability: format!("{:.2}", total_tax),
         };
