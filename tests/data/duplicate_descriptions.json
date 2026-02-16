@@ -1,4 +1,7 @@
 {
+  "assets": [
+    { "symbol": "BTC" }
+  ],
   "transactions": [
     {
       "id": "tx-1",
@@ -6,8 +9,8 @@
       "account": "kraken",
       "description": "Buy BTC",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 10000 },
-      "bought": { "symbol": "BTC", "quantity": 1.0 }
+      "sold": { "asset": "GBP", "quantity": 10000 },
+      "bought": { "asset": "BTC", "quantity": 1.0 }
     },
     {
       "id": "tx-2",
@@ -15,8 +18,8 @@
       "account": "kraken",
       "description": "Sell BTC",
       "type": "Trade",
-      "sold": { "symbol": "BTC", "quantity": 0.4 },
-      "bought": { "symbol": "GBP", "quantity": 12000 }
+      "sold": { "asset": "BTC", "quantity": 0.4 },
+      "bought": { "asset": "GBP", "quantity": 12000 }
     },
     {
       "id": "tx-3",
@@ -24,8 +27,8 @@
       "account": "kraken",
       "description": "Sell BTC",
       "type": "Trade",
-      "sold": { "symbol": "BTC", "quantity": 0.3 },
-      "bought": { "symbol": "GBP", "quantity": 9000 }
+      "sold": { "asset": "BTC", "quantity": 0.3 },
+      "bought": { "asset": "GBP", "quantity": 9000 }
     }
   ]
 }

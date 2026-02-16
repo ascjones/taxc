@@ -49,11 +49,16 @@ pub enum TransactionError {
     InvalidPrice(String),
     #[error("invalid datetime: {0}")]
     InvalidDatetime(String),
+    #[error("undefined asset symbol: {symbol}")]
+    UndefinedAsset { symbol: String },
+    #[error("duplicate asset symbol: {symbol}")]
+    DuplicateAsset { symbol: String },
 }
 
 /// Input root for transaction JSON
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TransactionInput {
+    pub assets: Vec<Asset>,
     pub transactions: Vec<Transaction>,
 }
 
@@ -89,18 +94,18 @@ pub struct Transaction {
 #[serde(tag = "type")]
 pub enum TransactionType {
     /// Trade one asset for another (includes fiat and crypto-to-crypto)
-    Trade { sold: Asset, bought: Asset },
+    Trade { sold: Amount, bought: Amount },
 
     /// Deposit - assets received INTO an account
     Deposit {
-        asset: Asset,
+        amount: Amount,
         #[serde(default)]
         linked_withdrawal: Option<String>,
     },
 
     /// Withdrawal - assets sent FROM an account
     Withdrawal {
-        asset: Asset,
+        amount: Amount,
         #[serde(default)]
         linked_deposit: Option<String>,
     },
@@ -109,11 +114,18 @@ pub enum TransactionType {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Asset {
     pub symbol: String,
-    #[schemars(with = "f64")]
-    pub quantity: Decimal,
     #[serde(default)]
     pub asset_class: AssetClass,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Amount {
+    pub asset: String,
+    #[schemars(with = "f64")]
+    pub quantity: Decimal,
+}
+
+pub type AssetRegistry = HashMap<String, Asset>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Fee {
@@ -169,17 +181,23 @@ pub struct ConversionOptions {
 }
 
 /// Read transactions from JSON
-pub fn read_transactions_json<R: Read>(reader: R) -> anyhow::Result<Vec<Transaction>> {
+pub fn read_transactions_json<R: Read>(
+    reader: R,
+) -> anyhow::Result<(Vec<Transaction>, AssetRegistry)> {
     let input: TransactionInput = serde_json::from_reader(reader)?;
+    let mut assets = input.assets;
     let mut transactions = input.transactions;
+    normalize_assets(&mut assets);
     normalize_transactions(&mut transactions);
+    let registry = validate_assets(&assets, &transactions)?;
     transactions.sort_by_key(|t| t.datetime);
-    Ok(transactions)
+    Ok((transactions, registry))
 }
 
 /// Convert transactions to taxable events
 pub fn transactions_to_events(
     transactions: &[Transaction],
+    registry: &AssetRegistry,
     options: ConversionOptions,
 ) -> Result<Vec<TaxableEvent>, TransactionError> {
     validate_links(transactions)?;
@@ -187,7 +205,7 @@ pub fn transactions_to_events(
     let mut events = Vec::new();
 
     for tx in transactions {
-        let mut tx_events = tx.to_taxable_events(options.exclude_unlinked)?;
+        let mut tx_events = tx.to_taxable_events(registry, options.exclude_unlinked)?;
         events.append(&mut tx_events);
     }
 
@@ -201,6 +219,7 @@ pub fn transactions_to_events(
 impl Transaction {
     pub fn to_taxable_events(
         &self,
+        registry: &AssetRegistry,
         exclude_unlinked: bool,
     ) -> Result<Vec<TaxableEvent>, TransactionError> {
         let Transaction {
@@ -234,31 +253,31 @@ impl Transaction {
                 // Validate price.base matches bought asset if price is provided
                 if let Some(p) = price {
                     let price_base = normalize_currency(&p.base);
-                    let bought_symbol = normalize_currency(&bought.symbol);
+                    let bought_symbol = normalize_currency(&bought.asset);
                     if price_base != bought_symbol {
                         return Err(TransactionError::PriceBaseMismatch {
                             id: id.clone(),
                             base: p.base.clone(),
-                            expected: bought.symbol.clone(),
+                            expected: bought.asset.clone(),
                         });
                     }
                 }
 
                 let value_gbp = match price {
                     Some(p) => p.to_gbp(bought.quantity)?,
-                    None if is_gbp(&sold.symbol) => sold.quantity,
-                    None if is_gbp(&bought.symbol) => bought.quantity,
+                    None if is_gbp(&sold.asset) => sold.quantity,
+                    None if is_gbp(&bought.asset) => bought.quantity,
                     None => return Err(TransactionError::MissingTradePrice { id: id.clone() }),
                 };
 
                 let mut events = Vec::new();
 
-                let has_disposal = !is_gbp(&sold.symbol);
-                let has_acquisition = !is_gbp(&bought.symbol);
+                let has_disposal = !is_gbp(&sold.asset);
+                let has_acquisition = !is_gbp(&bought.asset);
 
                 // Fee uses trade price if fee asset matches bought asset
                 let fee_gbp = match fee {
-                    Some(f) => Some(f.to_gbp_with_context(Some(&bought.symbol), price.as_ref())?),
+                    Some(f) => Some(f.to_gbp_with_context(Some(&bought.asset), price.as_ref())?),
                     None => None,
                 };
 
@@ -269,8 +288,8 @@ impl Transaction {
                         event_type: EventType::Disposal,
                         tag: Tag::Trade,
                         datetime: *datetime,
-                        asset: normalize_currency(&sold.symbol),
-                        asset_class: sold.asset_class.clone(),
+                        asset: normalize_currency(&sold.asset),
+                        asset_class: asset_class_for(registry, &sold.asset),
                         quantity: sold.quantity,
                         value_gbp,
                         fee_gbp,
@@ -286,8 +305,8 @@ impl Transaction {
                         event_type: EventType::Acquisition,
                         tag: Tag::Trade,
                         datetime: *datetime,
-                        asset: normalize_currency(&bought.symbol),
-                        asset_class: bought.asset_class.clone(),
+                        asset: normalize_currency(&bought.asset),
+                        asset_class: asset_class_for(registry, &bought.asset),
                         quantity: bought.quantity,
                         value_gbp,
                         fee_gbp: acquisition_fee,
@@ -299,7 +318,7 @@ impl Transaction {
             }
 
             TransactionType::Deposit {
-                asset,
+                amount,
                 linked_withdrawal,
             } => {
                 if *tag != Tag::Unclassified {
@@ -314,14 +333,14 @@ impl Transaction {
                         | Tag::AirdropIncome => {
                             let tx_price =
                                 require_tagged_price(id, *tag, "deposit", price.as_ref())?;
-                            validate_price_base(id, tx_price, &asset.symbol)?;
-                            tx_price.to_gbp(asset.quantity)?
+                            validate_price_base(id, tx_price, &amount.asset)?;
+                            tx_price.to_gbp(amount.quantity)?
                         }
                         Tag::Gift => {
                             let tx_price =
                                 require_tagged_price(id, *tag, "deposit", price.as_ref())?;
-                            validate_price_base(id, tx_price, &asset.symbol)?;
-                            tx_price.to_gbp(asset.quantity)?
+                            validate_price_base(id, tx_price, &amount.asset)?;
+                            tx_price.to_gbp(amount.quantity)?
                         }
                         Tag::Airdrop => {
                             if price.is_some() {
@@ -344,7 +363,7 @@ impl Transaction {
                     let (priced_asset, tx_price) = if *tag == Tag::Airdrop {
                         (None, None)
                     } else {
-                        (Some(asset.symbol.as_str()), price.as_ref())
+                        (Some(amount.asset.as_str()), price.as_ref())
                     };
                     let fee_gbp = match fee {
                         Some(f) => Some(f.to_gbp_with_context(priced_asset, tx_price)?),
@@ -357,16 +376,16 @@ impl Transaction {
                         event_type: EventType::Acquisition,
                         tag: *tag,
                         datetime: *datetime,
-                        asset: normalize_currency(&asset.symbol),
-                        asset_class: asset.asset_class.clone(),
-                        quantity: asset.quantity,
+                        asset: normalize_currency(&amount.asset),
+                        asset_class: asset_class_for(registry, &amount.asset),
+                        quantity: amount.quantity,
                         value_gbp,
                         fee_gbp,
                         description: description.clone(),
                     }]);
                 }
 
-                if linked_withdrawal.is_some() || is_gbp(&asset.symbol) {
+                if linked_withdrawal.is_some() || is_gbp(&amount.asset) {
                     return Ok(vec![]);
                 }
 
@@ -374,28 +393,31 @@ impl Transaction {
                     log::warn!(
                         "Skipping unlinked deposit: id={} asset={}",
                         id,
-                        asset.symbol
+                        amount.asset
                     );
                     return Ok(vec![]);
                 }
 
                 let fee_gbp = match fee {
                     Some(f) => Some(f.to_gbp_with_context(
-                        price.as_ref().map(|p| p.base.as_str()),
+                        price.as_ref().map(|_| amount.asset.as_str()),
                         price.as_ref(),
                     )?),
                     None => None,
                 };
 
                 let value_gbp = match price {
-                    Some(p) => p.to_gbp(asset.quantity)?,
+                    Some(p) => {
+                        validate_price_base(id, p, &amount.asset)?;
+                        p.to_gbp(amount.quantity)?
+                    }
                     None => Decimal::ZERO,
                 };
 
                 log::warn!(
                     "Unlinked deposit treated as acquisition: id={} asset={}",
                     id,
-                    asset.symbol
+                    amount.asset
                 );
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
@@ -403,9 +425,9 @@ impl Transaction {
                     event_type: EventType::Acquisition,
                     tag: Tag::Unclassified,
                     datetime: *datetime,
-                    asset: normalize_currency(&asset.symbol),
-                    asset_class: asset.asset_class.clone(),
-                    quantity: asset.quantity,
+                    asset: normalize_currency(&amount.asset),
+                    asset_class: asset_class_for(registry, &amount.asset),
+                    quantity: amount.quantity,
                     value_gbp,
                     fee_gbp,
                     description: description.clone(),
@@ -413,7 +435,7 @@ impl Transaction {
             }
 
             TransactionType::Withdrawal {
-                asset,
+                amount,
                 linked_deposit,
             } => {
                 if *tag != Tag::Unclassified {
@@ -430,10 +452,10 @@ impl Transaction {
                     }
 
                     let tx_price = require_tagged_price(id, *tag, "withdrawal", price.as_ref())?;
-                    validate_price_base(id, tx_price, &asset.symbol)?;
+                    validate_price_base(id, tx_price, &amount.asset)?;
                     let fee_gbp = match fee {
                         Some(f) => {
-                            Some(f.to_gbp_with_context(Some(&asset.symbol), Some(tx_price))?)
+                            Some(f.to_gbp_with_context(Some(&amount.asset), Some(tx_price))?)
                         }
                         None => None,
                     };
@@ -444,16 +466,16 @@ impl Transaction {
                         event_type: EventType::Disposal,
                         tag: Tag::Gift,
                         datetime: *datetime,
-                        asset: normalize_currency(&asset.symbol),
-                        asset_class: asset.asset_class.clone(),
-                        quantity: asset.quantity,
-                        value_gbp: tx_price.to_gbp(asset.quantity)?,
+                        asset: normalize_currency(&amount.asset),
+                        asset_class: asset_class_for(registry, &amount.asset),
+                        quantity: amount.quantity,
+                        value_gbp: tx_price.to_gbp(amount.quantity)?,
                         fee_gbp,
                         description: description.clone(),
                     }]);
                 }
 
-                if linked_deposit.is_some() || is_gbp(&asset.symbol) {
+                if linked_deposit.is_some() || is_gbp(&amount.asset) {
                     return Ok(vec![]);
                 }
 
@@ -461,28 +483,31 @@ impl Transaction {
                     log::warn!(
                         "Skipping unlinked withdrawal: id={} asset={}",
                         id,
-                        asset.symbol
+                        amount.asset
                     );
                     return Ok(vec![]);
                 }
 
                 let fee_gbp = match fee {
                     Some(f) => Some(f.to_gbp_with_context(
-                        price.as_ref().map(|p| p.base.as_str()),
+                        price.as_ref().map(|_| amount.asset.as_str()),
                         price.as_ref(),
                     )?),
                     None => None,
                 };
 
                 let value_gbp = match price {
-                    Some(p) => p.to_gbp(asset.quantity)?,
+                    Some(p) => {
+                        validate_price_base(id, p, &amount.asset)?;
+                        p.to_gbp(amount.quantity)?
+                    }
                     None => Decimal::ZERO,
                 };
 
                 log::warn!(
                     "Unlinked withdrawal treated as disposal: id={} asset={}",
                     id,
-                    asset.symbol
+                    amount.asset
                 );
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
@@ -490,9 +515,9 @@ impl Transaction {
                     event_type: EventType::Disposal,
                     tag: Tag::Unclassified,
                     datetime: *datetime,
-                    asset: normalize_currency(&asset.symbol),
-                    asset_class: asset.asset_class.clone(),
-                    quantity: asset.quantity,
+                    asset: normalize_currency(&amount.asset),
+                    asset_class: asset_class_for(registry, &amount.asset),
+                    quantity: amount.quantity,
                     value_gbp,
                     fee_gbp,
                     description: description.clone(),
@@ -543,6 +568,71 @@ fn validate_price_base(
         });
     }
     Ok(())
+}
+
+fn asset_class_for(registry: &AssetRegistry, symbol: &str) -> AssetClass {
+    if is_gbp(symbol) {
+        return AssetClass::default();
+    }
+    let normalized = normalize_currency(symbol);
+    registry
+        .get(normalized.as_str())
+        .map(|asset| asset.asset_class.clone())
+        .unwrap_or_default()
+}
+
+fn validate_assets(
+    assets: &[Asset],
+    transactions: &[Transaction],
+) -> Result<AssetRegistry, TransactionError> {
+    let mut registry: AssetRegistry = HashMap::new();
+
+    for asset in assets {
+        if is_gbp(&asset.symbol) {
+            continue;
+        }
+        if registry.contains_key(asset.symbol.as_str()) {
+            return Err(TransactionError::DuplicateAsset {
+                symbol: asset.symbol.clone(),
+            });
+        }
+        registry.insert(asset.symbol.clone(), asset.clone());
+    }
+
+    for tx in transactions {
+        match &tx.details {
+            TransactionType::Trade { sold, bought } => {
+                validate_symbol(&registry, sold.asset.as_str())?;
+                validate_symbol(&registry, bought.asset.as_str())?;
+            }
+            TransactionType::Deposit { amount, .. }
+            | TransactionType::Withdrawal { amount, .. } => {
+                validate_symbol(&registry, amount.asset.as_str())?;
+            }
+        }
+
+        if let Some(fee) = &tx.fee {
+            validate_symbol(&registry, fee.asset.as_str())?;
+            if let Some(price) = &fee.price {
+                validate_symbol(&registry, price.base.as_str())?;
+            }
+        }
+
+        if let Some(price) = &tx.price {
+            validate_symbol(&registry, price.base.as_str())?;
+        }
+    }
+
+    Ok(registry)
+}
+
+fn validate_symbol(registry: &AssetRegistry, symbol: &str) -> Result<(), TransactionError> {
+    if is_gbp(symbol) || registry.contains_key(symbol) {
+        return Ok(());
+    }
+    Err(TransactionError::UndefinedAsset {
+        symbol: symbol.to_string(),
+    })
 }
 
 fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> {
@@ -647,16 +737,22 @@ fn normalize_transactions(transactions: &mut [Transaction]) {
         // Normalize type-specific fields
         match &mut tx.details {
             TransactionType::Trade { sold, bought } => {
-                sold.symbol = normalize_currency(&sold.symbol);
-                bought.symbol = normalize_currency(&bought.symbol);
+                sold.asset = normalize_currency(&sold.asset);
+                bought.asset = normalize_currency(&bought.asset);
             }
-            TransactionType::Deposit { asset, .. } => {
-                asset.symbol = normalize_currency(&asset.symbol);
+            TransactionType::Deposit { amount, .. } => {
+                amount.asset = normalize_currency(&amount.asset);
             }
-            TransactionType::Withdrawal { asset, .. } => {
-                asset.symbol = normalize_currency(&asset.symbol);
+            TransactionType::Withdrawal { amount, .. } => {
+                amount.asset = normalize_currency(&amount.asset);
             }
         }
+    }
+}
+
+fn normalize_assets(assets: &mut [Asset]) {
+    for asset in assets {
+        asset.symbol = normalize_currency(&asset.symbol);
     }
 }
 
@@ -726,6 +822,27 @@ mod tests {
         }
     }
 
+    fn test_registry() -> AssetRegistry {
+        let mut registry = AssetRegistry::new();
+        for symbol in ["BTC", "ETH", "USDT"] {
+            registry.insert(
+                symbol.to_string(),
+                Asset {
+                    symbol: symbol.to_string(),
+                    asset_class: AssetClass::Crypto,
+                },
+            );
+        }
+        registry.insert(
+            "AAPL".to_string(),
+            Asset {
+                symbol: "AAPL".to_string(),
+                asset_class: AssetClass::Stock,
+            },
+        );
+        registry
+    }
+
     #[test]
     fn price_gbp_multiplies_rate() {
         let price = gbp_price("BTC", dec!(2000));
@@ -749,20 +866,18 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "BTC".to_string(),
+                sold: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "ETH".to_string(),
+                bought: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.5),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event_type, EventType::Disposal);
         assert_eq!(events[1].event_type, EventType::Acquisition);
@@ -780,15 +895,13 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "BTC".to_string(),
+                sold: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "ETH".to_string(),
+                bought: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.5),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
@@ -802,10 +915,9 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
@@ -813,6 +925,7 @@ mod tests {
 
         let events = transactions_to_events(
             &[tx1, tx2],
+            &test_registry(),
             ConversionOptions {
                 exclude_unlinked: false,
             },
@@ -834,20 +947,18 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "GBP".to_string(),
+                sold: Amount {
+                    asset: "GBP".to_string(),
                     quantity: dec!(1000),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.02),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Acquisition);
         assert_eq!(events[0].value_gbp, dec!(1000));
@@ -864,20 +975,18 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "BTC".to_string(),
+                sold: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.02),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "GBP".to_string(),
+                bought: Amount {
+                    asset: "GBP".to_string(),
                     quantity: dec!(1000),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Disposal);
         assert_eq!(events[0].value_gbp, dec!(1000));
@@ -894,20 +1003,18 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "BTC".to_string(),
+                sold: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.02),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "ETH".to_string(),
+                bought: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.5),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingTradePrice {
@@ -927,10 +1034,9 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: Some("w1".to_string()),
             },
@@ -944,10 +1050,9 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: Some("d1".to_string()),
             },
@@ -955,6 +1060,7 @@ mod tests {
 
         let events = transactions_to_events(
             &[deposit, withdrawal],
+            &test_registry(),
             ConversionOptions {
                 exclude_unlinked: false,
             },
@@ -974,10 +1080,9 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
@@ -985,6 +1090,7 @@ mod tests {
 
         let events = transactions_to_events(
             &[deposit],
+            &test_registry(),
             ConversionOptions {
                 exclude_unlinked: false,
             },
@@ -1006,10 +1112,9 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "BTC".to_string(),
+                amount: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
@@ -1017,6 +1122,7 @@ mod tests {
 
         let events = transactions_to_events(
             &[withdrawal],
+            &test_registry(),
             ConversionOptions {
                 exclude_unlinked: true,
             },
@@ -1036,16 +1142,15 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Acquisition);
         assert_eq!(events[0].tag, Tag::StakingReward);
@@ -1067,20 +1172,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "BTC".to_string(),
+                sold: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "ETH".to_string(),
+                bought: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(10),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].fee_gbp, Some(dec!(5)));
         assert_eq!(events[1].fee_gbp, None);
@@ -1104,20 +1207,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 2);
         // Fee uses trade price directly: 0.0001 * 15000 = £1.50
         assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
@@ -1141,20 +1242,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingFeePrice {
@@ -1180,20 +1279,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 2);
         // Fee should use explicit price: 0.0001 * 20000 = £2.00
         assert_eq!(events[0].fee_gbp, Some(dec!(2)));
@@ -1215,20 +1312,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingFeePrice {
@@ -1253,20 +1348,18 @@ mod tests {
             }),
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
     }
@@ -1282,16 +1375,15 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingTaggedPrice {
@@ -1313,16 +1405,15 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::PriceBaseMismatch {
@@ -1344,16 +1435,15 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: Some("w1".to_string()),
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::TaggedDepositLinked {
@@ -1373,16 +1463,15 @@ mod tests {
             fee: None,
             tag: Tag::Gift,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: Some("d1".to_string()),
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::TaggedWithdrawalLinked {
@@ -1402,16 +1491,15 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::InvalidTagForType {
@@ -1433,16 +1521,15 @@ mod tests {
             fee: None,
             tag: Tag::Airdrop,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(0.01),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::InvalidTagForType {
@@ -1464,20 +1551,18 @@ mod tests {
             fee: None,
             tag: Tag::StakingReward,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::InvalidTagForType {
@@ -1499,16 +1584,15 @@ mod tests {
             fee: None,
             tag: Tag::Gift,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingTaggedPrice {
@@ -1530,16 +1614,15 @@ mod tests {
             fee: None,
             tag: Tag::Gift,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingTaggedPrice {
@@ -1561,16 +1644,15 @@ mod tests {
             fee: None,
             tag: Tag::Trade,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::InvalidTagForType {
@@ -1592,16 +1674,15 @@ mod tests {
             fee: None,
             tag: Tag::Trade,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::InvalidTagForType {
@@ -1623,16 +1704,15 @@ mod tests {
             fee: None,
             tag: Tag::Airdrop,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::AirdropPriceNotAllowed {
@@ -1652,16 +1732,15 @@ mod tests {
             fee: None,
             tag: Tag::Gift,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(2),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Acquisition);
         assert_eq!(events[0].tag, Tag::Gift);
@@ -1679,16 +1758,15 @@ mod tests {
             fee: None,
             tag: Tag::Gift,
             details: TransactionType::Withdrawal {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(2),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_deposit: None,
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Disposal);
         assert_eq!(events[0].tag, Tag::Gift);
@@ -1706,16 +1784,15 @@ mod tests {
             fee: None,
             tag: Tag::Airdrop,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(2),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].tag, Tag::Airdrop);
         assert_eq!(events[0].value_gbp, Decimal::ZERO);
@@ -1732,16 +1809,15 @@ mod tests {
             fee: None,
             tag: Tag::AirdropIncome,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(2),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let events = tx.to_taxable_events(false).unwrap();
+        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].tag, Tag::AirdropIncome);
         assert_eq!(events[0].value_gbp, dec!(2000));
@@ -1758,10 +1834,9 @@ mod tests {
             fee: None,
             tag: Tag::Salary,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
@@ -1776,17 +1851,18 @@ mod tests {
             fee: None,
             tag: Tag::OtherIncome,
             details: TransactionType::Deposit {
-                asset: Asset {
-                    symbol: "ETH".to_string(),
+                amount: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
                 linked_withdrawal: None,
             },
         };
 
-        let salary_events = salary.to_taxable_events(false).unwrap();
-        let other_events = other_income.to_taxable_events(false).unwrap();
+        let salary_events = salary.to_taxable_events(&test_registry(), false).unwrap();
+        let other_events = other_income
+            .to_taxable_events(&test_registry(), false)
+            .unwrap();
 
         assert_eq!(salary_events[0].tag, Tag::Salary);
         assert_eq!(other_events[0].tag, Tag::OtherIncome);
@@ -1803,26 +1879,296 @@ mod tests {
             fee: None,
             tag: Tag::Unclassified,
             details: TransactionType::Trade {
-                sold: Asset {
-                    symbol: "ETH".to_string(),
+                sold: Amount {
+                    asset: "ETH".to_string(),
                     quantity: dec!(1),
-                    asset_class: AssetClass::Crypto,
                 },
-                bought: Asset {
-                    symbol: "BTC".to_string(),
+                bought: Amount {
+                    asset: "BTC".to_string(),
                     quantity: dec!(0.05),
-                    asset_class: AssetClass::Crypto,
                 },
             },
         };
 
-        let err = tx.to_taxable_events(false).unwrap_err();
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
         assert_eq!(
             err,
             TransactionError::PriceBaseMismatch {
                 id: "t1".to_string(),
                 base: "ETH".to_string(),
                 expected: "BTC".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn validate_assets_detects_undefined_symbol() {
+        let json = r#"{
+          "assets": [{ "symbol": "BTC" }],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "ETH", "quantity": 1.0 },
+              "bought": { "asset": "BTC", "quantity": 0.05 },
+              "price": { "base": "BTC", "rate": 1000 }
+            }
+          ]
+        }"#;
+
+        let err = read_transactions_json(std::io::Cursor::new(json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::UndefinedAsset {
+                symbol: "ETH".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_assets_detects_duplicate_symbol() {
+        let json = r#"{
+          "assets": [{ "symbol": "BTC" }, { "symbol": "BTC" }],
+          "transactions": []
+        }"#;
+
+        let err = read_transactions_json(std::io::Cursor::new(json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::DuplicateAsset {
+                symbol: "BTC".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_assets_gbp_implicit() {
+        let json = r#"{
+          "assets": [{ "symbol": "BTC" }],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "GBP", "quantity": 1000 },
+              "bought": { "asset": "BTC", "quantity": 0.05 }
+            }
+          ]
+        }"#;
+
+        assert!(read_transactions_json(std::io::Cursor::new(json)).is_ok());
+    }
+
+    #[test]
+    fn validate_assets_gbp_in_assets_list_allowed() {
+        let json = r#"{
+          "assets": [{ "symbol": "gbp", "asset_class": "Stock" }, { "symbol": "BTC" }],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "GBP", "quantity": 1000 },
+              "bought": { "asset": "BTC", "quantity": 0.05 }
+            }
+          ]
+        }"#;
+
+        assert!(read_transactions_json(std::io::Cursor::new(json)).is_ok());
+    }
+
+    #[test]
+    fn validate_assets_case_insensitive_duplicate() {
+        let json = r#"{
+          "assets": [{ "symbol": "btc" }, { "symbol": "BTC" }],
+          "transactions": []
+        }"#;
+
+        let err = read_transactions_json(std::io::Cursor::new(json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::DuplicateAsset {
+                symbol: "BTC".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_assets_checks_fee_and_price_symbols() {
+        let invalid_fee_json = r#"{
+          "assets": [{ "symbol": "BTC" }],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "GBP", "quantity": 1000 },
+              "bought": { "asset": "BTC", "quantity": 0.05 },
+              "fee": { "asset": "ETH", "amount": 0.001 }
+            }
+          ]
+        }"#;
+        let err = read_transactions_json(std::io::Cursor::new(invalid_fee_json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::UndefinedAsset {
+                symbol: "ETH".to_string()
+            })
+        );
+
+        let invalid_price_json = r#"{
+          "assets": [{ "symbol": "BTC" }],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "GBP", "quantity": 1000 },
+              "bought": { "asset": "BTC", "quantity": 0.05 },
+              "price": { "base": "ETH", "rate": 2000 }
+            }
+          ]
+        }"#;
+        let err = read_transactions_json(std::io::Cursor::new(invalid_price_json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::UndefinedAsset {
+                symbol: "ETH".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_assets_missing_field_errors() {
+        let json = r#"{
+          "transactions": []
+        }"#;
+
+        let err = read_transactions_json(std::io::Cursor::new(json)).unwrap_err();
+        assert!(err.to_string().contains("missing field `assets`"));
+    }
+
+    #[test]
+    fn validate_assets_empty_with_non_gbp_errors() {
+        let json = r#"{
+          "assets": [],
+          "transactions": [
+            {
+              "id": "tx-1",
+              "datetime": "2024-01-01T00:00:00+00:00",
+              "account": "kraken",
+              "type": "Trade",
+              "sold": { "asset": "BTC", "quantity": 1.0 },
+              "bought": { "asset": "GBP", "quantity": 1000.0 }
+            }
+          ]
+        }"#;
+
+        let err = read_transactions_json(std::io::Cursor::new(json)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<TransactionError>(),
+            Some(&TransactionError::UndefinedAsset {
+                symbol: "BTC".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn stock_asset_class_from_registry() {
+        let tx = Transaction {
+            id: "tx-1".to_string(),
+            datetime: dt("2024-01-01T00:00:00+00:00"),
+            account: "broker".to_string(),
+            description: None,
+            price: None,
+            fee: None,
+            tag: Tag::Unclassified,
+            details: TransactionType::Trade {
+                sold: Amount {
+                    asset: "GBP".to_string(),
+                    quantity: dec!(1000),
+                },
+                bought: Amount {
+                    asset: "AAPL".to_string(),
+                    quantity: dec!(10),
+                },
+            },
+        };
+
+        let mut registry = AssetRegistry::new();
+        registry.insert(
+            "AAPL".to_string(),
+            Asset {
+                symbol: "AAPL".to_string(),
+                asset_class: AssetClass::Stock,
+            },
+        );
+        let events = tx.to_taxable_events(&registry, false).unwrap();
+        assert_eq!(events[0].asset_class, AssetClass::Stock);
+    }
+
+    #[test]
+    fn unclassified_deposit_price_base_mismatch_errors() {
+        let tx = Transaction {
+            id: "d1".to_string(),
+            datetime: dt("2024-01-01T00:00:00+00:00"),
+            account: "wallet".to_string(),
+            description: None,
+            price: Some(gbp_price("BTC", dec!(1000))),
+            fee: None,
+            tag: Tag::Unclassified,
+            details: TransactionType::Deposit {
+                amount: Amount {
+                    asset: "ETH".to_string(),
+                    quantity: dec!(1),
+                },
+                linked_withdrawal: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::PriceBaseMismatch {
+                id: "d1".to_string(),
+                base: "BTC".to_string(),
+                expected: "ETH".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn unclassified_withdrawal_price_base_mismatch_errors() {
+        let tx = Transaction {
+            id: "w1".to_string(),
+            datetime: dt("2024-01-01T00:00:00+00:00"),
+            account: "wallet".to_string(),
+            description: None,
+            price: Some(gbp_price("BTC", dec!(1000))),
+            fee: None,
+            tag: Tag::Unclassified,
+            details: TransactionType::Withdrawal {
+                amount: Amount {
+                    asset: "ETH".to_string(),
+                    quantity: dec!(1),
+                },
+                linked_deposit: None,
+            },
+        };
+
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::PriceBaseMismatch {
+                id: "w1".to_string(),
+                base: "BTC".to_string(),
+                expected: "ETH".to_string(),
             }
         );
     }

@@ -1,4 +1,7 @@
 {
+  "assets": [
+    { "symbol": "ETH" }
+  ],
   "transactions": [
     {
       "id": "s-1",
@@ -7,7 +10,7 @@
       "description": "Staking reward",
       "type": "Deposit",
       "tag": "StakingReward",
-      "asset": { "symbol": "ETH", "quantity": 1.0 },
+      "amount": { "asset": "ETH", "quantity": 1.0 },
       "price": { "base": "ETH", "rate": 2000 }
     },
     {
@@ -16,8 +19,8 @@
       "account": "kraken",
       "description": "Sell ETH",
       "type": "Trade",
-      "sold": { "symbol": "ETH", "quantity": 1.0 },
-      "bought": { "symbol": "GBP", "quantity": 2500 }
+      "sold": { "asset": "ETH", "quantity": 1.0 },
+      "bought": { "asset": "GBP", "quantity": 2500 }
     }
   ]
 }

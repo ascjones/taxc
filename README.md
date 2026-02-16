@@ -82,7 +82,15 @@ Schemas are also checked into `schema/` for version tracking.
 
 ## Input Format (JSON Transactions)
 
-taxc accepts JSON with a top-level `transactions` array. Each transaction has shared fields plus a type-specific payload.
+taxc accepts JSON with top-level `assets` and `transactions` fields.
+
+| Field | Description |
+|-------|-------------|
+| `assets` | Required list of asset definitions (symbol + optional asset_class) |
+| `transactions` | Required list of transaction records |
+
+- Every non-GBP symbol referenced in transactions must appear in `assets`.
+- `GBP` is implicit and does not need to be listed.
 
 **Datetime** must be RFC3339 with an offset (e.g., `2024-06-15T09:00:00+00:00`). Date-only values are accepted and assumed to be UTC midnight.
 
@@ -108,7 +116,7 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 - `tag` must be `Unclassified` (default) or `Trade`
 
 **Deposit**
-- `asset`
+- `amount`
 - `linked_withdrawal` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
 - Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`): require `price` and create income acquisitions
@@ -116,19 +124,25 @@ taxc accepts JSON with a top-level `transactions` array. Each transaction has sh
 - `tag: Airdrop`: must not include `price`, creates zero-cost acquisition
 
 **Withdrawal**
-- `asset`
+- `amount`
 - `linked_deposit` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
 - `tag: Gift`: requires `price` and creates `GiftOut`
 - Other explicit tags on withdrawals are rejected
 
-### Asset
+### Asset Registry Entry
 
 | Field | Description |
 |-------|-------------|
-| `symbol` | Asset identifier (e.g., BTC, ETH, GBP) |
-| `quantity` | Amount of asset |
+| `symbol` | Asset identifier (e.g., BTC, ETH, AAPL) |
 | `asset_class` | `Crypto` (default) or `Stock` |
+
+### Amount
+
+| Field | Description |
+|-------|-------------|
+| `asset` | Asset identifier (must exist in top-level `assets`, unless GBP) |
+| `quantity` | Amount of asset |
 
 ### Price
 
@@ -156,7 +170,7 @@ Fee pricing rules:
 - If the fee has an explicit `price`, that is used
 - For Trade: if fee asset matches the `bought` asset, the trade's `price` is used
 - For tagged Deposit/Withdrawal with price: if fee asset matches the transaction asset, transaction `price` is used
-- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `price` is present and fee asset matches `price.base`
+- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `price` is present and fee asset matches `amount.asset`
 - For `Airdrop` deposits (no price): fee must be GBP or have an explicit `price`
 
 **Notes**
@@ -167,6 +181,11 @@ Fee pricing rules:
 
 ```json
 {
+  "assets": [
+    { "symbol": "BTC" },
+    { "symbol": "ETH" },
+    { "symbol": "AAPL", "asset_class": "Stock" }
+  ],
   "transactions": [
     {
       "id": "tx-001",
@@ -174,7 +193,7 @@ Fee pricing rules:
       "account": "bank",
       "description": "Fund exchange",
       "type": "Deposit",
-      "asset": { "symbol": "GBP", "quantity": 5000 }
+      "amount": { "asset": "GBP", "quantity": 5000 }
     },
     {
       "id": "tx-002",
@@ -182,8 +201,8 @@ Fee pricing rules:
       "account": "kraken",
       "description": "Buy BTC with GBP",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 1000 },
-      "bought": { "symbol": "BTC", "quantity": 0.025 }
+      "sold": { "asset": "GBP", "quantity": 1000 },
+      "bought": { "asset": "BTC", "quantity": 0.025 }
     },
     {
       "id": "tx-003",
@@ -191,8 +210,8 @@ Fee pricing rules:
       "account": "kraken",
       "description": "Swap BTC for ETH (priced in USD)",
       "type": "Trade",
-      "sold": { "symbol": "BTC", "quantity": 0.01 },
-      "bought": { "symbol": "ETH", "quantity": 0.5 },
+      "sold": { "asset": "BTC", "quantity": 0.01 },
+      "bought": { "asset": "ETH", "quantity": 0.5 },
       "price": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
     },
     {
@@ -202,7 +221,7 @@ Fee pricing rules:
       "description": "ETH staking reward",
       "type": "Deposit",
       "tag": "StakingReward",
-      "asset": { "symbol": "ETH", "quantity": 0.01 },
+      "amount": { "asset": "ETH", "quantity": 0.01 },
       "price": { "base": "ETH", "rate": 2000 }
     }
   ]

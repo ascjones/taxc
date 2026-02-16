@@ -13,9 +13,10 @@ pub use cgt::{
 };
 pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
 pub use income::{calculate_income_tax, IncomeReport};
+#[allow(unused_imports)]
 pub use transaction::{
-    read_transactions_json, transactions_to_events, ConversionOptions, TransactionError,
-    TransactionInput,
+    read_transactions_json, transactions_to_events, Amount, Asset, AssetRegistry,
+    ConversionOptions, TransactionError, TransactionInput,
 };
 pub use uk::{TaxBand, TaxYear};
 pub use warnings::Warning;

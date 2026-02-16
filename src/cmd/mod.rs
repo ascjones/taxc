@@ -21,8 +21,8 @@ pub fn read_events(path: &Path, exclude_unlinked: bool) -> anyhow::Result<Vec<Ta
 fn read_from_file(path: &Path, options: ConversionOptions) -> anyhow::Result<Vec<TaxableEvent>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let transactions = core::read_transactions_json(reader)?;
-    let events = core::transactions_to_events(&transactions, options)?;
+    let (transactions, registry) = core::read_transactions_json(reader)?;
+    let events = core::transactions_to_events(&transactions, &registry, options)?;
     Ok(events)
 }
 
@@ -38,7 +38,7 @@ fn read_from_stdin(options: ConversionOptions) -> anyhow::Result<Vec<TaxableEven
     }
 
     let cursor = io::Cursor::new(buffer);
-    let transactions = core::read_transactions_json(cursor)?;
-    let events = core::transactions_to_events(&transactions, options)?;
+    let (transactions, registry) = core::read_transactions_json(cursor)?;
+    let events = core::transactions_to_events(&transactions, &registry, options)?;
     Ok(events)
 }

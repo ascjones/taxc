@@ -1,4 +1,7 @@
 {
+  "assets": [
+    { "symbol": "BTC" }
+  ],
   "transactions": [
     {
       "id": "tx-001",
@@ -6,8 +9,8 @@
       "account": "kraken",
       "description": "Initial buy",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 100000 },
-      "bought": { "symbol": "BTC", "quantity": 10 }
+      "sold": { "asset": "GBP", "quantity": 100000 },
+      "bought": { "asset": "BTC", "quantity": 10 }
     },
     {
       "id": "tx-002",
@@ -15,8 +18,8 @@
       "account": "kraken",
       "description": "Same day buy",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 20000 },
-      "bought": { "symbol": "BTC", "quantity": 2 }
+      "sold": { "asset": "GBP", "quantity": 20000 },
+      "bought": { "asset": "BTC", "quantity": 2 }
     },
     {
       "id": "tx-003",
@@ -24,8 +27,8 @@
       "account": "kraken",
       "description": "Partial sell",
       "type": "Trade",
-      "sold": { "symbol": "BTC", "quantity": 5 },
-      "bought": { "symbol": "GBP", "quantity": 60000 }
+      "sold": { "asset": "BTC", "quantity": 5 },
+      "bought": { "asset": "GBP", "quantity": 60000 }
     },
     {
       "id": "tx-004",
@@ -33,8 +36,8 @@
       "account": "kraken",
       "description": "B&B repurchase",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 30000 },
-      "bought": { "symbol": "BTC", "quantity": 3 }
+      "sold": { "asset": "GBP", "quantity": 30000 },
+      "bought": { "asset": "BTC", "quantity": 3 }
     }
   ]
 }

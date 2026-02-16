@@ -1,20 +1,23 @@
 {
+  "assets": [
+    { "symbol": "BTC" }
+  ],
   "transactions": [
     {
       "id": "tx-001",
       "datetime": "2024-01-15T10:00:00+00:00",
       "account": "kraken",
       "type": "Trade",
-      "sold": { "symbol": "GBP", "quantity": 100000 },
-      "bought": { "symbol": "BTC", "quantity": 10 }
+      "sold": { "asset": "GBP", "quantity": 100000 },
+      "bought": { "asset": "BTC", "quantity": 10 }
     },
     {
       "id": "tx-002",
       "datetime": "2024-04-15T10:00:00+00:00",
       "account": "kraken",
       "type": "Trade",
-      "sold": { "symbol": "BTC", "quantity": 5 },
-      "bought": { "symbol": "GBP", "quantity": 75000 }
+      "sold": { "asset": "BTC", "quantity": 5 },
+      "bought": { "asset": "GBP", "quantity": 75000 }
     }
   ]
 }

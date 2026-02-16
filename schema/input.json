@@ -4,6 +4,12 @@
   "description": "Input root for transaction JSON",
   "type": "object",
   "properties": {
+    "assets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Asset"
+      }
+    },
     "transactions": {
       "type": "array",
       "items": {
@@ -12,9 +18,26 @@
     }
   },
   "required": [
+    "assets",
     "transactions"
   ],
   "$defs": {
+    "Amount": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "asset",
+        "quantity"
+      ]
+    },
     "Asset": {
       "type": "object",
       "properties": {
@@ -22,17 +45,12 @@
           "$ref": "#/$defs/AssetClass",
           "default": "Crypto"
         },
-        "quantity": {
-          "type": "number",
-          "format": "double"
-        },
         "symbol": {
           "type": "string"
         }
       },
       "required": [
-        "symbol",
-        "quantity"
+        "symbol"
       ]
     },
     "AssetClass": {
@@ -196,10 +214,10 @@
           "type": "object",
           "properties": {
             "bought": {
-              "$ref": "#/$defs/Asset"
+              "$ref": "#/$defs/Amount"
             },
             "sold": {
-              "$ref": "#/$defs/Asset"
+              "$ref": "#/$defs/Amount"
             },
             "type": {
               "type": "string",
@@ -216,8 +234,8 @@
           "description": "Deposit - assets received INTO an account",
           "type": "object",
           "properties": {
-            "asset": {
-              "$ref": "#/$defs/Asset"
+            "amount": {
+              "$ref": "#/$defs/Amount"
             },
             "linked_withdrawal": {
               "type": [
@@ -233,15 +251,15 @@
           },
           "required": [
             "type",
-            "asset"
+            "amount"
           ]
         },
         {
           "description": "Withdrawal - assets sent FROM an account",
           "type": "object",
           "properties": {
-            "asset": {
-              "$ref": "#/$defs/Asset"
+            "amount": {
+              "$ref": "#/$defs/Amount"
             },
             "linked_deposit": {
               "type": [
@@ -257,7 +275,7 @@
           },
           "required": [
             "type",
-            "asset"
+            "amount"
           ]
         }
       ],
