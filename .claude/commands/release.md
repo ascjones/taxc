@@ -79,15 +79,25 @@ Analyze commits since the last version tag, determine the appropriate semver bum
     cargo run --quiet -- schema output > schema/output.json
     ```
 
-13. **Generate release notes** by composing a markdown body with:
+13. **Get the GitHub repo URL** for linking commits:
+    ```bash
+    gh repo view --json url -q '.url'
+    ```
+
+14. **Generate release notes** by composing a markdown body with:
     - A **Breaking Changes** section (if any) listing removed commands, changed formats, etc.
     - A **Changes** section summarizing user-visible improvements
     - An **Internal** section briefly listing non-user-facing changes
     - Omit any section that has no entries
+    - Link each entry to its commit using `[short hash](repo_url/commit/full_hash)` format. Get full hashes with:
+      ```bash
+      git log --pretty=format:"%H %h %s" <tag>..HEAD
+      ```
+    - **Group multiple changes from the same commit** under a single bullet with the commit link, using sub-items for individual changes. Don't repeat the same commit link on separate top-level bullets.
 
-14. Show the release notes and ask the user if they want to proceed with the release
+15. Show the release notes and ask the user if they want to proceed with the release
 
-15. If yes, create the release commit, tag, and push:
+16. If yes, create the release commit, tag, and push:
     ```bash
     git add Cargo.toml Cargo.lock schema/
     git commit -m "chore: release vX.Y.Z
@@ -97,9 +107,9 @@ Analyze commits since the last version tag, determine the appropriate semver bum
     git push && git push --tags
     ```
 
-16. Create a GitHub release with the same notes:
+17. Create a GitHub release with the same notes:
     ```bash
     gh release create vX.Y.Z --title "vX.Y.Z" --notes "<release notes body>"
     ```
 
-17. Report success with the new version, tag name, and release URL
+18. Report success with the new version, tag name, and release URL
