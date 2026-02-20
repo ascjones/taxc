@@ -103,7 +103,7 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 | `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
 | `description` | Optional description |
 | `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal` |
-| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Gift` |
+| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Dividend`, `Interest`, `Gift` |
 | `price` | Optional price for valuation (see Price section below) |
 | `fee` | Optional fee (see Fee section below) |
 
@@ -119,7 +119,7 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 - `amount`
 - `linked_withdrawal` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
-- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`): require `price` and create income acquisitions
+- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`, `Dividend`, `Interest`): require `price` and create income acquisitions
 - `tag: Gift`: requires `price` and creates `GiftIn`
 - `tag: Airdrop`: must not include `price`, creates zero-cost acquisition
 
@@ -262,7 +262,7 @@ Generates a self-contained HTML file and opens it in your default browser. Featu
 - **Summary cards** - Total proceeds, costs, gains/losses, total income
 - **Interactive filtering** - Filter by date range, tax year, event type, tag, asset class, or search by asset
 - **Event table with drill-down** - All taxable events with expandable disposal matching details
-- **Color-coded tags** - Badges for income tags, trade, gift, airdrop, and unclassified events
+- **Color-coded tags** - Badges for income tags (including Dividend and Interest), trade, gift, airdrop, and unclassified events
 - **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
 - **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
 - **Color-coded gains/losses** - Green for gains, red for losses

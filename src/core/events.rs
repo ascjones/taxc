@@ -23,6 +23,8 @@ pub enum Tag {
     OtherIncome,
     Airdrop,
     AirdropIncome,
+    Dividend,
+    Interest,
     Gift,
 }
 
@@ -30,7 +32,12 @@ impl Tag {
     pub fn is_income(self) -> bool {
         matches!(
             self,
-            Tag::StakingReward | Tag::Salary | Tag::OtherIncome | Tag::AirdropIncome
+            Tag::StakingReward
+                | Tag::Salary
+                | Tag::OtherIncome
+                | Tag::AirdropIncome
+                | Tag::Dividend
+                | Tag::Interest
         )
     }
 }
@@ -43,6 +50,8 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
         (EventType::Acquisition, Tag::OtherIncome) => "OtherIncome",
         (EventType::Acquisition, Tag::Airdrop) => "Airdrop",
         (EventType::Acquisition, Tag::AirdropIncome) => "AirdropIncome",
+        (EventType::Acquisition, Tag::Dividend) => "Dividend",
+        (EventType::Acquisition, Tag::Interest) => "Interest",
         (EventType::Acquisition, Tag::Gift) => "GiftIn",
         (EventType::Disposal, Tag::Gift) => "GiftOut",
         (EventType::Acquisition, Tag::Unclassified) => "UnclassifiedIn",
@@ -184,6 +193,14 @@ mod tests {
             display_event_type(EventType::Acquisition, Tag::AirdropIncome),
             "AirdropIncome"
         );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::Dividend),
+            "Dividend"
+        );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::Interest),
+            "Interest"
+        );
     }
 
     #[test]
@@ -192,6 +209,8 @@ mod tests {
         assert!(Tag::Salary.is_income());
         assert!(Tag::OtherIncome.is_income());
         assert!(Tag::AirdropIncome.is_income());
+        assert!(Tag::Dividend.is_income());
+        assert!(Tag::Interest.is_income());
         assert!(!Tag::Trade.is_income());
         assert!(!Tag::Gift.is_income());
         assert!(!Tag::Airdrop.is_income());

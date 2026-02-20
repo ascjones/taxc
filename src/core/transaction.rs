@@ -330,7 +330,9 @@ impl Transaction {
                         Tag::StakingReward
                         | Tag::Salary
                         | Tag::OtherIncome
-                        | Tag::AirdropIncome => {
+                        | Tag::AirdropIncome
+                        | Tag::Dividend
+                        | Tag::Interest => {
                             let tx_price =
                                 require_tagged_price(id, *tag, "deposit", price.as_ref())?;
                             validate_price_base(id, tx_price, &amount.asset)?;
@@ -536,6 +538,8 @@ fn tag_name(tag: Tag) -> &'static str {
         Tag::OtherIncome => "OtherIncome",
         Tag::Airdrop => "Airdrop",
         Tag::AirdropIncome => "AirdropIncome",
+        Tag::Dividend => "Dividend",
+        Tag::Interest => "Interest",
         Tag::Gift => "Gift",
     }
 }
@@ -1824,48 +1828,140 @@ mod tests {
     }
 
     #[test]
-    fn salary_and_other_income_deposits_are_supported() {
-        let salary = Transaction {
-            id: "d1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "ledger".to_string(),
-            description: None,
-            price: Some(gbp_price("ETH", dec!(1000))),
-            fee: None,
-            tag: Tag::Salary,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(1),
+    fn salary_other_dividend_and_interest_deposits_are_supported() {
+        let cases = [
+            ("d1", Tag::Salary),
+            ("d2", Tag::OtherIncome),
+            ("d3", Tag::Dividend),
+            ("d4", Tag::Interest),
+        ];
+
+        for (id, tag) in cases {
+            let tx = Transaction {
+                id: id.to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "ledger".to_string(),
+                description: None,
+                price: Some(gbp_price("ETH", dec!(1000))),
+                fee: None,
+                tag,
+                details: TransactionType::Deposit {
+                    amount: Amount {
+                        asset: "ETH".to_string(),
+                        quantity: dec!(1),
+                    },
+                    linked_withdrawal: None,
                 },
-                linked_withdrawal: None,
-            },
-        };
+            };
 
-        let other_income = Transaction {
-            id: "d2".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "ledger".to_string(),
-            description: None,
-            price: Some(gbp_price("ETH", dec!(1000))),
-            fee: None,
-            tag: Tag::OtherIncome,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(1),
+            let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+            assert_eq!(events[0].tag, tag);
+        }
+    }
+
+    #[test]
+    fn dividend_and_interest_tags_on_trade_error() {
+        let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+
+        for (tag, tag_name) in cases {
+            let tx = Transaction {
+                id: "t1".to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "kraken".to_string(),
+                description: None,
+                price: Some(gbp_price("BTC", dec!(2000))),
+                fee: None,
+                tag,
+                details: TransactionType::Trade {
+                    sold: Amount {
+                        asset: "ETH".to_string(),
+                        quantity: dec!(1),
+                    },
+                    bought: Amount {
+                        asset: "BTC".to_string(),
+                        quantity: dec!(0.05),
+                    },
                 },
-                linked_withdrawal: None,
-            },
-        };
+            };
 
-        let salary_events = salary.to_taxable_events(&test_registry(), false).unwrap();
-        let other_events = other_income
-            .to_taxable_events(&test_registry(), false)
-            .unwrap();
+            let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+            assert_eq!(
+                err,
+                TransactionError::InvalidTagForType {
+                    id: "t1".to_string(),
+                    tag: tag_name.to_string(),
+                    tx_type: "trade".to_string(),
+                }
+            );
+        }
+    }
 
-        assert_eq!(salary_events[0].tag, Tag::Salary);
-        assert_eq!(other_events[0].tag, Tag::OtherIncome);
+    #[test]
+    fn dividend_and_interest_tags_on_withdrawal_error() {
+        let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+
+        for (tag, tag_name) in cases {
+            let tx = Transaction {
+                id: "w1".to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "kraken".to_string(),
+                description: None,
+                price: Some(gbp_price("ETH", dec!(2000))),
+                fee: None,
+                tag,
+                details: TransactionType::Withdrawal {
+                    amount: Amount {
+                        asset: "ETH".to_string(),
+                        quantity: dec!(0.01),
+                    },
+                    linked_deposit: None,
+                },
+            };
+
+            let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+            assert_eq!(
+                err,
+                TransactionError::InvalidTagForType {
+                    id: "w1".to_string(),
+                    tag: tag_name.to_string(),
+                    tx_type: "withdrawal".to_string(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn dividend_and_interest_deposits_require_price() {
+        let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+
+        for (tag, tag_name) in cases {
+            let tx = Transaction {
+                id: "d1".to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "ledger".to_string(),
+                description: None,
+                price: None,
+                fee: None,
+                tag,
+                details: TransactionType::Deposit {
+                    amount: Amount {
+                        asset: "ETH".to_string(),
+                        quantity: dec!(1),
+                    },
+                    linked_withdrawal: None,
+                },
+            };
+
+            let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+            assert_eq!(
+                err,
+                TransactionError::MissingTaggedPrice {
+                    id: "d1".to_string(),
+                    tag: tag_name.to_string(),
+                    tx_type: "deposit".to_string(),
+                }
+            );
+        }
     }
 
     #[test]

@@ -67,6 +67,8 @@ pub fn generate_html(
                         <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> OtherIncome</label>
                         <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
                         <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> AirdropIncome</label>
+                        <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
+                        <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
                         <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
                         <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
                     </div>
@@ -410,7 +412,9 @@ main {
 .tag-stakingreward,
 .tag-salary,
 .tag-otherincome,
-.tag-airdropincome {
+.tag-airdropincome,
+.tag-dividend,
+.tag-interest {
     background: var(--type-income-bg);
     color: var(--type-income);
 }
@@ -795,6 +799,8 @@ function applyFilters() {
             otherincome: document.getElementById('tag-otherincome').checked,
             airdrop: document.getElementById('tag-airdrop').checked,
             airdropincome: document.getElementById('tag-airdropincome').checked,
+            dividend: document.getElementById('tag-dividend').checked,
+            interest: document.getElementById('tag-interest').checked,
             gift: document.getElementById('tag-gift').checked,
             unclassified: document.getElementById('tag-unclassified').checked
         },
@@ -860,7 +866,7 @@ function calculateFilteredSummary(events) {
                 costBasisWarningCount++;
         }
         const tag = (e.tag || '').toLowerCase();
-        if (['stakingreward', 'salary', 'otherincome', 'airdropincome'].includes(tag)) {
+        if (['stakingreward', 'salary', 'otherincome', 'airdropincome', 'dividend', 'interest'].includes(tag)) {
             totalIncome += parseFloat(e.value_gbp) || 0;
         }
     });
@@ -933,6 +939,8 @@ function resetFilters() {
     document.getElementById('tag-otherincome').checked = true;
     document.getElementById('tag-airdrop').checked = true;
     document.getElementById('tag-airdropincome').checked = true;
+    document.getElementById('tag-dividend').checked = true;
+    document.getElementById('tag-interest').checked = true;
     document.getElementById('tag-gift').checked = true;
     document.getElementById('tag-unclassified').checked = true;
     document.getElementById('class-crypto').checked = true;
