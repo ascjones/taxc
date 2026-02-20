@@ -44,6 +44,8 @@ The `schema/*.json` files are auto-generated via `cargo run -- schema` and shoul
 
 ## Testing
 
+Always use TDD: write failing tests first, then implement to make them pass.
+
 Run tests and linting before committing:
 ```bash
 cargo test

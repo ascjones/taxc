@@ -31,6 +31,8 @@ pub enum TransactionError {
     TaggedWithdrawalLinked { id: String },
     #[error("airdrop deposit must not include price: {id}")]
     AirdropPriceNotAllowed { id: String },
+    #[error("GBP {tag} deposit must not include price: {id}")]
+    GbpIncomePriceNotAllowed { id: String, tag: String },
     #[error("{tag} tag not allowed on {tx_type}: {id}")]
     InvalidTagForType {
         id: String,
@@ -326,6 +328,15 @@ impl Transaction {
                     }
 
                     let value_gbp = match tag {
+                        Tag::Dividend | Tag::Interest if is_gbp(&amount.asset) => {
+                            if price.is_some() {
+                                return Err(TransactionError::GbpIncomePriceNotAllowed {
+                                    id: id.clone(),
+                                    tag: tag_name(*tag).to_string(),
+                                });
+                            }
+                            amount.quantity
+                        }
                         Tag::StakingReward
                         | Tag::Salary
                         | Tag::OtherIncome
@@ -360,8 +371,8 @@ impl Transaction {
                         }
                     };
 
-                    // For zero-cost airdrops, only explicit fee prices (or GBP fees) are valid.
-                    let (priced_asset, tx_price) = if *tag == Tag::Airdrop {
+                    // For airdrops and GBP income, there is no price context for fee resolution.
+                    let (priced_asset, tx_price) = if *tag == Tag::Airdrop || price.is_none() {
                         (None, None)
                     } else {
                         (Some(amount.asset.as_str()), price.as_ref())
@@ -1958,6 +1969,68 @@ mod tests {
                     id: "d1".to_string(),
                     tag: tag_name.to_string(),
                     tx_type: "deposit".to_string(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn gbp_dividend_and_interest_deposits_no_price_needed() {
+        let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+
+        for (tag, _tag_name) in cases {
+            let tx = Transaction {
+                id: "d1".to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "bank".to_string(),
+                description: None,
+                price: None,
+                fee: None,
+                tag,
+                details: TransactionType::Deposit {
+                    amount: Amount {
+                        asset: "GBP".to_string(),
+                        quantity: dec!(500),
+                    },
+                    linked_withdrawal: None,
+                },
+            };
+
+            let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].value_gbp, dec!(500));
+            assert_eq!(events[0].asset_class, AssetClass::Fiat);
+        }
+    }
+
+    #[test]
+    fn gbp_dividend_and_interest_deposits_reject_price() {
+        let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+
+        for (tag, tag_name) in cases {
+            let tx = Transaction {
+                id: "d1".to_string(),
+                datetime: dt("2024-01-01T10:00:00+00:00"),
+                account: "bank".to_string(),
+                description: None,
+                price: Some(gbp_price("GBP", dec!(1))),
+                fee: None,
+                tag,
+                details: TransactionType::Deposit {
+                    amount: Amount {
+                        asset: "GBP".to_string(),
+                        quantity: dec!(500),
+                    },
+                    linked_withdrawal: None,
+                },
+            };
+
+            let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+            assert_eq!(
+                err,
+                TransactionError::GbpIncomePriceNotAllowed {
+                    id: "d1".to_string(),
+                    tag: tag_name.to_string(),
                 }
             );
         }
