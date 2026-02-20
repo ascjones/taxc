@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Tax Report</title>
+    <style>
+__CSS__
+    </style>
+</head>
+<body>
+    <header>
+        <h1>UK Tax Report</h1>
+        <div class="filters">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Date Range</label>
+                    <div class="date-range">
+                        <input type="date" id="date-from" onchange="applyFilters()">
+                        <span>to</span>
+                        <input type="date" id="date-to" onchange="applyFilters()">
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="tax-year">Tax Year</label>
+                    <select id="tax-year" onchange="applyFilters()">
+                        <option value="">All Years</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="asset-search">Asset</label>
+                    <input type="text" id="asset-search" placeholder="Search assets..." oninput="applyFilters()">
+                </div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Event Type</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
+                        <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Tag</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
+                        <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> StakingReward</label>
+                        <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
+                        <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> OtherIncome</label>
+                        <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
+                        <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> AirdropIncome</label>
+                        <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
+                        <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
+                        <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
+                        <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Asset Class</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
+                        <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
+                        <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
+                    </div>
+                </div>
+                <button class="reset-btn" onclick="resetFilters()">Reset Filters</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="summary-cards">
+            <div class="card">
+                <h3>Total Proceeds</h3>
+                <p class="value" id="summary-proceeds">-</p>
+                <p class="sub-value" id="summary-proceeds-inc">-</p>
+            </div>
+            <div class="card">
+                <h3>Total Costs</h3>
+                <p class="value" id="summary-costs">-</p>
+                <p class="sub-value" id="summary-costs-inc">-</p>
+            </div>
+            <div class="card gain">
+                <h3>Total Gain/Loss</h3>
+                <p class="value" id="summary-gain">-</p>
+                <p class="sub-value" id="summary-gain-inc">-</p>
+            </div>
+            <div class="card">
+                <h3>Total Income</h3>
+                <p class="value" id="summary-income">-</p>
+                <p class="sub-value" id="summary-income-dividend">-</p>
+                <p class="sub-value" id="summary-income-interest">-</p>
+            </div>
+        </section>
+        <div class="warnings-banner" id="warnings-banner" style="display: none;">
+            <span class="warning-icon">&#9888;</span>
+            <span id="warning-summary"></span>
+        </div>
+
+        <section class="data-section">
+            <h2>Transactions <span class="count" id="events-count"></span></h2>
+            <div class="table-container">
+                <table id="events-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Date/Time</th>
+                            <th>Type</th>
+                            <th>Qty</th>
+                            <th>Asset</th>
+                            <th>Value</th>
+                            <th>Gain/Loss</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="events-body"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+__JS__
+    </script>
+</body>
+</html>
