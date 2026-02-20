@@ -1,7 +1,9 @@
 //! Summary command - aggregated totals and tax calculations
 
 use super::read_events;
-use crate::core::{calculate_cgt, calculate_income_tax, TaxBand, TaxYear};
+use crate::core::{
+    calculate_cgt, calculate_income_tax, EventType, Tag, TaxBand, TaxYear, TaxableEvent,
+};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -82,6 +84,8 @@ struct CapitalGainsSummary {
 #[derive(Debug, Serialize)]
 struct IncomeSummary {
     income: String,
+    dividend: String,
+    interest: String,
     tax: String,
     rate_pct: String,
 }
@@ -103,18 +107,31 @@ impl SummaryCommand {
         };
 
         let cgt_report = calculate_cgt(filtered_events.clone())?;
-        let income_report = calculate_income_tax(filtered_events)?;
+        let income_report = calculate_income_tax(filtered_events.clone())?;
 
         if self.json {
-            self.print_json(&cgt_report, &income_report, tax_year, tax_band)
+            self.print_json(
+                &filtered_events,
+                &cgt_report,
+                &income_report,
+                tax_year,
+                tax_band,
+            )
         } else {
-            self.print_summary(&cgt_report, &income_report, tax_year, tax_band);
+            self.print_summary(
+                &filtered_events,
+                &cgt_report,
+                &income_report,
+                tax_year,
+                tax_band,
+            );
             Ok(())
         }
     }
 
     fn print_summary(
         &self,
+        events: &[TaxableEvent],
         cgt_report: &crate::core::CgtReport,
         income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
@@ -195,6 +212,8 @@ impl SummaryCommand {
             .map(|e| e.value_gbp)
             .sum();
 
+        let (dividend_income, interest_income) = dividend_interest_totals(events, year);
+
         let income_tax = (income * income_rate).round_dp(2);
 
         println!("INCOME");
@@ -208,6 +227,8 @@ impl SummaryCommand {
         } else {
             println!("  Income: £0.00");
         }
+        println!("  Dividend: {}", format_gbp(dividend_income));
+        println!("  Interest: {}", format_gbp(interest_income));
         println!();
 
         // Total liability
@@ -228,6 +249,7 @@ impl SummaryCommand {
 
     fn print_json(
         &self,
+        events: &[TaxableEvent],
         cgt_report: &crate::core::CgtReport,
         income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
@@ -271,6 +293,8 @@ impl SummaryCommand {
             .map(|e| e.value_gbp)
             .sum();
 
+        let (dividend_income, interest_income) = dividend_interest_totals(events, year);
+
         let income_tax = (income * income_rate).round_dp(2);
 
         let cgt_tax = match band {
@@ -297,6 +321,8 @@ impl SummaryCommand {
             },
             income: IncomeSummary {
                 income: format!("{:.2}", income),
+                dividend: format!("{:.2}", dividend_income),
+                interest: format!("{:.2}", interest_income),
                 tax: format!("{:.2}", income_tax),
                 rate_pct: format!("{:.0}", income_rate * dec!(100)),
             },
@@ -306,6 +332,30 @@ impl SummaryCommand {
         println!("{}", serde_json::to_string_pretty(&data)?);
         Ok(())
     }
+}
+
+fn dividend_interest_totals(events: &[TaxableEvent], year: Option<TaxYear>) -> (Decimal, Decimal) {
+    let mut dividend = Decimal::ZERO;
+    let mut interest = Decimal::ZERO;
+
+    for event in events {
+        if event.event_type != EventType::Acquisition {
+            continue;
+        }
+
+        let event_year = TaxYear::from_date(event.date());
+        if year.is_some_and(|y| y != event_year) {
+            continue;
+        }
+
+        match event.tag {
+            Tag::Dividend => dividend += event.value_gbp,
+            Tag::Interest => interest += event.value_gbp,
+            _ => {}
+        }
+    }
+
+    (dividend, interest)
 }
 
 fn format_gbp(amount: Decimal) -> String {

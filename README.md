@@ -247,6 +247,8 @@ CAPITAL GAINS
 
 INCOME
   Income: £250.00 (Tax @ 20%: £50.00)
+  Dividend: £0.00
+  Interest: £0.00
 
 TOTAL TAX LIABILITY: £403.25 (basic)
 ```
@@ -259,7 +261,7 @@ taxc report transactions.json
 
 Generates a self-contained HTML file and opens it in your default browser. Features:
 
-- **Summary cards** - Total proceeds, costs, gains/losses, total income
+- **Summary cards** - Total proceeds, costs, gains/losses, total income with Dividend and Interest subtotals
 - **Interactive filtering** - Filter by date range, tax year, event type, tag, asset class, or search by asset
 - **Event table with drill-down** - All taxable events with expandable disposal matching details
 - **Color-coded tags** - Badges for income tags (including Dividend and Interest), trade, gift, airdrop, and unclassified events

@@ -119,6 +119,8 @@ fn json_input_format() {
     // Verify summary report is generated
     assert!(stdout.contains("TAX SUMMARY"));
     assert!(stdout.contains("CAPITAL GAINS"));
+    assert!(stdout.contains("Dividend:"));
+    assert!(stdout.contains("Interest:"));
 
     // Verify the disposal count
     assert!(stdout.contains("Disposals: 1"));
@@ -147,6 +149,8 @@ fn summary_json_output() {
     assert!(stdout.contains("\"tax_year\""));
     assert!(stdout.contains("\"capital_gains\""));
     assert!(stdout.contains("\"income\""));
+    assert!(stdout.contains("\"dividend\""));
+    assert!(stdout.contains("\"interest\""));
     assert!(stdout.contains("\"total_tax_liability\""));
 }
 
