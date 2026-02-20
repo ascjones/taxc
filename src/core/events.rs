@@ -62,11 +62,11 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
 }
 
 /// Asset class for tax treatment
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
-    #[default]
     Crypto,
     Stock,
+    Fiat,
 }
 
 /// A taxable event (acquisition, disposal, or income)

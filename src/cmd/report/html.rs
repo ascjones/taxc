@@ -78,6 +78,7 @@ pub fn generate_html(
                     <div class="checkbox-group">
                         <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
                         <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
+                        <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
                     </div>
                 </div>
                 <button class="reset-btn" onclick="resetFilters()">Reset Filters</button>
@@ -105,6 +106,8 @@ pub fn generate_html(
             <div class="card">
                 <h3>Total Income</h3>
                 <p class="value" id="summary-income">-</p>
+                <p class="sub-value" id="summary-income-dividend">-</p>
+                <p class="sub-value" id="summary-income-interest">-</p>
             </div>
         </section>
         <div class="warnings-banner" id="warnings-banner" style="display: none;">
@@ -806,7 +809,8 @@ function applyFilters() {
         },
         classes: {
             crypto: document.getElementById('class-crypto').checked,
-            stock: document.getElementById('class-stock').checked
+            stock: document.getElementById('class-stock').checked,
+            fiat: document.getElementById('class-fiat').checked
         }
     };
 
@@ -838,6 +842,7 @@ function filterEvents(events, filters) {
         const assetClass = e.asset_class.toLowerCase();
         if (assetClass === 'crypto' && !filters.classes.crypto) return false;
         if (assetClass === 'stock' && !filters.classes.stock) return false;
+        if (assetClass === 'fiat' && !filters.classes.fiat) return false;
 
         return true;
     });
@@ -848,6 +853,8 @@ function calculateFilteredSummary(events) {
     let totalCosts = 0;
     let totalGain = 0;
     let totalIncome = 0;
+    let totalDividendIncome = 0;
+    let totalInterestIncome = 0;
     let warningCount = 0;
     let unclassifiedCount = 0;
     let costBasisWarningCount = 0;
@@ -866,8 +873,16 @@ function calculateFilteredSummary(events) {
                 costBasisWarningCount++;
         }
         const tag = (e.tag || '').toLowerCase();
+        const valueGbp = parseFloat(e.value_gbp) || 0;
+
         if (['stakingreward', 'salary', 'otherincome', 'airdropincome', 'dividend', 'interest'].includes(tag)) {
-            totalIncome += parseFloat(e.value_gbp) || 0;
+            totalIncome += valueGbp;
+        }
+        if (tag === 'dividend') {
+            totalDividendIncome += valueGbp;
+        }
+        if (tag === 'interest') {
+            totalInterestIncome += valueGbp;
         }
     });
 
@@ -876,6 +891,8 @@ function calculateFilteredSummary(events) {
         totalCosts,
         totalGain,
         totalIncome,
+        totalDividendIncome,
+        totalInterestIncome,
         warningCount,
         unclassifiedCount,
         costBasisWarningCount
@@ -889,6 +906,10 @@ function updateSummary(events) {
     document.getElementById('summary-costs').textContent = formatCurrency(summary.totalCosts);
     document.getElementById('summary-gain').textContent = formatCurrency(summary.totalGain);
     document.getElementById('summary-income').textContent = formatCurrency(summary.totalIncome);
+    document.getElementById('summary-income-dividend').textContent =
+        'Dividend: ' + formatCurrency(summary.totalDividendIncome);
+    document.getElementById('summary-income-interest').textContent =
+        'Interest: ' + formatCurrency(summary.totalInterestIncome);
 
     const gainCard = document.querySelector('.card.gain');
     if (summary.totalGain < 0) {
@@ -945,6 +966,7 @@ function resetFilters() {
     document.getElementById('tag-unclassified').checked = true;
     document.getElementById('class-crypto').checked = true;
     document.getElementById('class-stock').checked = true;
+    document.getElementById('class-fiat').checked = true;
     applyFilters();
 }
 

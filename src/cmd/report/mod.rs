@@ -183,6 +183,8 @@ pub struct Summary {
     pub total_costs_with_unclassified: String,
     pub total_gain_with_unclassified: String,
     pub total_income: String,
+    pub total_dividend_income: String,
+    pub total_interest_income: String,
     pub event_count: usize,
     pub disposal_count: usize,
     pub income_count: usize,
@@ -201,7 +203,7 @@ pub struct Summary {
 pub(super) fn build_report_data(
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
-    income_report: &IncomeReport,
+    _income_report: &IncomeReport,
     year: Option<TaxYear>,
     asset_filter: Option<&str>,
 ) -> anyhow::Result<ReportData> {
@@ -417,12 +419,20 @@ pub(super) fn build_report_data(
         })
         .count();
 
-    let total_income: Decimal = income_report
-        .income_events
+    let (total_income, total_dividend_income, total_interest_income) = filtered_events
         .iter()
-        .filter(|e| year.is_none_or(|y| e.tax_year == y))
-        .map(|e| e.value_gbp)
-        .sum();
+        .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
+        .fold(
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            |(income_total, dividend_total, interest_total), e| {
+                let value = e.value_gbp;
+                match e.tag {
+                    Tag::Dividend => (income_total + value, dividend_total + value, interest_total),
+                    Tag::Interest => (income_total + value, dividend_total, interest_total + value),
+                    _ => (income_total + value, dividend_total, interest_total),
+                }
+            },
+        );
 
     // Collect unique tax years
     let mut tax_years: Vec<String> = filtered_events
@@ -458,6 +468,8 @@ pub(super) fn build_report_data(
             total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
             total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
             total_income: format!("{:.2}", total_income),
+            total_dividend_income: format!("{:.2}", total_dividend_income),
+            total_interest_income: format!("{:.2}", total_interest_income),
             event_count: filtered_events.len(),
             disposal_count,
             income_count,
@@ -480,6 +492,7 @@ fn format_asset_class(ac: &AssetClass) -> String {
     match ac {
         AssetClass::Crypto => "Crypto",
         AssetClass::Stock => "Stock",
+        AssetClass::Fiat => "Fiat",
     }
     .to_string()
 }
@@ -727,5 +740,58 @@ mod tests {
         ) && w.source_transaction_ids
             == vec!["tx-1".to_string()]
             && w.related_event_ids == vec![1]));
+    }
+
+    #[test]
+    fn summary_includes_dividend_and_interest_totals() {
+        let events = vec![
+            TaxableEvent {
+                id: 1,
+                source_transaction_id: "tx-1".to_string(),
+                datetime: dt("2024-06-01"),
+                event_type: EventType::Acquisition,
+                tag: Tag::Salary,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.1),
+                value_gbp: dec!(1000),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: 2,
+                source_transaction_id: "tx-2".to_string(),
+                datetime: dt("2024-06-02"),
+                event_type: EventType::Acquisition,
+                tag: Tag::Dividend,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.02),
+                value_gbp: dec!(200),
+                fee_gbp: None,
+                description: None,
+            },
+            TaxableEvent {
+                id: 3,
+                source_transaction_id: "tx-3".to_string(),
+                datetime: dt("2024-06-03"),
+                event_type: EventType::Acquisition,
+                tag: Tag::Interest,
+                asset: "BTC".to_string(),
+                asset_class: AssetClass::Crypto,
+                quantity: dec!(0.03),
+                value_gbp: dec!(300),
+                fee_gbp: None,
+                description: None,
+            },
+        ];
+
+        let cgt_report = calculate_cgt(events.clone()).unwrap();
+        let income_report = calculate_income_tax(events.clone()).unwrap();
+        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+
+        assert_eq!(data.summary.total_income, "1500.00");
+        assert_eq!(data.summary.total_dividend_income, "200.00");
+        assert_eq!(data.summary.total_interest_income, "300.00");
     }
 }

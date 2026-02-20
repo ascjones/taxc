@@ -38,6 +38,10 @@ Changes that require README updates include:
 - `src/cmd/` may depend on `src/core/`, but never the reverse.
 - When adding new logic, ask: "Does this need IO or CLI context?" If no, it belongs in the domain layer.
 
+## Schemas
+
+The `schema/*.json` files are auto-generated via `cargo run -- schema` and should not be manually edited.
+
 ## Testing
 
 Run tests and linting before committing:

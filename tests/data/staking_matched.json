@@ -1,6 +1,6 @@
 {
   "assets": [
-    { "symbol": "ETH" }
+    { "symbol": "ETH", "asset_class": "Crypto" }
   ],
   "transactions": [
     {

@@ -114,7 +114,6 @@ pub enum TransactionType {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Asset {
     pub symbol: String,
-    #[serde(default)]
     pub asset_class: AssetClass,
 }
 
@@ -576,13 +575,13 @@ fn validate_price_base(
 
 fn asset_class_for(registry: &AssetRegistry, symbol: &str) -> AssetClass {
     if is_gbp(symbol) {
-        return AssetClass::default();
+        return AssetClass::Fiat;
     }
     let normalized = normalize_currency(symbol);
     registry
         .get(normalized.as_str())
         .map(|asset| asset.asset_class.clone())
-        .unwrap_or_default()
+        .expect("asset validated")
 }
 
 fn validate_assets(
@@ -2000,7 +1999,7 @@ mod tests {
     #[test]
     fn validate_assets_detects_undefined_symbol() {
         let json = r#"{
-          "assets": [{ "symbol": "BTC" }],
+          "assets": [{ "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": [
             {
               "id": "tx-1",
@@ -2026,7 +2025,7 @@ mod tests {
     #[test]
     fn validate_assets_detects_duplicate_symbol() {
         let json = r#"{
-          "assets": [{ "symbol": "BTC" }, { "symbol": "BTC" }],
+          "assets": [{ "symbol": "BTC", "asset_class": "Crypto" }, { "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": []
         }"#;
 
@@ -2042,7 +2041,7 @@ mod tests {
     #[test]
     fn validate_assets_gbp_implicit() {
         let json = r#"{
-          "assets": [{ "symbol": "BTC" }],
+          "assets": [{ "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": [
             {
               "id": "tx-1",
@@ -2061,7 +2060,7 @@ mod tests {
     #[test]
     fn validate_assets_gbp_in_assets_list_allowed() {
         let json = r#"{
-          "assets": [{ "symbol": "gbp", "asset_class": "Stock" }, { "symbol": "BTC" }],
+          "assets": [{ "symbol": "gbp", "asset_class": "Stock" }, { "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": [
             {
               "id": "tx-1",
@@ -2080,7 +2079,7 @@ mod tests {
     #[test]
     fn validate_assets_case_insensitive_duplicate() {
         let json = r#"{
-          "assets": [{ "symbol": "btc" }, { "symbol": "BTC" }],
+          "assets": [{ "symbol": "btc", "asset_class": "Crypto" }, { "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": []
         }"#;
 
@@ -2096,7 +2095,7 @@ mod tests {
     #[test]
     fn validate_assets_checks_fee_and_price_symbols() {
         let invalid_fee_json = r#"{
-          "assets": [{ "symbol": "BTC" }],
+          "assets": [{ "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": [
             {
               "id": "tx-1",
@@ -2118,7 +2117,7 @@ mod tests {
         );
 
         let invalid_price_json = r#"{
-          "assets": [{ "symbol": "BTC" }],
+          "assets": [{ "symbol": "BTC", "asset_class": "Crypto" }],
           "transactions": [
             {
               "id": "tx-1",

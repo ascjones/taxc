@@ -272,6 +272,9 @@
         "total_costs_with_unclassified": {
           "type": "string"
         },
+        "total_dividend_income": {
+          "type": "string"
+        },
         "total_gain": {
           "type": "string"
         },
@@ -279,6 +282,9 @@
           "type": "string"
         },
         "total_income": {
+          "type": "string"
+        },
+        "total_interest_income": {
           "type": "string"
         },
         "total_proceeds": {
@@ -309,6 +315,8 @@
         "total_costs_with_unclassified",
         "total_gain_with_unclassified",
         "total_income",
+        "total_dividend_income",
+        "total_interest_income",
         "event_count",
         "disposal_count",
         "income_count",
@@ -331,6 +339,8 @@
             "OtherIncome",
             "Airdrop",
             "AirdropIncome",
+            "Dividend",
+            "Interest",
             "Gift"
           ]
         },

@@ -1,6 +1,6 @@
 {
   "assets": [
-    { "symbol": "BTC" }
+    { "symbol": "BTC", "asset_class": "Crypto" }
   ],
   "transactions": [
     {

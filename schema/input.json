@@ -42,15 +42,15 @@
       "type": "object",
       "properties": {
         "asset_class": {
-          "$ref": "#/$defs/AssetClass",
-          "default": "Crypto"
+          "$ref": "#/$defs/AssetClass"
         },
         "symbol": {
           "type": "string"
         }
       },
       "required": [
-        "symbol"
+        "symbol",
+        "asset_class"
       ]
     },
     "AssetClass": {
@@ -58,7 +58,8 @@
       "type": "string",
       "enum": [
         "Crypto",
-        "Stock"
+        "Stock",
+        "Fiat"
       ]
     },
     "Fee": {
@@ -144,6 +145,8 @@
             "OtherIncome",
             "Airdrop",
             "AirdropIncome",
+            "Dividend",
+            "Interest",
             "Gift"
           ]
         },
