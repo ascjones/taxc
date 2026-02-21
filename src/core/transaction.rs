@@ -33,6 +33,8 @@ pub enum TransactionError {
     AirdropPriceNotAllowed { id: String },
     #[error("GBP {tag} deposit must not include price: {id}")]
     GbpIncomePriceNotAllowed { id: String, tag: String },
+    #[error("price is not needed for GBP trades, value is derived from quantities: {id}")]
+    GbpTradePriceNotAllowed { id: String },
     #[error("{tag} tag not allowed on {tx_type}: {id}")]
     InvalidTagForType {
         id: String,
@@ -251,24 +253,21 @@ impl Transaction {
                     });
                 }
 
-                // Validate price.base matches bought asset if price is provided
-                if let Some(p) = price {
-                    let price_base = normalize_currency(&p.base);
-                    let bought_symbol = normalize_currency(&bought.asset);
-                    if price_base != bought_symbol {
-                        return Err(TransactionError::PriceBaseMismatch {
-                            id: id.clone(),
-                            base: p.base.clone(),
-                            expected: bought.asset.clone(),
-                        });
+                let value_gbp = if is_gbp(&sold.asset) || is_gbp(&bought.asset) {
+                    if price.is_some() {
+                        return Err(TransactionError::GbpTradePriceNotAllowed { id: id.clone() });
                     }
-                }
-
-                let value_gbp = match price {
-                    Some(p) => p.to_gbp(bought.quantity)?,
-                    None if is_gbp(&sold.asset) => sold.quantity,
-                    None if is_gbp(&bought.asset) => bought.quantity,
-                    None => return Err(TransactionError::MissingTradePrice { id: id.clone() }),
+                    if is_gbp(&sold.asset) {
+                        sold.quantity
+                    } else {
+                        bought.quantity
+                    }
+                } else {
+                    let p = price
+                        .as_ref()
+                        .ok_or_else(|| TransactionError::MissingTradePrice { id: id.clone() })?;
+                    validate_price_base(id, p, &bought.asset)?;
+                    p.to_gbp(bought.quantity)?
                 };
 
                 let mut events = Vec::new();
@@ -2034,6 +2033,68 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn trade_sell_to_gbp_rejects_price() {
+        let tx = Transaction {
+            id: "t1".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "broker".to_string(),
+            description: None,
+            price: Some(gbp_price("AAPL", dec!(150))),
+            fee: None,
+            tag: Tag::Unclassified,
+            details: TransactionType::Trade {
+                sold: Amount {
+                    asset: "AAPL".to_string(),
+                    quantity: dec!(10),
+                },
+                bought: Amount {
+                    asset: "GBP".to_string(),
+                    quantity: dec!(1500),
+                },
+            },
+        };
+
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::GbpTradePriceNotAllowed {
+                id: "t1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn trade_buy_from_gbp_rejects_price() {
+        let tx = Transaction {
+            id: "t2".to_string(),
+            datetime: dt("2024-01-01T10:00:00+00:00"),
+            account: "broker".to_string(),
+            description: None,
+            price: Some(gbp_price("AAPL", dec!(150))),
+            fee: None,
+            tag: Tag::Unclassified,
+            details: TransactionType::Trade {
+                sold: Amount {
+                    asset: "GBP".to_string(),
+                    quantity: dec!(1500),
+                },
+                bought: Amount {
+                    asset: "AAPL".to_string(),
+                    quantity: dec!(10),
+                },
+            },
+        };
+
+        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::GbpTradePriceNotAllowed {
+                id: "t2".to_string()
+            }
+        );
     }
 
     #[test]
