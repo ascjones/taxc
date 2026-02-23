@@ -1,6 +1,14 @@
 //! E2E tests for report, pools, summary, and validate command functionality
 
-use std::process::Command;
+use std::{fs, path::PathBuf, process::Command, time::SystemTime};
+
+fn unique_tmp_file(name: &str, ext: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("taxc-{name}-{nanos}.{ext}"))
+}
 
 /// Test that the report JSON output includes mixed matching rules
 #[test]
@@ -145,13 +153,160 @@ fn summary_json_output() {
     // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Verify JSON structure
-    assert!(stdout.contains("\"tax_year\""));
-    assert!(stdout.contains("\"capital_gains\""));
-    assert!(stdout.contains("\"income\""));
-    assert!(stdout.contains("\"dividend\""));
-    assert!(stdout.contains("\"interest\""));
-    assert!(stdout.contains("\"total_tax_liability\""));
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON summary output");
+
+    // Verify stable numeric schema
+    assert!(json.get("tax_year").is_some());
+    assert!(json.get("filters").is_some());
+    assert!(json.get("tax_band").is_some());
+    assert!(json
+        .get("disposal_count")
+        .and_then(|v| v.as_u64())
+        .is_some());
+    assert!(json.get("gross_gains").and_then(|v| v.as_f64()).is_some());
+    assert!(json
+        .get("in_year_losses")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert!(json
+        .get("net_gain_before_aea")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert!(json.get("aea").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("taxable_gain").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("estimated_cgt").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("income").and_then(|v| v.as_f64()).is_some());
+    assert!(json
+        .get("dividend_income")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert!(json
+        .get("interest_income")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert!(json
+        .get("estimated_income_tax")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert!(json
+        .get("estimated_total_tax")
+        .and_then(|v| v.as_f64())
+        .is_some());
+    assert_eq!(json.get("currency").and_then(|v| v.as_str()), Some("GBP"));
+}
+
+#[test]
+fn report_json_summary_respects_event_kind_filter() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--json",
+            "--event-kind",
+            "acquisition",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
+    let summary = json.get("summary").expect("Missing summary");
+
+    assert_eq!(summary["disposal_count"], 0);
+    assert_eq!(summary["total_proceeds"], "0.00");
+    assert_eq!(summary["total_costs"], "0.00");
+    assert_eq!(summary["total_gain"], "0.00");
+}
+
+#[test]
+fn report_json_summary_respects_from_to_filter() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--json",
+            "--from",
+            "2030-01-01",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
+    let summary = json.get("summary").expect("Missing summary");
+
+    assert_eq!(summary["event_count"], 0);
+    assert_eq!(summary["disposal_count"], 0);
+    assert_eq!(summary["total_proceeds"], "0.00");
+    assert_eq!(summary["total_costs"], "0.00");
+    assert_eq!(summary["total_gain"], "0.00");
+}
+
+#[test]
+fn report_json_summary_respects_asset_filter() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/two_assets.json",
+            "--json",
+            "--asset",
+            "BTC",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
+    let summary = json.get("summary").expect("Missing summary");
+
+    assert_eq!(summary["total_proceeds"], "12000.00");
+    assert_eq!(summary["total_costs"], "10000.00");
+    assert_eq!(summary["total_gain"], "2000.00");
+}
+
+#[test]
+fn report_html_respects_from_to_and_event_kind() {
+    let out = unique_tmp_file("report-filter", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--output",
+            &out_str,
+            "--from",
+            "2030-01-01",
+            "--event-kind",
+            "acquisition",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let html = fs::read_to_string(&out).expect("failed reading generated HTML");
+
+    assert!(
+        html.contains("\"events\":[]"),
+        "expected no events in embedded data"
+    );
+    assert!(
+        html.contains("\"event_count\":0"),
+        "expected filtered summary event_count=0"
+    );
+
+    let _ = fs::remove_file(out);
 }
 
 /// Test report command with year filter
@@ -502,4 +657,32 @@ fn pools_combined_filters() {
     // Should have exactly one snapshot for 2024/25
     assert!(!snapshots.is_empty());
     assert_eq!(snapshots[0]["tax_year"], "2024/25");
+}
+
+#[test]
+fn pools_non_daily_date_filter_behavior_is_explicit() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "pools",
+            "tests/data/mixed_rules.json",
+            "--json",
+            "--from",
+            "2030-01-01",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Failed to parse filtered pools JSON");
+    let snapshots = json["year_end_snapshots"]
+        .as_array()
+        .expect("Missing year_end_snapshots array");
+    assert!(
+        snapshots.is_empty(),
+        "expected empty snapshots for future range"
+    );
 }

@@ -29,11 +29,16 @@ taxc summary [OPTIONS] [FILE]
 
 | Option | Description |
 |--------|-------------|
-| `-y, --year <YEAR>` | Tax year to report (e.g., 2025 for 2024/25) |
+| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
+| `--from <DATE>` | Filter events from this date inclusive (`YYYY-MM-DD`) |
+| `--to <DATE>` | Filter events to this date inclusive (`YYYY-MM-DD`) |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
+| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` |
 | `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
 | `--json` | Output as JSON instead of formatted text |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
+
+Note: `--year` cannot be combined with `--from`/`--to`.
 
 ### Report - Tax Report
 
@@ -45,11 +50,16 @@ taxc report [OPTIONS] [FILE]
 
 | Option | Description |
 |--------|-------------|
-| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
+| `--from <DATE>` | Filter events from this date inclusive (`YYYY-MM-DD`) |
+| `--to <DATE>` | Filter events to this date inclusive (`YYYY-MM-DD`) |
 | `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
 | `--json` | Output as JSON instead of HTML |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
+| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
+
+Note: `--year` cannot be combined with `--from`/`--to`.
 
 ### Pools - Pool Balances
 
@@ -61,11 +71,19 @@ taxc pools [OPTIONS] [FILE]
 
 | Option | Description |
 |--------|-------------|
-| `-y, --year <YEAR>` | Tax year to filter (e.g., 2025 for 2024/25) |
+| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
+| `--from <DATE>` | Filter entries from this date inclusive (`YYYY-MM-DD`) |
+| `--to <DATE>` | Filter entries to this date inclusive (`YYYY-MM-DD`) |
 | `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
+| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` (daily mode only) |
 | `--daily` | Show daily time-series instead of year-end snapshots |
 | `--json` | Output as JSON instead of formatted table |
 | `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
+
+Notes:
+- `--year` cannot be combined with `--from`/`--to`.
+- `--event-kind` requires `--daily`.
+- In year-end mode, `--from`/`--to` apply to the year-end snapshot date (April 5).
 
 ### Schema - Format Reference
 
@@ -251,6 +269,41 @@ INCOME
   Interest: £0.00
 
 TOTAL TAX LIABILITY: £403.25 (basic)
+```
+
+### Summary JSON (stable)
+
+`taxc summary --json` is the machine-friendly summary endpoint. Monetary fields are numeric values in GBP.
+
+Example shape:
+
+```json
+{
+  "tax_year": "2024/25",
+  "filters": {
+    "from": "2024-04-06",
+    "to": "2025-04-05",
+    "asset": null,
+    "event_kind": null,
+    "exclude_unlinked": false
+  },
+  "tax_band": "basic",
+  "disposal_count": 5,
+  "gross_gains": 12000.0,
+  "in_year_losses": 2000.0,
+  "net_gain_before_aea": 10000.0,
+  "aea": 3000.0,
+  "taxable_gain": 7000.0,
+  "cgt_rate_pct": 18,
+  "estimated_cgt": 1260.0,
+  "income": 1500.0,
+  "dividend_income": 200.0,
+  "interest_income": 300.0,
+  "income_rate_pct": 20,
+  "estimated_income_tax": 300.0,
+  "estimated_total_tax": 1560.0,
+  "currency": "GBP"
+}
 ```
 
 ### Report Command

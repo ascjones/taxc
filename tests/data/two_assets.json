@@ -1,0 +1,40 @@
+{
+  "assets": [
+    { "symbol": "BTC", "asset_class": "Crypto" },
+    { "symbol": "ETH", "asset_class": "Crypto" }
+  ],
+  "transactions": [
+    {
+      "id": "btc-buy",
+      "datetime": "2024-01-01T10:00:00+00:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": { "asset": "GBP", "quantity": 10000 },
+      "bought": { "asset": "BTC", "quantity": 1 }
+    },
+    {
+      "id": "btc-sell",
+      "datetime": "2024-06-01T10:00:00+00:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": { "asset": "BTC", "quantity": 1 },
+      "bought": { "asset": "GBP", "quantity": 12000 }
+    },
+    {
+      "id": "eth-buy",
+      "datetime": "2024-02-01T10:00:00+00:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": { "asset": "GBP", "quantity": 10000 },
+      "bought": { "asset": "ETH", "quantity": 10 }
+    },
+    {
+      "id": "eth-sell",
+      "datetime": "2024-07-01T10:00:00+00:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": { "asset": "ETH", "quantity": 10 },
+      "bought": { "asset": "GBP", "quantity": 8000 }
+    }
+  ]
+}

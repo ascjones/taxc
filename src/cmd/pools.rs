@@ -1,9 +1,11 @@
 //! Pools command - pool balances over time
 
+use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
 use crate::core::{
     calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, TaxYear, YearEndSnapshot,
 };
+use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -18,10 +20,6 @@ pub struct PoolsCommand {
     /// Transactions file (JSON). Reads from stdin if not specified.
     #[arg(default_value = "-")]
     file: PathBuf,
-
-    /// Tax year to filter (e.g., 2025 for 2024/25)
-    #[arg(short, long)]
-    year: Option<i32>,
 
     /// Filter by asset (e.g., BTC, ETH)
     #[arg(short, long)]
@@ -38,19 +36,42 @@ pub struct PoolsCommand {
     /// Don't include unlinked deposits/withdrawals in calculations
     #[arg(long)]
     exclude_unlinked: bool,
+
+    #[command(flatten)]
+    filter: FilterArgs,
 }
 
 impl PoolsCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
+        let event_filter = self.filter.build(self.asset.clone())?;
+
+        if !self.daily && event_filter.event_kind.is_some() {
+            anyhow::bail!(
+                "--event-kind is not supported for year-end snapshots; use --daily to filter by event kind"
+            );
+        }
+
         let events = read_events(&self.file, self.exclude_unlinked)?;
         let cgt_report = calculate_cgt(events)?;
-        let tax_year = self.year.map(TaxYear);
-        let asset_filter = self.asset.as_deref();
 
         if self.daily {
-            let entries: Vec<_> =
-                filter_daily_entries(&cgt_report.pool_history.entries, tax_year, asset_filter)
-                    .collect();
+            let entries: Vec<_> = cgt_report
+                .pool_history
+                .entries
+                .iter()
+                .filter(|entry| event_filter.matches_date(entry.date))
+                .filter(|entry| {
+                    event_filter
+                        .asset
+                        .as_ref()
+                        .is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
+                })
+                .filter(|entry| {
+                    event_filter
+                        .event_kind
+                        .is_none_or(|kind| kind.matches(entry.event_type))
+                })
+                .collect();
             if self.json {
                 self.print_json_daily(&entries)?;
             } else {
@@ -59,28 +80,27 @@ impl PoolsCommand {
         } else {
             let snapshots = filter_year_end_snapshots(
                 &cgt_report.pool_history.year_end_snapshots,
-                tax_year,
-                asset_filter,
+                &event_filter,
             );
             if self.json {
                 self.print_json_year_end(&snapshots)?;
             } else {
-                self.print_year_end(&snapshots, tax_year);
+                self.print_year_end(&snapshots, &event_filter);
             }
         }
 
         Ok(())
     }
 
-    fn print_year_end(&self, snapshots: &[YearEndSnapshotView], year: Option<TaxYear>) {
-        let year_str = year.map_or("All Years".to_string(), |y| y.display());
+    fn print_year_end(&self, snapshots: &[YearEndSnapshotView], filter: &EventFilter) {
+        let scope = pool_scope_label(filter);
         if snapshots.is_empty() {
-            println!("No pool balances found matching filters ({})", year_str);
+            println!("No pool balances found matching filters ({})", scope);
             return;
         }
 
         println!();
-        println!("POOL BALANCES ({})", year_str);
+        println!("POOL BALANCES ({})", scope);
         println!();
 
         for snapshot in snapshots {
@@ -205,18 +225,25 @@ struct DailyOutput {
 
 fn filter_year_end_snapshots(
     snapshots: &[YearEndSnapshot],
-    year: Option<TaxYear>,
-    asset_filter: Option<&str>,
+    filter: &EventFilter,
 ) -> Vec<YearEndSnapshotView> {
     snapshots
         .iter()
-        .filter(|snapshot| year.is_none_or(|y| snapshot.tax_year == y))
+        .filter(|snapshot| {
+            let snapshot_date = NaiveDate::from_ymd_opt(snapshot.tax_year.0, 4, 5).unwrap();
+            filter.matches_date(snapshot_date)
+        })
         .map(|snapshot| YearEndSnapshotView {
             tax_year: snapshot.tax_year.display(),
             pools: snapshot
                 .pools
                 .iter()
-                .filter(|p| asset_filter.is_none_or(|a| p.asset.eq_ignore_ascii_case(a)))
+                .filter(|p| {
+                    filter
+                        .asset
+                        .as_ref()
+                        .is_none_or(|a| p.asset.eq_ignore_ascii_case(a))
+                })
                 .cloned()
                 .collect(),
         })
@@ -224,15 +251,22 @@ fn filter_year_end_snapshots(
         .collect()
 }
 
-fn filter_daily_entries<'a>(
-    entries: &'a [PoolHistoryEntry],
-    year: Option<TaxYear>,
-    asset_filter: Option<&'a str>,
-) -> impl Iterator<Item = &'a PoolHistoryEntry> {
-    entries.iter().filter(move |entry| {
-        year.is_none_or(|y| TaxYear::from_date(entry.date) == y)
-            && asset_filter.is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
-    })
+fn pool_scope_label(filter: &EventFilter) -> String {
+    match (filter.from, filter.to) {
+        (None, None) => "All Years".to_string(),
+        (Some(from), Some(to)) => {
+            let tax_year = TaxYear::from_date(from);
+            let start = NaiveDate::from_ymd_opt(tax_year.0 - 1, 4, 6).unwrap();
+            let end = NaiveDate::from_ymd_opt(tax_year.0, 4, 5).unwrap();
+            if from == start && to == end {
+                tax_year.display()
+            } else {
+                format!("{} to {}", from.format("%Y-%m-%d"), to.format("%Y-%m-%d"))
+            }
+        }
+        (Some(from), None) => format!("From {}", from.format("%Y-%m-%d")),
+        (None, Some(to)) => format!("Up to {}", to.format("%Y-%m-%d")),
+    }
 }
 
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {

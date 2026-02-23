@@ -1,7 +1,11 @@
-//! Summary command - aggregated totals and tax calculations
+//! Summary command - aggregated totals and tax calculations.
 
+use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
-use crate::core::{calculate_cgt, EventType, Tag, TaxBand, TaxYear, TaxableEvent};
+use crate::core::{
+    calculate_cgt, CgtReport, DisposalRecord, EventType, Tag, TaxBand, TaxYear, TaxableEvent,
+};
+use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -14,25 +18,24 @@ pub struct SummaryCommand {
     #[arg(default_value = "-")]
     file: PathBuf,
 
-    /// Tax year to report (e.g., 2025 for 2024/25)
-    #[arg(short, long)]
-    year: Option<i32>,
-
-    /// Filter by asset (e.g., BTC, ETH, DOT)
+    /// Filter by asset (e.g., BTC, ETH, DOT).
     #[arg(short, long)]
     asset: Option<String>,
 
-    /// Tax band for income tax calculation
+    /// Tax band for income tax calculation.
     #[arg(short, long, value_enum, default_value_t = TaxBandArg::Basic)]
     tax_band: TaxBandArg,
 
-    /// Output as JSON instead of formatted text
+    /// Output as JSON instead of formatted text.
     #[arg(long)]
     json: bool,
 
-    /// Don't include unlinked deposits/withdrawals in calculations
+    /// Don't include unlinked deposits/withdrawals in calculations.
     #[arg(long)]
     exclude_unlinked: bool,
+
+    #[command(flatten)]
+    filter: FilterArgs,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -53,107 +56,87 @@ impl From<TaxBandArg> for TaxBand {
     }
 }
 
-/// Summary data for JSON output
 #[derive(Debug, Serialize)]
-struct SummaryData {
+struct SummaryJson {
     tax_year: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    asset: Option<String>,
+    filters: SummaryFilters,
     tax_band: String,
-    capital_gains: CapitalGainsSummary,
-    income: IncomeSummary,
-    total_tax_liability: String,
-}
-
-#[derive(Debug, Serialize)]
-struct CapitalGainsSummary {
     disposal_count: usize,
-    total_proceeds: String,
-    total_costs: String,
-    total_gain: String,
-    exempt_amount: String,
-    taxable_gain: String,
-    tax_at_basic_rate: String,
-    basic_rate_pct: String,
-    tax_at_higher_rate: String,
-    higher_rate_pct: String,
+    gross_gains: f64,
+    in_year_losses: f64,
+    net_gain_before_aea: f64,
+    aea: f64,
+    taxable_gain: f64,
+    cgt_rate_pct: u8,
+    estimated_cgt: f64,
+    income: f64,
+    dividend_income: f64,
+    interest_income: f64,
+    income_rate_pct: u8,
+    estimated_income_tax: f64,
+    estimated_total_tax: f64,
+    currency: &'static str,
 }
 
 #[derive(Debug, Serialize)]
-struct IncomeSummary {
-    income: String,
-    dividend: String,
-    interest: String,
-    tax: String,
-    rate_pct: String,
+struct SummaryFilters {
+    from: Option<String>,
+    to: Option<String>,
+    asset: Option<String>,
+    event_kind: Option<String>,
+    exclude_unlinked: bool,
 }
 
 impl SummaryCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let tax_band: TaxBand = self.tax_band.into();
-        let tax_year = self.year.map(TaxYear);
+        let filter = self.filter.build(self.asset.clone())?;
         let all_events = read_events(&self.file, self.exclude_unlinked)?;
 
-        // Filter by asset if specified
-        let filtered_events: Vec<_> = if let Some(ref asset) = self.asset {
-            all_events
-                .into_iter()
-                .filter(|e| e.asset.eq_ignore_ascii_case(asset))
-                .collect()
-        } else {
-            all_events
-        };
-
-        let cgt_report = calculate_cgt(filtered_events.clone())?;
+        // Keep HMRC matching correct by calculating CGT from all events.
+        let cgt_report = calculate_cgt(all_events.clone())?;
+        let filtered_events = filter.apply(&all_events);
 
         if self.json {
-            self.print_json(&filtered_events, &cgt_report, tax_year, tax_band)
+            self.print_json(&filtered_events, &cgt_report, &filter, tax_band)
         } else {
-            self.print_summary(&filtered_events, &cgt_report, tax_year, tax_band);
+            self.print_summary(&filtered_events, &cgt_report, &filter, tax_band);
             Ok(())
         }
     }
 
     fn print_summary(
         &self,
-        events: &[TaxableEvent],
-        cgt_report: &crate::core::CgtReport,
-        year: Option<TaxYear>,
+        events: &[&TaxableEvent],
+        cgt_report: &CgtReport,
+        filter: &EventFilter,
         band: TaxBand,
     ) {
-        let year_str = year.map_or("All Years".to_string(), |y| y.display());
-        let band_str = match band {
-            TaxBand::Basic => "basic",
-            TaxBand::Higher => "higher",
-            TaxBand::Additional => "additional",
-        };
+        let scope = summary_scope_label(filter);
+        let band_str = band_label(band);
 
         println!();
         if let Some(ref asset) = self.asset {
             println!(
                 "TAX SUMMARY ({}, {}) - {} rate",
-                year_str,
+                scope,
                 asset.to_uppercase(),
                 band_str
             );
         } else {
-            println!("TAX SUMMARY ({}) - {} rate", year_str, band_str);
+            println!("TAX SUMMARY ({}) - {} rate", scope, band_str);
         }
         println!();
 
-        // Get tax year for rates (use provided year or default to current)
-        let rate_year = year.unwrap_or(TaxYear(2025));
+        let rate_year = filter.rate_year();
 
-        // Capital Gains section
-        let disposals: Vec<_> = cgt_report
-            .disposals
+        let disposals = filtered_classified_disposals(cgt_report, filter);
+        let total_proceeds: Decimal = disposals.iter().map(|d| d.proceeds_gbp).sum();
+        let total_costs: Decimal = disposals
             .iter()
-            .filter(|d| year.is_none_or(|y| d.tax_year == y))
-            .collect();
-
-        let total_proceeds = cgt_report.total_proceeds(year);
-        let total_costs = cgt_report.total_allowable_costs(year);
-        let total_gain = cgt_report.total_gain(year);
+            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
+            .sum();
+        let total_gain: Decimal = disposals.iter().map(|d| d.gain_gbp).sum();
 
         let exempt_amount = rate_year.cgt_exempt_amount();
         let basic_rate = rate_year.cgt_basic_rate();
@@ -185,19 +168,8 @@ impl SummaryCommand {
         );
         println!();
 
-        // Income section
         let income_rate = rate_year.income_rate(band);
-
-        // Calculate income totals directly from events
-        let income: Decimal = events
-            .iter()
-            .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
-            .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
-            .map(|e| e.value_gbp)
-            .sum();
-
-        let (dividend_income, interest_income) = dividend_interest_totals(events, year);
-
+        let (income, dividend_income, interest_income) = income_totals(events);
         let income_tax = (income * income_rate).round_dp(2);
 
         println!("INCOME");
@@ -215,8 +187,6 @@ impl SummaryCommand {
         println!("  Interest: {}", format_gbp(interest_income));
         println!();
 
-        // Total liability
-        // For CGT, use the rate that matches the band
         let cgt_tax = match band {
             TaxBand::Basic => tax_basic,
             TaxBand::Higher | TaxBand::Additional => tax_higher,
@@ -233,83 +203,63 @@ impl SummaryCommand {
 
     fn print_json(
         &self,
-        events: &[TaxableEvent],
-        cgt_report: &crate::core::CgtReport,
-        year: Option<TaxYear>,
+        events: &[&TaxableEvent],
+        cgt_report: &CgtReport,
+        filter: &EventFilter,
         band: TaxBand,
     ) -> anyhow::Result<()> {
-        let year_str = year.map_or("All Years".to_string(), |y| y.display());
-        let band_str = match band {
-            TaxBand::Basic => "basic",
-            TaxBand::Higher => "higher",
-            TaxBand::Additional => "additional",
+        let rate_year = filter.rate_year();
+        let cgt_rate = match band {
+            TaxBand::Basic => rate_year.cgt_basic_rate(),
+            TaxBand::Higher | TaxBand::Additional => rate_year.cgt_higher_rate(),
         };
-
-        let rate_year = year.unwrap_or(TaxYear(2025));
-
-        // Calculate CGT values
-        let disposals: Vec<_> = cgt_report
-            .disposals
-            .iter()
-            .filter(|d| year.is_none_or(|y| d.tax_year == y))
-            .collect();
-
-        let total_proceeds = cgt_report.total_proceeds(year);
-        let total_costs = cgt_report.total_allowable_costs(year);
-        let total_gain = cgt_report.total_gain(year);
-
-        let exempt_amount = rate_year.cgt_exempt_amount();
-        let basic_rate = rate_year.cgt_basic_rate();
-        let higher_rate = rate_year.cgt_higher_rate();
-
-        let taxable_gain = (total_gain - exempt_amount).max(Decimal::ZERO);
-        let tax_basic = (taxable_gain * basic_rate).round_dp(2);
-        let tax_higher = (taxable_gain * higher_rate).round_dp(2);
-
-        // Calculate income values
         let income_rate = rate_year.income_rate(band);
 
-        let income: Decimal = events
+        let disposals = filtered_classified_disposals(cgt_report, filter);
+        let gross_gains: Decimal = disposals
             .iter()
-            .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
-            .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
-            .map(|e| e.value_gbp)
+            .filter(|d| d.gain_gbp > Decimal::ZERO)
+            .map(|d| d.gain_gbp)
             .sum();
+        let in_year_losses: Decimal = disposals
+            .iter()
+            .filter(|d| d.gain_gbp < Decimal::ZERO)
+            .map(|d| d.gain_gbp.abs())
+            .sum();
+        let net_gain_before_aea = gross_gains - in_year_losses;
+        let aea = rate_year.cgt_exempt_amount();
+        let taxable_gain = (net_gain_before_aea - aea).max(Decimal::ZERO);
+        let estimated_cgt = (taxable_gain * cgt_rate).round_dp(2);
 
-        let (dividend_income, interest_income) = dividend_interest_totals(events, year);
+        let (income, dividend_income, interest_income) = income_totals(events);
+        let estimated_income_tax = (income * income_rate).round_dp(2);
+        let estimated_total_tax = estimated_cgt + estimated_income_tax;
 
-        let income_tax = (income * income_rate).round_dp(2);
-
-        let cgt_tax = match band {
-            TaxBand::Basic => tax_basic,
-            TaxBand::Higher | TaxBand::Additional => tax_higher,
-        };
-        let total_tax = cgt_tax + income_tax;
-
-        let data = SummaryData {
-            tax_year: year_str,
-            asset: self.asset.as_ref().map(|a| a.to_uppercase()),
-            tax_band: band_str.to_string(),
-            capital_gains: CapitalGainsSummary {
-                disposal_count: disposals.len(),
-                total_proceeds: format!("{:.2}", total_proceeds),
-                total_costs: format!("{:.2}", total_costs),
-                total_gain: format!("{:.2}", total_gain),
-                exempt_amount: format!("{:.2}", exempt_amount),
-                taxable_gain: format!("{:.2}", taxable_gain),
-                tax_at_basic_rate: format!("{:.2}", tax_basic),
-                basic_rate_pct: format!("{:.0}", basic_rate * dec!(100)),
-                tax_at_higher_rate: format!("{:.2}", tax_higher),
-                higher_rate_pct: format!("{:.0}", higher_rate * dec!(100)),
+        let data = SummaryJson {
+            tax_year: rate_year.display(),
+            filters: SummaryFilters {
+                from: filter.from.map(date_str),
+                to: filter.to.map(date_str),
+                asset: filter.asset.clone(),
+                event_kind: filter.event_kind.map(|k| k.as_str().to_string()),
+                exclude_unlinked: self.exclude_unlinked,
             },
-            income: IncomeSummary {
-                income: format!("{:.2}", income),
-                dividend: format!("{:.2}", dividend_income),
-                interest: format!("{:.2}", interest_income),
-                tax: format!("{:.2}", income_tax),
-                rate_pct: format!("{:.0}", income_rate * dec!(100)),
-            },
-            total_tax_liability: format!("{:.2}", total_tax),
+            tax_band: band_label(band).to_string(),
+            disposal_count: disposals.len(),
+            gross_gains: decimal_to_f64(gross_gains),
+            in_year_losses: decimal_to_f64(in_year_losses),
+            net_gain_before_aea: decimal_to_f64(net_gain_before_aea),
+            aea: decimal_to_f64(aea),
+            taxable_gain: decimal_to_f64(taxable_gain),
+            cgt_rate_pct: decimal_pct(cgt_rate),
+            estimated_cgt: decimal_to_f64(estimated_cgt),
+            income: decimal_to_f64(income),
+            dividend_income: decimal_to_f64(dividend_income),
+            interest_income: decimal_to_f64(interest_income),
+            income_rate_pct: decimal_pct(income_rate),
+            estimated_income_tax: decimal_to_f64(estimated_income_tax),
+            estimated_total_tax: decimal_to_f64(estimated_total_tax),
+            currency: "GBP",
         };
 
         println!("{}", serde_json::to_string_pretty(&data)?);
@@ -317,20 +267,28 @@ impl SummaryCommand {
     }
 }
 
-fn dividend_interest_totals(events: &[TaxableEvent], year: Option<TaxYear>) -> (Decimal, Decimal) {
+fn filtered_classified_disposals<'a>(
+    cgt_report: &'a CgtReport,
+    filter: &EventFilter,
+) -> Vec<&'a DisposalRecord> {
+    cgt_report
+        .disposals
+        .iter()
+        .filter(|d| !d.is_unclassified())
+        .filter(|d| filter.matches_disposal(d))
+        .collect()
+}
+
+fn income_totals(events: &[&TaxableEvent]) -> (Decimal, Decimal, Decimal) {
+    let mut income = Decimal::ZERO;
     let mut dividend = Decimal::ZERO;
     let mut interest = Decimal::ZERO;
 
     for event in events {
-        if event.event_type != EventType::Acquisition {
+        if event.event_type != EventType::Acquisition || !event.tag.is_income() {
             continue;
         }
-
-        let event_year = TaxYear::from_date(event.date());
-        if year.is_some_and(|y| y != event_year) {
-            continue;
-        }
-
+        income += event.value_gbp;
         match event.tag {
             Tag::Dividend => dividend += event.value_gbp,
             Tag::Interest => interest += event.value_gbp,
@@ -338,7 +296,53 @@ fn dividend_interest_totals(events: &[TaxableEvent], year: Option<TaxYear>) -> (
         }
     }
 
-    (dividend, interest)
+    (income, dividend, interest)
+}
+
+fn summary_scope_label(filter: &EventFilter) -> String {
+    match (filter.from, filter.to) {
+        (None, None) => "All Years".to_string(),
+        (Some(from), Some(to)) => {
+            let tax_year = TaxYear::from_date(from);
+            if from == tax_year_start(tax_year) && to == tax_year_end(tax_year) {
+                tax_year.display()
+            } else {
+                format!("{} to {}", date_str(from), date_str(to))
+            }
+        }
+        (Some(from), None) => format!("From {}", date_str(from)),
+        (None, Some(to)) => format!("Up to {}", date_str(to)),
+    }
+}
+
+fn tax_year_start(year: TaxYear) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year.0 - 1, 4, 6).unwrap()
+}
+
+fn tax_year_end(year: TaxYear) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year.0, 4, 5).unwrap()
+}
+
+fn band_label(band: TaxBand) -> &'static str {
+    match band {
+        TaxBand::Basic => "basic",
+        TaxBand::Higher => "higher",
+        TaxBand::Additional => "additional",
+    }
+}
+
+fn decimal_to_f64(d: Decimal) -> f64 {
+    format!("{:.2}", d).parse::<f64>().unwrap_or(0.0)
+}
+
+fn decimal_pct(rate: Decimal) -> u8 {
+    format!("{:.0}", rate * dec!(100))
+        .parse::<u8>()
+        .unwrap_or_default()
+}
+
+fn date_str(date: NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
 }
 
 fn format_gbp(amount: Decimal) -> String {

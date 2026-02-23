@@ -1,7 +1,8 @@
 //! HTML report generation.
 
 use super::build_report_data;
-use crate::core::{CgtReport, TaxYear, TaxableEvent};
+use crate::cmd::filter::EventFilter;
+use crate::core::{CgtReport, TaxableEvent};
 
 const TEMPLATE: &str = include_str!("report.html");
 const CSS: &str = include_str!("report.css");
@@ -11,10 +12,9 @@ const JS: &str = include_str!("report.js");
 pub fn generate_html(
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
-    year: Option<TaxYear>,
-    asset_filter: Option<&str>,
+    filter: &EventFilter,
 ) -> anyhow::Result<String> {
-    let data = build_report_data(events, cgt_report, year, asset_filter)?;
+    let data = build_report_data(events, cgt_report, filter)?;
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
     let js = JS.replace("__JSON_DATA__", &json_data);
 

@@ -2,6 +2,7 @@
 
 pub mod html;
 
+use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
 use crate::core::{
     calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, EventType,
@@ -19,10 +20,6 @@ pub struct ReportCommand {
     #[arg(default_value = "-")]
     file: PathBuf,
 
-    /// Tax year to filter (e.g., 2025 for 2024/25)
-    #[arg(short, long)]
-    year: Option<i32>,
-
     /// Output file path (default: opens in browser)
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -38,17 +35,20 @@ pub struct ReportCommand {
     /// Don't include unlinked deposits/withdrawals in calculations
     #[arg(long)]
     exclude_unlinked: bool,
+
+    #[command(flatten)]
+    filter: FilterArgs,
 }
 
 impl ReportCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
-        let tax_year = self.year.map(TaxYear);
+        let event_filter = self.filter.build(self.asset.clone())?;
         let events = read_events(&self.file, self.exclude_unlinked)?;
 
         let cgt_report = calculate_cgt(events.clone())?;
 
         if self.json {
-            let data = build_report_data(&events, &cgt_report, tax_year, self.asset.as_deref())?;
+            let data = build_report_data(&events, &cgt_report, &event_filter)?;
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -58,7 +58,7 @@ impl ReportCommand {
                 println!("{}", json);
             }
         } else {
-            let html = html::generate_html(&events, &cgt_report, tax_year, self.asset.as_deref())?;
+            let html = html::generate_html(&events, &cgt_report, &event_filter)?;
 
             if let Some(ref output_path) = self.output {
                 std::fs::write(output_path, &html)?;
@@ -190,18 +190,13 @@ pub struct Summary {
 pub(super) fn build_report_data(
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
-    year: Option<TaxYear>,
-    asset_filter: Option<&str>,
+    filter: &EventFilter,
 ) -> anyhow::Result<ReportData> {
     use chrono::NaiveDate;
     use std::collections::HashMap;
 
-    // Filter events for the target year
-    let filtered_events: Vec<_> = events
-        .iter()
-        .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
-        .filter(|e| asset_filter.is_none_or(|asset| e.asset.eq_ignore_ascii_case(asset)))
-        .collect();
+    // Filter events for reporting/output rows.
+    let filtered_events: Vec<_> = filter.apply(events);
 
     // Build index of acquisitions by (date, asset) -> row index for navigation
     // Multiple acquisitions on the same day for the same asset share a row index (first one)
@@ -376,15 +371,35 @@ pub(super) fn build_report_data(
         })
         .collect();
 
-    // Calculate summary (classified events only)
-    let total_proceeds = cgt_report.total_proceeds(year);
-    let total_costs = cgt_report.total_allowable_costs(year);
-    let total_gain = cgt_report.total_gain(year);
+    // Calculate summary from disposals that match the active filter.
+    let filtered_disposals: Vec<_> = cgt_report
+        .disposals
+        .iter()
+        .filter(|d| filter.matches_disposal(d))
+        .collect();
 
-    // Calculate totals including unclassified events
-    let total_proceeds_with_unclassified = cgt_report.total_proceeds_with_unclassified(year);
-    let total_costs_with_unclassified = cgt_report.total_allowable_costs_with_unclassified(year);
-    let total_gain_with_unclassified = cgt_report.total_gain_with_unclassified(year);
+    // Classified-only totals
+    let classified_disposals: Vec<_> = filtered_disposals
+        .iter()
+        .copied()
+        .filter(|d| !d.is_unclassified())
+        .collect();
+
+    let total_proceeds: Decimal = classified_disposals.iter().map(|d| d.proceeds_gbp).sum();
+    let total_costs: Decimal = classified_disposals
+        .iter()
+        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
+        .sum();
+    let total_gain: Decimal = classified_disposals.iter().map(|d| d.gain_gbp).sum();
+
+    // Totals including unclassified events
+    let total_proceeds_with_unclassified: Decimal =
+        filtered_disposals.iter().map(|d| d.proceeds_gbp).sum();
+    let total_costs_with_unclassified: Decimal = filtered_disposals
+        .iter()
+        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
+        .sum();
+    let total_gain_with_unclassified: Decimal = filtered_disposals.iter().map(|d| d.gain_gbp).sum();
 
     // Warning counts
     let warning_count = event_rows.iter().filter(|e| !e.warnings.is_empty()).count();
@@ -511,12 +526,22 @@ fn format_event_warning(warning: &Warning) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::filter::EventFilter;
     use crate::core::{AssetClass, EventType, Tag, TaxableEvent};
     use chrono::DateTime;
     use rust_decimal_macros::dec;
 
     fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
         DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
+    }
+
+    fn no_filter() -> EventFilter {
+        EventFilter {
+            from: None,
+            to: None,
+            asset: None,
+            event_kind: None,
+        }
     }
 
     #[test]
@@ -551,7 +576,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
         let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "GiftIn"));
@@ -603,7 +628,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
         let disposal = data
             .events
@@ -679,7 +704,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
         let disposal = data
             .events
@@ -714,7 +739,7 @@ mod tests {
         }];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
         assert!(data.warnings.iter().any(|w| matches!(
             w.warning,
@@ -769,7 +794,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
         assert_eq!(data.summary.total_income, "1500.00");
         assert_eq!(data.summary.total_dividend_income, "200.00");

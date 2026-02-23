@@ -188,6 +188,7 @@ pub struct DisposalRecord {
     pub id: usize,
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
+    #[allow(dead_code)]
     pub tax_year: TaxYear,
     pub asset: String,
     pub quantity: Decimal,
@@ -223,6 +224,7 @@ pub struct CgtReport {
 
 impl CgtReport {
     /// Total proceeds for a tax year (classified events only)
+    #[allow(dead_code)]
     pub fn total_proceeds(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, true)
             .map(|d| d.proceeds_gbp)
@@ -230,6 +232,7 @@ impl CgtReport {
     }
 
     /// Total proceeds including unclassified events
+    #[allow(dead_code)]
     pub fn total_proceeds_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, false)
             .map(|d| d.proceeds_gbp)
@@ -237,6 +240,7 @@ impl CgtReport {
     }
 
     /// Total allowable costs for a tax year (classified events only)
+    #[allow(dead_code)]
     pub fn total_allowable_costs(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, true)
             .map(|d| d.allowable_cost_gbp + d.fees_gbp)
@@ -244,6 +248,7 @@ impl CgtReport {
     }
 
     /// Total allowable costs including unclassified events
+    #[allow(dead_code)]
     pub fn total_allowable_costs_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, false)
             .map(|d| d.allowable_cost_gbp + d.fees_gbp)
@@ -251,11 +256,13 @@ impl CgtReport {
     }
 
     /// Total gain/loss for a tax year (classified events only)
+    #[allow(dead_code)]
     pub fn total_gain(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, true).map(|d| d.gain_gbp).sum()
     }
 
     /// Total gain/loss including unclassified events
+    #[allow(dead_code)]
     pub fn total_gain_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
         self.filter_disposals(year, false).map(|d| d.gain_gbp).sum()
     }
@@ -265,6 +272,7 @@ impl CgtReport {
         self.filter_disposals(year, false).count()
     }
 
+    #[allow(dead_code)]
     fn filter_disposals(
         &self,
         year: Option<TaxYear>,

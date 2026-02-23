@@ -7,8 +7,8 @@ pub mod warnings;
 
 // Flat public surface for domain types and functions.
 pub use cgt::{
-    calculate_cgt, CgtReport, DisposalIndex, MatchingRule, PoolHistoryEntry, PoolState,
-    YearEndSnapshot,
+    calculate_cgt, CgtReport, DisposalIndex, DisposalRecord, MatchingRule, PoolHistoryEntry,
+    PoolState, YearEndSnapshot,
 };
 pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
 #[allow(unused_imports)]
