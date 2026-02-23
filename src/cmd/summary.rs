@@ -1,9 +1,7 @@
 //! Summary command - aggregated totals and tax calculations
 
 use super::read_events;
-use crate::core::{
-    calculate_cgt, calculate_income_tax, EventType, Tag, TaxBand, TaxYear, TaxableEvent,
-};
+use crate::core::{calculate_cgt, EventType, Tag, TaxBand, TaxYear, TaxableEvent};
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -107,24 +105,11 @@ impl SummaryCommand {
         };
 
         let cgt_report = calculate_cgt(filtered_events.clone())?;
-        let income_report = calculate_income_tax(filtered_events.clone())?;
 
         if self.json {
-            self.print_json(
-                &filtered_events,
-                &cgt_report,
-                &income_report,
-                tax_year,
-                tax_band,
-            )
+            self.print_json(&filtered_events, &cgt_report, tax_year, tax_band)
         } else {
-            self.print_summary(
-                &filtered_events,
-                &cgt_report,
-                &income_report,
-                tax_year,
-                tax_band,
-            );
+            self.print_summary(&filtered_events, &cgt_report, tax_year, tax_band);
             Ok(())
         }
     }
@@ -133,7 +118,6 @@ impl SummaryCommand {
         &self,
         events: &[TaxableEvent],
         cgt_report: &crate::core::CgtReport,
-        income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
         band: TaxBand,
     ) {
@@ -204,11 +188,11 @@ impl SummaryCommand {
         // Income section
         let income_rate = rate_year.income_rate(band);
 
-        // Calculate income totals
-        let income: Decimal = income_report
-            .income_events
+        // Calculate income totals directly from events
+        let income: Decimal = events
             .iter()
-            .filter(|e| year.is_none_or(|y| e.tax_year == y))
+            .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
+            .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
             .map(|e| e.value_gbp)
             .sum();
 
@@ -251,7 +235,6 @@ impl SummaryCommand {
         &self,
         events: &[TaxableEvent],
         cgt_report: &crate::core::CgtReport,
-        income_report: &crate::core::IncomeReport,
         year: Option<TaxYear>,
         band: TaxBand,
     ) -> anyhow::Result<()> {
@@ -286,10 +269,10 @@ impl SummaryCommand {
         // Calculate income values
         let income_rate = rate_year.income_rate(band);
 
-        let income: Decimal = income_report
-            .income_events
+        let income: Decimal = events
             .iter()
-            .filter(|e| year.is_none_or(|y| e.tax_year == y))
+            .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
+            .filter(|e| year.is_none_or(|y| TaxYear::from_date(e.date()) == y))
             .map(|e| e.value_gbp)
             .sum();
 

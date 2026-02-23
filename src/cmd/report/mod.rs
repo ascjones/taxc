@@ -4,8 +4,8 @@ pub mod html;
 
 use super::read_events;
 use crate::core::{
-    calculate_cgt, calculate_income_tax, display_event_type, AssetClass, CgtReport, DisposalIndex,
-    EventType, IncomeReport, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
+    calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, EventType,
+    MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
 };
 use clap::Args;
 use rust_decimal::Decimal;
@@ -46,16 +46,9 @@ impl ReportCommand {
         let events = read_events(&self.file, self.exclude_unlinked)?;
 
         let cgt_report = calculate_cgt(events.clone())?;
-        let income_report = calculate_income_tax(events.clone())?;
 
         if self.json {
-            let data = build_report_data(
-                &events,
-                &cgt_report,
-                &income_report,
-                tax_year,
-                self.asset.as_deref(),
-            )?;
+            let data = build_report_data(&events, &cgt_report, tax_year, self.asset.as_deref())?;
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -65,13 +58,7 @@ impl ReportCommand {
                 println!("{}", json);
             }
         } else {
-            let html = html::generate_html(
-                &events,
-                &cgt_report,
-                &income_report,
-                tax_year,
-                self.asset.as_deref(),
-            )?;
+            let html = html::generate_html(&events, &cgt_report, tax_year, self.asset.as_deref())?;
 
             if let Some(ref output_path) = self.output {
                 std::fs::write(output_path, &html)?;
@@ -203,7 +190,6 @@ pub struct Summary {
 pub(super) fn build_report_data(
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
-    _income_report: &IncomeReport,
     year: Option<TaxYear>,
     asset_filter: Option<&str>,
 ) -> anyhow::Result<ReportData> {
@@ -565,8 +551,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
 
         let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
         assert!(event_types.iter().any(|t| t == "GiftIn"));
@@ -618,8 +603,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
 
         let disposal = data
             .events
@@ -695,8 +679,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
 
         let disposal = data
             .events
@@ -731,8 +714,7 @@ mod tests {
         }];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
 
         assert!(data.warnings.iter().any(|w| matches!(
             w.warning,
@@ -787,8 +769,7 @@ mod tests {
         ];
 
         let cgt_report = calculate_cgt(events.clone()).unwrap();
-        let income_report = calculate_income_tax(events.clone()).unwrap();
-        let data = build_report_data(&events, &cgt_report, &income_report, None, None).unwrap();
+        let data = build_report_data(&events, &cgt_report, None, None).unwrap();
 
         assert_eq!(data.summary.total_income, "1500.00");
         assert_eq!(data.summary.total_dividend_income, "200.00");
