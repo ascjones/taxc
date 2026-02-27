@@ -1,6 +1,6 @@
 use super::datetime::parse_datetime;
 use super::*;
-use crate::core::events::{AssetClass, EventType, Tag};
+use crate::core::events::{AssetClass, EventType, Tag, TaxableEvent};
 use crate::core::price::Price;
 use chrono::{DateTime, FixedOffset};
 use rust_decimal::Decimal;
@@ -53,6 +53,142 @@ fn test_registry() -> AssetRegistry {
     registry
 }
 
+#[derive(Debug, Clone)]
+struct TransactionBuilder {
+    tx: Transaction,
+}
+
+impl TransactionBuilder {
+    fn new(tx: Transaction) -> Self {
+        Self { tx }
+    }
+
+    fn with_tag(mut self, tag: Tag) -> Self {
+        self.tx.tag = tag;
+        self
+    }
+
+    fn with_price(mut self, price: Price) -> Self {
+        self.tx.price = Some(price);
+        self
+    }
+
+    fn with_fee(mut self, fee: Fee) -> Self {
+        self.tx.fee = Some(fee);
+        self
+    }
+
+    fn with_deposit_link(mut self, link: &str) -> Self {
+        match &mut self.tx.details {
+            TransactionType::Deposit {
+                linked_withdrawal, ..
+            } => *linked_withdrawal = Some(link.to_string()),
+            _ => panic!("deposit_link expects a deposit transaction"),
+        }
+        self
+    }
+
+    fn with_withdrawal_link(mut self, link: &str) -> Self {
+        match &mut self.tx.details {
+            TransactionType::Withdrawal { linked_deposit, .. } => {
+                *linked_deposit = Some(link.to_string())
+            }
+            _ => panic!("withdrawal_link expects a withdrawal transaction"),
+        }
+        self
+    }
+
+    fn datetime(mut self, value: &str) -> Self {
+        self.tx.datetime = dt(value);
+        self
+    }
+
+    fn build(self) -> Transaction {
+        self.tx
+    }
+}
+
+impl AsRef<Transaction> for TransactionBuilder {
+    fn as_ref(&self) -> &Transaction {
+        &self.tx
+    }
+}
+
+fn trade_tx(id: &str, sold: (&str, Decimal), bought: (&str, Decimal)) -> TransactionBuilder {
+    TransactionBuilder::new(Transaction {
+        id: id.to_string(),
+        datetime: dt("2024-01-01T10:00:00+00:00"),
+        account: "test".to_string(),
+        description: None,
+        price: None,
+        fee: None,
+        tag: Tag::Unclassified,
+        details: TransactionType::Trade {
+            sold: Amount {
+                asset: sold.0.to_string(),
+                quantity: sold.1,
+            },
+            bought: Amount {
+                asset: bought.0.to_string(),
+                quantity: bought.1,
+            },
+        },
+    })
+}
+
+fn deposit_tx(id: &str, asset: &str, qty: Decimal) -> TransactionBuilder {
+    TransactionBuilder::new(Transaction {
+        id: id.to_string(),
+        datetime: dt("2024-01-01T10:00:00+00:00"),
+        account: "test".to_string(),
+        description: None,
+        price: None,
+        fee: None,
+        tag: Tag::Unclassified,
+        details: TransactionType::Deposit {
+            amount: Amount {
+                asset: asset.to_string(),
+                quantity: qty,
+            },
+            linked_withdrawal: None,
+        },
+    })
+}
+
+fn withdrawal_tx(id: &str, asset: &str, qty: Decimal) -> TransactionBuilder {
+    TransactionBuilder::new(Transaction {
+        id: id.to_string(),
+        datetime: dt("2024-01-01T10:00:00+00:00"),
+        account: "test".to_string(),
+        description: None,
+        price: None,
+        fee: None,
+        tag: Tag::Unclassified,
+        details: TransactionType::Withdrawal {
+            amount: Amount {
+                asset: asset.to_string(),
+                quantity: qty,
+            },
+            linked_deposit: None,
+        },
+    })
+}
+
+fn convert_one<T: AsRef<Transaction>>(tx: &T) -> Result<Vec<TaxableEvent>, TransactionError> {
+    tx.as_ref().to_taxable_events(&test_registry(), false)
+}
+
+fn convert_all<T: AsRef<Transaction>>(txs: &[T]) -> Result<Vec<TaxableEvent>, TransactionError> {
+    let txs: Vec<Transaction> = txs.iter().map(|tx| tx.as_ref().clone()).collect();
+    transactions_to_events(
+        &txs,
+        &test_registry(),
+        ConversionOptions {
+            exclude_unlinked: false,
+        },
+    )
+}
+
 #[test]
 fn price_gbp_multiplies_rate() {
     let price = gbp_price("BTC", dec!(2000));
@@ -67,27 +203,14 @@ fn price_fx_chain_applies_fx() {
 
 #[test]
 fn trade_crypto_to_crypto_generates_two_events() {
-    let tx = Transaction {
-        id: "tx-1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.01),
-            },
-            bought: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.5),
-            },
-        },
-    };
+    let tx = trade_tx("tx-1", ("BTC", dec!(0.01)), ("ETH", dec!(0.5))).with_price(fx_price(
+        "ETH",
+        dec!(2000),
+        "USD",
+        dec!(0.79),
+    ));
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].event_type, EventType::Disposal);
     assert_eq!(events[1].event_type, EventType::Acquisition);
@@ -96,51 +219,18 @@ fn trade_crypto_to_crypto_generates_two_events() {
 
 #[test]
 fn transactions_to_events_assigns_sequential_event_ids() {
-    let tx1 = Transaction {
-        id: "tx-1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(fx_price("ETH", dec!(2000), "USD", dec!(0.79))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.01),
-            },
-            bought: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.5),
-            },
-        },
-    };
+    let tx1 = trade_tx("tx-1", ("BTC", dec!(0.01)), ("ETH", dec!(0.5))).with_price(fx_price(
+        "ETH",
+        dec!(2000),
+        "USD",
+        dec!(0.79),
+    ));
+    let tx2 = deposit_tx("tx-2", "ETH", dec!(0.01))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .datetime("2024-01-02T10:00:00+00:00");
 
-    let tx2 = Transaction {
-        id: "tx-2".to_string(),
-        datetime: dt("2024-01-02T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let events = transactions_to_events(
-        &[tx1, tx2],
-        &test_registry(),
-        ConversionOptions {
-            exclude_unlinked: false,
-        },
-    )
-    .unwrap();
+    let events = convert_all(&[tx1, tx2]).unwrap();
 
     let ids: Vec<usize> = events.iter().map(|e| e.id).collect();
     assert_eq!(ids, vec![1, 2, 3]);
@@ -148,27 +238,8 @@ fn transactions_to_events_assigns_sequential_event_ids() {
 
 #[test]
 fn trade_gbp_to_crypto_only_acquisition() {
-    let tx = Transaction {
-        id: "tx-2".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "GBP".to_string(),
-                quantity: dec!(1000),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.02),
-            },
-        },
-    };
-
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let tx = trade_tx("tx-2", ("GBP", dec!(1000)), ("BTC", dec!(0.02)));
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Acquisition);
     assert_eq!(events[0].value_gbp, dec!(1000));
@@ -176,27 +247,8 @@ fn trade_gbp_to_crypto_only_acquisition() {
 
 #[test]
 fn trade_crypto_to_gbp_only_disposal() {
-    let tx = Transaction {
-        id: "tx-3".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.02),
-            },
-            bought: Amount {
-                asset: "GBP".to_string(),
-                quantity: dec!(1000),
-            },
-        },
-    };
-
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let tx = trade_tx("tx-3", ("BTC", dec!(0.02)), ("GBP", dec!(1000)));
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Disposal);
     assert_eq!(events[0].value_gbp, dec!(1000));
@@ -204,27 +256,8 @@ fn trade_crypto_to_gbp_only_disposal() {
 
 #[test]
 fn trade_without_price_no_gbp_errors() {
-    let tx = Transaction {
-        id: "tx-4".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.02),
-            },
-            bought: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.5),
-            },
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = trade_tx("tx-4", ("BTC", dec!(0.02)), ("ETH", dec!(0.5)));
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::MissingTradePrice {
@@ -235,100 +268,62 @@ fn trade_without_price_no_gbp_errors() {
 
 #[test]
 fn linked_deposit_withdrawal_no_events() {
-    let deposit = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: Some("w1".to_string()),
-        },
-    };
-    let withdrawal = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T09:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_deposit: Some("d1".to_string()),
-        },
-    };
+    let deposit = deposit_tx("d1", "ETH", dec!(1)).with_deposit_link("w1");
+    let withdrawal = withdrawal_tx("w1", "ETH", dec!(1))
+        .with_withdrawal_link("d1")
+        .datetime("2024-01-01T09:00:00+00:00");
 
-    let events = transactions_to_events(
-        &[deposit, withdrawal],
-        &test_registry(),
-        ConversionOptions {
-            exclude_unlinked: false,
-        },
-    )
-    .unwrap();
+    let events = convert_all(&[deposit, withdrawal]).unwrap();
     assert!(events.is_empty());
 }
 
 #[test]
 fn unlinked_crypto_deposit_warns_and_creates_acquisition() {
-    let deposit = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let events = transactions_to_events(
-        &[deposit],
-        &test_registry(),
-        ConversionOptions {
-            exclude_unlinked: false,
-        },
-    )
-    .unwrap();
+    let events = convert_all(&[deposit_tx("d1", "ETH", dec!(1))]).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Acquisition);
     assert_eq!(events[0].tag, Tag::Unclassified);
 }
 
 #[test]
+fn unlinked_withdrawal_creates_disposal() {
+    let events = convert_all(&[withdrawal_tx("w1", "ETH", dec!(1))]).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Disposal);
+    assert_eq!(events[0].tag, Tag::Unclassified);
+}
+
+#[test]
+fn gbp_deposit_produces_no_events() {
+    let events = convert_all(&[deposit_tx("d1", "GBP", dec!(100))]).unwrap();
+    assert!(events.is_empty());
+}
+
+#[test]
+fn gbp_withdrawal_produces_no_events() {
+    let events = convert_all(&[withdrawal_tx("w1", "GBP", dec!(100))]).unwrap();
+    assert!(events.is_empty());
+}
+
+#[test]
+fn unlinked_deposit_with_price() {
+    let tx = deposit_tx("d1", "ETH", dec!(2)).with_price(gbp_price("ETH", dec!(1000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn unlinked_withdrawal_with_price() {
+    let tx = withdrawal_tx("w1", "ETH", dec!(2)).with_price(gbp_price("ETH", dec!(1000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
 fn exclude_unlinked_flag_skips_events() {
-    let withdrawal = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(1),
-            },
-            linked_deposit: None,
-        },
-    };
+    let withdrawal = withdrawal_tx("w1", "BTC", dec!(1)).build();
 
     let events = transactions_to_events(
         &[withdrawal],
@@ -342,25 +337,107 @@ fn exclude_unlinked_flag_skips_events() {
 }
 
 #[test]
-fn staking_reward_generates_income_event() {
-    let tx = Transaction {
-        id: "s1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_withdrawal: None,
-        },
-    };
+fn duplicate_transaction_id_errors() {
+    let err = convert_all(&[
+        deposit_tx("dup", "ETH", dec!(1)),
+        withdrawal_tx("dup", "ETH", dec!(1)),
+    ])
+    .unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::DuplicateTransactionId("dup".to_string())
+    );
+}
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+#[test]
+fn linked_deposit_not_found_errors() {
+    let err = convert_all(&[deposit_tx("d1", "ETH", dec!(1)).with_deposit_link("w-missing")])
+        .unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionNotFound {
+            id: "d1".to_string(),
+            linked_id: "w-missing".to_string(),
+        }
+    );
+}
+
+#[test]
+fn linked_withdrawal_not_found_errors() {
+    let err = convert_all(&[withdrawal_tx("w1", "ETH", dec!(1)).with_withdrawal_link("d-missing")])
+        .unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionNotFound {
+            id: "w1".to_string(),
+            linked_id: "d-missing".to_string(),
+        }
+    );
+}
+
+#[test]
+fn linked_deposit_type_mismatch_errors() {
+    let d1 = deposit_tx("d1", "ETH", dec!(1)).with_deposit_link("d2");
+    let d2 = deposit_tx("d2", "ETH", dec!(1));
+    let err = convert_all(&[d1, d2]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionTypeMismatch {
+            id: "d1".to_string(),
+            linked_id: "d2".to_string(),
+        }
+    );
+}
+
+#[test]
+fn linked_withdrawal_type_mismatch_errors() {
+    let w1 = withdrawal_tx("w1", "ETH", dec!(1)).with_withdrawal_link("w2");
+    let w2 = withdrawal_tx("w2", "ETH", dec!(1));
+    let err = convert_all(&[w1, w2]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionTypeMismatch {
+            id: "w1".to_string(),
+            linked_id: "w2".to_string(),
+        }
+    );
+}
+
+#[test]
+fn linked_deposit_not_reciprocal_errors() {
+    let d1 = deposit_tx("d1", "ETH", dec!(1)).with_deposit_link("w1");
+    let w1 = withdrawal_tx("w1", "ETH", dec!(1)).with_withdrawal_link("d2");
+    let err = convert_all(&[d1, w1]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionNotReciprocal {
+            id: "d1".to_string(),
+            linked_id: "w1".to_string(),
+        }
+    );
+}
+
+#[test]
+fn linked_withdrawal_not_reciprocal_errors() {
+    let d1 = deposit_tx("d1", "ETH", dec!(1)).with_deposit_link("w2");
+    let w1 = withdrawal_tx("w1", "ETH", dec!(1)).with_withdrawal_link("d1");
+    let err = convert_all(&[w1, d1]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::LinkedTransactionNotReciprocal {
+            id: "w1".to_string(),
+            linked_id: "d1".to_string(),
+        }
+    );
+}
+
+#[test]
+fn staking_reward_generates_income_event() {
+    let tx = deposit_tx("s1", "ETH", dec!(0.01))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("ETH", dec!(2000)));
+
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Acquisition);
     assert_eq!(events[0].tag, Tag::StakingReward);
@@ -369,231 +446,133 @@ fn staking_reward_generates_income_event() {
 
 #[test]
 fn fee_allocated_to_disposal() {
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(1000))),
-        fee: Some(Fee {
+    let tx = trade_tx("t1", ("BTC", dec!(1)), ("ETH", dec!(10)))
+        .with_price(gbp_price("ETH", dec!(1000)))
+        .with_fee(Fee {
             asset: "GBP".to_string(),
             amount: dec!(5),
             price: None,
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(10),
-            },
-        },
-    };
+        });
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].fee_gbp, Some(dec!(5)));
     assert_eq!(events[1].fee_gbp, None);
 }
 
 #[test]
-fn fee_uses_trade_price_when_asset_matches_bought() {
-    // Trade: 1 ETH -> 0.05 BTC at £15000/BTC
-    // Fee: 0.0001 BTC (no explicit price, but matches bought asset)
-    // Fee value = 0.0001 * 15000 = £1.50
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(15000))),
-        fee: Some(Fee {
-            asset: "BTC".to_string(),
-            amount: dec!(0.0001),
-            price: None,
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
+fn fee_on_single_event_trade() {
+    let cases = [
+        trade_tx("t-buy", ("GBP", dec!(1000)), ("BTC", dec!(0.02))),
+        trade_tx("t-sell", ("BTC", dec!(0.02)), ("GBP", dec!(1000))),
+    ];
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
-    assert_eq!(events.len(), 2);
-    // Fee uses trade price directly: 0.0001 * 15000 = £1.50
-    assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
+    for tx in cases {
+        let tx = tx.with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(5),
+            price: None,
+        });
+        let events = convert_one(&tx).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].fee_gbp, Some(dec!(5)));
+    }
 }
 
 #[test]
-fn fee_in_sold_asset_requires_explicit_price() {
-    // Trade: 1 ETH -> 0.05 BTC at £15000/BTC
-    // Fee: 0.01 ETH (no explicit price, doesn't match bought asset)
-    // Should error - sold asset doesn't get automatic price
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(15000))),
-        fee: Some(Fee {
-            asset: "ETH".to_string(),
-            amount: dec!(0.01),
+fn fee_on_tagged_deposit() {
+    let tx = deposit_tx("s1", "ETH", dec!(1))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("ETH", dec!(1000)))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(7),
             price: None,
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::MissingFeePrice {
-            asset: "ETH".to_string()
-        }
-    );
+        });
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].fee_gbp, Some(dec!(7)));
 }
 
 #[test]
 fn fee_explicit_price_takes_precedence() {
-    // Fee has explicit price even though asset matches traded asset
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(15000))),
-        fee: Some(Fee {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_price(gbp_price("BTC", dec!(15000)))
+        .with_fee(Fee {
             asset: "BTC".to_string(),
             amount: dec!(0.0001),
-            // Explicit price overrides trade price
             price: Some(gbp_price("BTC", dec!(20000))),
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
+        });
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 2);
-    // Fee should use explicit price: 0.0001 * 20000 = £2.00
     assert_eq!(events[0].fee_gbp, Some(dec!(2)));
 }
 
 #[test]
-fn fee_unrelated_asset_requires_price() {
-    // Fee in USDT but trade is ETH/BTC - should error
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(15000))),
-        fee: Some(Fee {
-            asset: "USDT".to_string(),
-            amount: dec!(5),
-            price: None,
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::MissingFeePrice {
-            asset: "USDT".to_string()
-        }
-    );
-}
-
-#[test]
-fn fee_asset_match_is_case_insensitive() {
-    // Fee asset "btc" should match bought asset "BTC"
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(15000))),
-        fee: Some(Fee {
-            asset: "btc".to_string(), // lowercase
+fn fee_uses_trade_price_when_asset_matches_bought() {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_price(gbp_price("BTC", dec!(15000)))
+        .with_fee(Fee {
+            asset: "BTC".to_string(),
             amount: dec!(0.0001),
             price: None,
-        }),
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
+        });
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
 }
 
 #[test]
-fn staking_reward_requires_price() {
-    let tx = Transaction {
-        id: "s1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_withdrawal: None,
-        },
-    };
+fn fee_asset_match_is_case_insensitive() {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_price(gbp_price("BTC", dec!(15000)))
+        .with_fee(Fee {
+            asset: "btc".to_string(),
+            amount: dec!(0.0001),
+            price: None,
+        });
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
+}
+
+#[test]
+fn fee_without_price_errors() {
+    let cases = [
+        Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.01),
+            price: None,
+        },
+        Fee {
+            asset: "USDT".to_string(),
+            amount: dec!(5),
+            price: None,
+        },
+    ];
+
+    for fee in cases {
+        let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+            .with_price(gbp_price("BTC", dec!(15000)))
+            .with_fee(fee.clone());
+
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingFeePrice {
+                asset: fee.asset.clone(),
+            }
+        );
+    }
+}
+
+#[test]
+fn staking_reward_requires_price() {
+    let tx = deposit_tx("s1", "ETH", dec!(0.01)).with_tag(Tag::StakingReward);
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::MissingTaggedPrice {
@@ -605,25 +584,34 @@ fn staking_reward_requires_price() {
 }
 
 #[test]
-fn income_deposit_with_mismatched_price_base_errors() {
-    let tx = Transaction {
-        id: "s1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_withdrawal: None,
-        },
-    };
+fn income_tags_require_price() {
+    let cases = [
+        (Tag::Salary, "Salary"),
+        (Tag::OtherIncome, "OtherIncome"),
+        (Tag::AirdropIncome, "AirdropIncome"),
+    ];
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    for (tag, tag_name) in cases {
+        let tx = deposit_tx("d1", "ETH", dec!(1)).with_tag(tag);
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::MissingTaggedPrice {
+                id: "d1".to_string(),
+                tag: tag_name.to_string(),
+                tx_type: "deposit".to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+fn income_deposit_with_mismatched_price_base_errors() {
+    let tx = deposit_tx("s1", "ETH", dec!(0.01))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("BTC", dec!(2000)));
+
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::PriceBaseMismatch {
@@ -636,24 +624,12 @@ fn income_deposit_with_mismatched_price_base_errors() {
 
 #[test]
 fn tagged_deposit_with_linked_withdrawal_errors() {
-    let tx = Transaction {
-        id: "s1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_withdrawal: Some("w1".to_string()),
-        },
-    };
+    let tx = deposit_tx("s1", "ETH", dec!(0.01))
+        .with_tag(Tag::StakingReward)
+        .with_deposit_link("w1")
+        .with_price(gbp_price("ETH", dec!(2000)));
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::TaggedDepositLinked {
@@ -664,24 +640,12 @@ fn tagged_deposit_with_linked_withdrawal_errors() {
 
 #[test]
 fn tagged_withdrawal_with_linked_deposit_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::Gift,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_deposit: Some("d1".to_string()),
-        },
-    };
+    let tx = withdrawal_tx("w1", "ETH", dec!(0.01))
+        .with_tag(Tag::Gift)
+        .with_withdrawal_link("d1")
+        .with_price(gbp_price("ETH", dec!(2000)));
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::TaggedWithdrawalLinked {
@@ -691,118 +655,66 @@ fn tagged_withdrawal_with_linked_deposit_errors() {
 }
 
 #[test]
-fn income_tag_on_withdrawal_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_deposit: None,
-        },
-    };
+fn invalid_tags_on_withdrawal_error() {
+    let cases = [
+        (Tag::StakingReward, "StakingReward"),
+        (Tag::Airdrop, "Airdrop"),
+        (Tag::Dividend, "Dividend"),
+        (Tag::Interest, "Interest"),
+        (Tag::Salary, "Salary"),
+        (Tag::OtherIncome, "OtherIncome"),
+        (Tag::AirdropIncome, "AirdropIncome"),
+    ];
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::InvalidTagForType {
-            id: "w1".to_string(),
-            tag: "StakingReward".to_string(),
-            tx_type: "withdrawal".to_string(),
-        }
-    );
+    for (tag, tag_name) in cases {
+        let tx = withdrawal_tx("w1", "ETH", dec!(0.01))
+            .with_tag(tag)
+            .with_price(gbp_price("ETH", dec!(2000)));
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "w1".to_string(),
+                tag: tag_name.to_string(),
+                tx_type: "withdrawal".to_string(),
+            }
+        );
+    }
 }
 
 #[test]
-fn airdrop_tag_on_withdrawal_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))),
-        fee: None,
-        tag: Tag::Airdrop,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(0.01),
-            },
-            linked_deposit: None,
-        },
-    };
+fn invalid_tags_on_trade_error() {
+    let cases = [
+        (Tag::StakingReward, "StakingReward"),
+        (Tag::Dividend, "Dividend"),
+        (Tag::Interest, "Interest"),
+        (Tag::Salary, "Salary"),
+        (Tag::OtherIncome, "OtherIncome"),
+        (Tag::AirdropIncome, "AirdropIncome"),
+        (Tag::Airdrop, "Airdrop"),
+        (Tag::Gift, "Gift"),
+    ];
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::InvalidTagForType {
-            id: "w1".to_string(),
-            tag: "Airdrop".to_string(),
-            tx_type: "withdrawal".to_string(),
-        }
-    );
-}
-
-#[test]
-fn non_trade_tag_on_trade_errors() {
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(2000))),
-        fee: None,
-        tag: Tag::StakingReward,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::InvalidTagForType {
-            id: "t1".to_string(),
-            tag: "StakingReward".to_string(),
-            tx_type: "trade".to_string(),
-        }
-    );
+    for (tag, tag_name) in cases {
+        let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+            .with_tag(tag)
+            .with_price(gbp_price("BTC", dec!(2000)));
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "t1".to_string(),
+                tag: tag_name.to_string(),
+                tx_type: "trade".to_string(),
+            }
+        );
+    }
 }
 
 #[test]
 fn gift_deposit_missing_price_errors() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Gift,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = deposit_tx("d1", "ETH", dec!(1)).with_tag(Tag::Gift);
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::MissingTaggedPrice {
@@ -815,24 +727,8 @@ fn gift_deposit_missing_price_errors() {
 
 #[test]
 fn gift_withdrawal_missing_price_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Gift,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_deposit: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = withdrawal_tx("w1", "ETH", dec!(1)).with_tag(Tag::Gift);
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::MissingTaggedPrice {
@@ -845,24 +741,8 @@ fn gift_withdrawal_missing_price_errors() {
 
 #[test]
 fn trade_tag_on_deposit_errors() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Trade,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = deposit_tx("d1", "ETH", dec!(1)).with_tag(Tag::Trade);
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::InvalidTagForType {
@@ -875,24 +755,8 @@ fn trade_tag_on_deposit_errors() {
 
 #[test]
 fn trade_tag_on_withdrawal_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Trade,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_deposit: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = withdrawal_tx("w1", "ETH", dec!(1)).with_tag(Tag::Trade);
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::InvalidTagForType {
@@ -905,24 +769,10 @@ fn trade_tag_on_withdrawal_errors() {
 
 #[test]
 fn airdrop_deposit_with_price_errors() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(1000))),
-        fee: None,
-        tag: Tag::Airdrop,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let tx = deposit_tx("d1", "ETH", dec!(1))
+        .with_tag(Tag::Airdrop)
+        .with_price(gbp_price("ETH", dec!(1000)));
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::AirdropPriceNotAllowed {
@@ -933,24 +783,11 @@ fn airdrop_deposit_with_price_errors() {
 
 #[test]
 fn gift_deposit_creates_gift_in() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(1000))),
-        fee: None,
-        tag: Tag::Gift,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(2),
-            },
-            linked_withdrawal: None,
-        },
-    };
+    let tx = deposit_tx("d1", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_price(gbp_price("ETH", dec!(1000)));
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Acquisition);
     assert_eq!(events[0].tag, Tag::Gift);
@@ -959,24 +796,11 @@ fn gift_deposit_creates_gift_in() {
 
 #[test]
 fn gift_withdrawal_creates_gift_out() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(1000))),
-        fee: None,
-        tag: Tag::Gift,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(2),
-            },
-            linked_deposit: None,
-        },
-    };
+    let tx = withdrawal_tx("w1", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_price(gbp_price("ETH", dec!(1000)));
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::Disposal);
     assert_eq!(events[0].tag, Tag::Gift);
@@ -985,24 +809,8 @@ fn gift_withdrawal_creates_gift_out() {
 
 #[test]
 fn airdrop_deposit_creates_zero_cost_acquisition() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Airdrop,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(2),
-            },
-            linked_withdrawal: None,
-        },
-    };
-
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let tx = deposit_tx("d1", "ETH", dec!(2)).with_tag(Tag::Airdrop);
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].tag, Tag::Airdrop);
     assert_eq!(events[0].value_gbp, Decimal::ZERO);
@@ -1010,24 +818,11 @@ fn airdrop_deposit_creates_zero_cost_acquisition() {
 
 #[test]
 fn airdrop_income_deposit_requires_price_and_counts_as_income_tag() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "ledger".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(1000))),
-        fee: None,
-        tag: Tag::AirdropIncome,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(2),
-            },
-            linked_withdrawal: None,
-        },
-    };
+    let tx = deposit_tx("d1", "ETH", dec!(2))
+        .with_tag(Tag::AirdropIncome)
+        .with_price(gbp_price("ETH", dec!(1000)));
 
-    let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+    let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].tag, Tag::AirdropIncome);
     assert_eq!(events[0].value_gbp, dec!(2000));
@@ -1043,96 +838,11 @@ fn salary_other_dividend_and_interest_deposits_are_supported() {
     ];
 
     for (id, tag) in cases {
-        let tx = Transaction {
-            id: id.to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "ledger".to_string(),
-            description: None,
-            price: Some(gbp_price("ETH", dec!(1000))),
-            fee: None,
-            tag,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(1),
-                },
-                linked_withdrawal: None,
-            },
-        };
-
-        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+        let tx = deposit_tx(id, "ETH", dec!(1))
+            .with_tag(tag)
+            .with_price(gbp_price("ETH", dec!(1000)));
+        let events = convert_one(&tx).unwrap();
         assert_eq!(events[0].tag, tag);
-    }
-}
-
-#[test]
-fn dividend_and_interest_tags_on_trade_error() {
-    let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
-
-    for (tag, tag_name) in cases {
-        let tx = Transaction {
-            id: "t1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "kraken".to_string(),
-            description: None,
-            price: Some(gbp_price("BTC", dec!(2000))),
-            fee: None,
-            tag,
-            details: TransactionType::Trade {
-                sold: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(1),
-                },
-                bought: Amount {
-                    asset: "BTC".to_string(),
-                    quantity: dec!(0.05),
-                },
-            },
-        };
-
-        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-        assert_eq!(
-            err,
-            TransactionError::InvalidTagForType {
-                id: "t1".to_string(),
-                tag: tag_name.to_string(),
-                tx_type: "trade".to_string(),
-            }
-        );
-    }
-}
-
-#[test]
-fn dividend_and_interest_tags_on_withdrawal_error() {
-    let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
-
-    for (tag, tag_name) in cases {
-        let tx = Transaction {
-            id: "w1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "kraken".to_string(),
-            description: None,
-            price: Some(gbp_price("ETH", dec!(2000))),
-            fee: None,
-            tag,
-            details: TransactionType::Withdrawal {
-                amount: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(0.01),
-                },
-                linked_deposit: None,
-            },
-        };
-
-        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-        assert_eq!(
-            err,
-            TransactionError::InvalidTagForType {
-                id: "w1".to_string(),
-                tag: tag_name.to_string(),
-                tx_type: "withdrawal".to_string(),
-            }
-        );
     }
 }
 
@@ -1141,24 +851,8 @@ fn dividend_and_interest_deposits_require_price() {
     let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
 
     for (tag, tag_name) in cases {
-        let tx = Transaction {
-            id: "d1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "ledger".to_string(),
-            description: None,
-            price: None,
-            fee: None,
-            tag,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "ETH".to_string(),
-                    quantity: dec!(1),
-                },
-                linked_withdrawal: None,
-            },
-        };
-
-        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        let tx = deposit_tx("d1", "ETH", dec!(1)).with_tag(tag);
+        let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
             TransactionError::MissingTaggedPrice {
@@ -1175,24 +869,8 @@ fn gbp_dividend_and_interest_deposits_no_price_needed() {
     let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
 
     for (tag, _tag_name) in cases {
-        let tx = Transaction {
-            id: "d1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "bank".to_string(),
-            description: None,
-            price: None,
-            fee: None,
-            tag,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "GBP".to_string(),
-                    quantity: dec!(500),
-                },
-                linked_withdrawal: None,
-            },
-        };
-
-        let events = tx.to_taxable_events(&test_registry(), false).unwrap();
+        let tx = deposit_tx("d1", "GBP", dec!(500)).with_tag(tag);
+        let events = convert_one(&tx).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].value_gbp, dec!(500));
         assert_eq!(events[0].asset_class, AssetClass::Fiat);
@@ -1204,24 +882,10 @@ fn gbp_dividend_and_interest_deposits_reject_price() {
     let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
 
     for (tag, tag_name) in cases {
-        let tx = Transaction {
-            id: "d1".to_string(),
-            datetime: dt("2024-01-01T10:00:00+00:00"),
-            account: "bank".to_string(),
-            description: None,
-            price: Some(gbp_price("GBP", dec!(1))),
-            fee: None,
-            tag,
-            details: TransactionType::Deposit {
-                amount: Amount {
-                    asset: "GBP".to_string(),
-                    quantity: dec!(500),
-                },
-                linked_withdrawal: None,
-            },
-        };
-
-        let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+        let tx = deposit_tx("d1", "GBP", dec!(500))
+            .with_tag(tag)
+            .with_price(gbp_price("GBP", dec!(1)));
+        let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
             TransactionError::GbpIncomePriceNotAllowed {
@@ -1233,90 +897,31 @@ fn gbp_dividend_and_interest_deposits_reject_price() {
 }
 
 #[test]
-fn trade_sell_to_gbp_rejects_price() {
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "broker".to_string(),
-        description: None,
-        price: Some(gbp_price("AAPL", dec!(150))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "AAPL".to_string(),
-                quantity: dec!(10),
-            },
-            bought: Amount {
-                asset: "GBP".to_string(),
-                quantity: dec!(1500),
-            },
-        },
-    };
+fn gbp_trade_rejects_price() {
+    let cases = [
+        trade_tx("t1", ("AAPL", dec!(10)), ("GBP", dec!(1500)))
+            .with_price(gbp_price("AAPL", dec!(150))),
+        trade_tx("t2", ("GBP", dec!(1500)), ("AAPL", dec!(10)))
+            .with_price(gbp_price("AAPL", dec!(150))),
+    ];
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::GbpTradePriceNotAllowed {
-            id: "t1".to_string()
-        }
-    );
-}
-
-#[test]
-fn trade_buy_from_gbp_rejects_price() {
-    let tx = Transaction {
-        id: "t2".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "broker".to_string(),
-        description: None,
-        price: Some(gbp_price("AAPL", dec!(150))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "GBP".to_string(),
-                quantity: dec!(1500),
-            },
-            bought: Amount {
-                asset: "AAPL".to_string(),
-                quantity: dec!(10),
-            },
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::GbpTradePriceNotAllowed {
-            id: "t2".to_string()
-        }
-    );
+    for tx in cases {
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::GbpTradePriceNotAllowed {
+                id: tx.as_ref().id.clone(),
+            }
+        );
+    }
 }
 
 #[test]
 fn price_base_must_match_bought_asset() {
-    let tx = Transaction {
-        id: "t1".to_string(),
-        datetime: dt("2024-01-01T10:00:00+00:00"),
-        account: "kraken".to_string(),
-        description: None,
-        price: Some(gbp_price("ETH", dec!(2000))), // Wrong base - should be BTC
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            bought: Amount {
-                asset: "BTC".to_string(),
-                quantity: dec!(0.05),
-            },
-        },
-    };
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_price(gbp_price("ETH", dec!(2000)));
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
+    let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
         TransactionError::PriceBaseMismatch {
@@ -1507,25 +1112,9 @@ fn validate_assets_empty_with_non_gbp_errors() {
 
 #[test]
 fn stock_asset_class_from_registry() {
-    let tx = Transaction {
-        id: "tx-1".to_string(),
-        datetime: dt("2024-01-01T00:00:00+00:00"),
-        account: "broker".to_string(),
-        description: None,
-        price: None,
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Trade {
-            sold: Amount {
-                asset: "GBP".to_string(),
-                quantity: dec!(1000),
-            },
-            bought: Amount {
-                asset: "AAPL".to_string(),
-                quantity: dec!(10),
-            },
-        },
-    };
+    let tx = trade_tx("tx-1", ("GBP", dec!(1000)), ("AAPL", dec!(10)))
+        .datetime("2024-01-01T00:00:00+00:00")
+        .build();
 
     let mut registry = AssetRegistry::new();
     registry.insert(
@@ -1540,61 +1129,25 @@ fn stock_asset_class_from_registry() {
 }
 
 #[test]
-fn unclassified_deposit_price_base_mismatch_errors() {
-    let tx = Transaction {
-        id: "d1".to_string(),
-        datetime: dt("2024-01-01T00:00:00+00:00"),
-        account: "wallet".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(1000))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Deposit {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_withdrawal: None,
-        },
-    };
+fn unclassified_price_base_mismatch_errors() {
+    let cases = [
+        deposit_tx("d1", "ETH", dec!(1))
+            .datetime("2024-01-01T00:00:00+00:00")
+            .with_price(gbp_price("BTC", dec!(1000))),
+        withdrawal_tx("w1", "ETH", dec!(1))
+            .datetime("2024-01-01T00:00:00+00:00")
+            .with_price(gbp_price("BTC", dec!(1000))),
+    ];
 
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::PriceBaseMismatch {
-            id: "d1".to_string(),
-            base: "BTC".to_string(),
-            expected: "ETH".to_string(),
-        }
-    );
-}
-
-#[test]
-fn unclassified_withdrawal_price_base_mismatch_errors() {
-    let tx = Transaction {
-        id: "w1".to_string(),
-        datetime: dt("2024-01-01T00:00:00+00:00"),
-        account: "wallet".to_string(),
-        description: None,
-        price: Some(gbp_price("BTC", dec!(1000))),
-        fee: None,
-        tag: Tag::Unclassified,
-        details: TransactionType::Withdrawal {
-            amount: Amount {
-                asset: "ETH".to_string(),
-                quantity: dec!(1),
-            },
-            linked_deposit: None,
-        },
-    };
-
-    let err = tx.to_taxable_events(&test_registry(), false).unwrap_err();
-    assert_eq!(
-        err,
-        TransactionError::PriceBaseMismatch {
-            id: "w1".to_string(),
-            base: "BTC".to_string(),
-            expected: "ETH".to_string(),
-        }
-    );
+    for tx in cases {
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::PriceBaseMismatch {
+                id: tx.as_ref().id.clone(),
+                base: "BTC".to_string(),
+                expected: "ETH".to_string(),
+            }
+        );
+    }
 }
