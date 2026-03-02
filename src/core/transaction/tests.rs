@@ -69,7 +69,12 @@ impl TransactionBuilder {
     }
 
     fn with_price(mut self, price: Price) -> Self {
-        self.tx.price = Some(price);
+        self.tx.valuation = Some(Valuation::Price(price));
+        self
+    }
+
+    fn with_value_gbp(mut self, value_gbp: Decimal) -> Self {
+        self.tx.valuation = Some(Valuation::ValueGbp(value_gbp));
         self
     }
 
@@ -120,7 +125,7 @@ fn trade_tx(id: &str, sold: (&str, Decimal), bought: (&str, Decimal)) -> Transac
         datetime: dt("2024-01-01T10:00:00+00:00"),
         account: "test".to_string(),
         description: None,
-        price: None,
+        valuation: None,
         fee: None,
         tag: Tag::Unclassified,
         details: TransactionType::Trade {
@@ -142,7 +147,7 @@ fn deposit_tx(id: &str, asset: &str, qty: Decimal) -> TransactionBuilder {
         datetime: dt("2024-01-01T10:00:00+00:00"),
         account: "test".to_string(),
         description: None,
-        price: None,
+        valuation: None,
         fee: None,
         tag: Tag::Unclassified,
         details: TransactionType::Deposit {
@@ -161,7 +166,7 @@ fn withdrawal_tx(id: &str, asset: &str, qty: Decimal) -> TransactionBuilder {
         datetime: dt("2024-01-01T10:00:00+00:00"),
         account: "test".to_string(),
         description: None,
-        price: None,
+        valuation: None,
         fee: None,
         tag: Tag::Unclassified,
         details: TransactionType::Withdrawal {
@@ -260,10 +265,20 @@ fn trade_without_price_no_gbp_errors() {
     let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
-        TransactionError::MissingTradePrice {
+        TransactionError::MissingTradeValuation {
             id: "tx-4".to_string()
         }
     );
+}
+
+#[test]
+fn trade_crypto_to_crypto_with_value_gbp() {
+    let tx = trade_tx("tx-v1", ("BTC", dec!(0.01)), ("ETH", dec!(0.5))).with_value_gbp(dec!(750));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].value_gbp, dec!(750));
+    assert_eq!(events[1].value_gbp, dec!(750));
 }
 
 #[test]
@@ -314,8 +329,24 @@ fn unlinked_deposit_with_price() {
 }
 
 #[test]
+fn unlinked_deposit_with_value_gbp() {
+    let tx = deposit_tx("d-value", "ETH", dec!(2)).with_value_gbp(dec!(2000));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
 fn unlinked_withdrawal_with_price() {
     let tx = withdrawal_tx("w1", "ETH", dec!(2)).with_price(gbp_price("ETH", dec!(1000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn unlinked_withdrawal_with_value_gbp() {
+    let tx = withdrawal_tx("w-value", "ETH", dec!(2)).with_value_gbp(dec!(2000));
     let events = convert_one(&tx).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].value_gbp, dec!(2000));
@@ -495,6 +526,88 @@ fn fee_on_tagged_deposit() {
 }
 
 #[test]
+fn trade_value_gbp_with_gbp_fee() {
+    let tx = trade_tx("t-v-fee", ("BTC", dec!(1)), ("ETH", dec!(10)))
+        .with_value_gbp(dec!(1000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(5),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(5)));
+}
+
+#[test]
+fn trade_value_gbp_crypto_fee_needs_own_price() {
+    let tx = trade_tx("t-v-fee-missing", ("BTC", dec!(1)), ("ETH", dec!(10)))
+        .with_value_gbp(dec!(1000))
+        .with_fee(Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.1),
+            price: None,
+        });
+
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::MissingFeePrice {
+            asset: "ETH".to_string(),
+        }
+    );
+}
+
+#[test]
+fn trade_value_gbp_crypto_fee_with_explicit_price() {
+    let tx = trade_tx("t-v-fee-explicit", ("BTC", dec!(1)), ("ETH", dec!(10)))
+        .with_value_gbp(dec!(1000))
+        .with_fee(Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.1),
+            price: Some(gbp_price("ETH", dec!(100))),
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(10)));
+}
+
+#[test]
+fn deposit_income_value_gbp_with_gbp_fee() {
+    let tx = deposit_tx("d-income-fee", "ETH", dec!(1))
+        .with_tag(Tag::StakingReward)
+        .with_value_gbp(dec!(1000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(7),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(7)));
+}
+
+#[test]
+fn deposit_income_value_gbp_crypto_fee_needs_own_price() {
+    let tx = deposit_tx("d-income-fee-missing", "ETH", dec!(1))
+        .with_tag(Tag::StakingReward)
+        .with_value_gbp(dec!(1000))
+        .with_fee(Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.1),
+            price: None,
+        });
+
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::MissingFeePrice {
+            asset: "ETH".to_string(),
+        }
+    );
+}
+
+#[test]
 fn fee_explicit_price_takes_precedence() {
     let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
         .with_price(gbp_price("BTC", dec!(15000)))
@@ -575,7 +688,7 @@ fn staking_reward_requires_price() {
     let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
-        TransactionError::MissingTaggedPrice {
+        TransactionError::MissingTaggedValuation {
             id: "s1".to_string(),
             tag: "StakingReward".to_string(),
             tx_type: "deposit".to_string(),
@@ -596,7 +709,7 @@ fn income_tags_require_price() {
         let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
-            TransactionError::MissingTaggedPrice {
+            TransactionError::MissingTaggedValuation {
                 id: "d1".to_string(),
                 tag: tag_name.to_string(),
                 tx_type: "deposit".to_string(),
@@ -717,7 +830,7 @@ fn gift_deposit_missing_price_errors() {
     let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
-        TransactionError::MissingTaggedPrice {
+        TransactionError::MissingTaggedValuation {
             id: "d1".to_string(),
             tag: "Gift".to_string(),
             tx_type: "deposit".to_string(),
@@ -731,7 +844,7 @@ fn gift_withdrawal_missing_price_errors() {
     let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
-        TransactionError::MissingTaggedPrice {
+        TransactionError::MissingTaggedValuation {
             id: "w1".to_string(),
             tag: "Gift".to_string(),
             tx_type: "withdrawal".to_string(),
@@ -775,8 +888,22 @@ fn airdrop_deposit_with_price_errors() {
     let err = convert_one(&tx).unwrap_err();
     assert_eq!(
         err,
-        TransactionError::AirdropPriceNotAllowed {
+        TransactionError::AirdropValuationNotAllowed {
             id: "d1".to_string(),
+        }
+    );
+}
+
+#[test]
+fn deposit_airdrop_with_value_gbp_errors() {
+    let tx = deposit_tx("d-airdrop-value", "ETH", dec!(1))
+        .with_tag(Tag::Airdrop)
+        .with_value_gbp(dec!(1000));
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::AirdropValuationNotAllowed {
+            id: "d-airdrop-value".to_string(),
         }
     );
 }
@@ -795,6 +922,18 @@ fn gift_deposit_creates_gift_in() {
 }
 
 #[test]
+fn deposit_gift_with_value_gbp() {
+    let tx = deposit_tx("d1-value", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_value_gbp(dec!(2000));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].tag, Tag::Gift);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
 fn gift_withdrawal_creates_gift_out() {
     let tx = withdrawal_tx("w1", "ETH", dec!(2))
         .with_tag(Tag::Gift)
@@ -805,6 +944,48 @@ fn gift_withdrawal_creates_gift_out() {
     assert_eq!(events[0].event_type, EventType::Disposal);
     assert_eq!(events[0].tag, Tag::Gift);
     assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn withdrawal_gift_with_value_gbp() {
+    let tx = withdrawal_tx("w1-value", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_value_gbp(dec!(2000));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].tag, Tag::Gift);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn deposit_gift_value_gbp_with_fee() {
+    let tx = deposit_tx("d-gift-fee", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_value_gbp(dec!(2000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(4),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(4)));
+}
+
+#[test]
+fn withdrawal_gift_value_gbp_with_fee() {
+    let tx = withdrawal_tx("w-gift-fee", "ETH", dec!(2))
+        .with_tag(Tag::Gift)
+        .with_value_gbp(dec!(2000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(4),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(4)));
 }
 
 #[test]
@@ -855,7 +1036,7 @@ fn dividend_and_interest_deposits_require_price() {
         let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
-            TransactionError::MissingTaggedPrice {
+            TransactionError::MissingTaggedValuation {
                 id: "d1".to_string(),
                 tag: tag_name.to_string(),
                 tx_type: "deposit".to_string(),
@@ -888,7 +1069,7 @@ fn gbp_dividend_and_interest_deposits_reject_price() {
         let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
-            TransactionError::GbpIncomePriceNotAllowed {
+            TransactionError::GbpIncomeValuationNotAllowed {
                 id: "d1".to_string(),
                 tag: tag_name.to_string(),
             }
@@ -909,11 +1090,56 @@ fn gbp_trade_rejects_price() {
         let err = convert_one(&tx).unwrap_err();
         assert_eq!(
             err,
-            TransactionError::GbpTradePriceNotAllowed {
+            TransactionError::GbpTradeValuationNotAllowed {
                 id: tx.as_ref().id.clone(),
             }
         );
     }
+}
+
+#[test]
+fn trade_gbp_with_value_gbp_errors() {
+    let cases = [
+        trade_tx("t1-value", ("AAPL", dec!(10)), ("GBP", dec!(1500))).with_value_gbp(dec!(1500)),
+        trade_tx("t2-value", ("GBP", dec!(1500)), ("AAPL", dec!(10))).with_value_gbp(dec!(1500)),
+    ];
+
+    for tx in cases {
+        let err = convert_one(&tx).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::GbpTradeValuationNotAllowed {
+                id: tx.as_ref().id.clone(),
+            }
+        );
+    }
+}
+
+#[test]
+fn deposit_income_with_value_gbp() {
+    let tx = deposit_tx("d-income-value", "ETH", dec!(0.5))
+        .with_tag(Tag::StakingReward)
+        .with_value_gbp(dec!(800));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].tag, Tag::StakingReward);
+    assert_eq!(events[0].value_gbp, dec!(800));
+}
+
+#[test]
+fn deposit_gbp_income_with_value_gbp_errors() {
+    let tx = deposit_tx("d-gbp-income-value", "GBP", dec!(500))
+        .with_tag(Tag::Dividend)
+        .with_value_gbp(dec!(500));
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::GbpIncomeValuationNotAllowed {
+            id: "d-gbp-income-value".to_string(),
+            tag: "Dividend".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -944,7 +1170,7 @@ fn validate_assets_detects_undefined_symbol() {
           "type": "Trade",
           "sold": { "asset": "ETH", "quantity": 1.0 },
           "bought": { "asset": "BTC", "quantity": 0.05 },
-          "price": { "base": "BTC", "rate": 1000 }
+          "valuation": { "base": "BTC", "rate": 1000 }
         }
       ]
     }"#;
@@ -1062,7 +1288,7 @@ fn validate_assets_checks_fee_and_price_symbols() {
           "type": "Trade",
           "sold": { "asset": "GBP", "quantity": 1000 },
           "bought": { "asset": "BTC", "quantity": 0.05 },
-          "price": { "base": "ETH", "rate": 2000 }
+          "valuation": { "base": "ETH", "rate": 2000 }
         }
       ]
     }"#;
@@ -1150,4 +1376,71 @@ fn unclassified_price_base_mismatch_errors() {
             }
         );
     }
+}
+
+#[test]
+fn unlinked_deposit_value_gbp_with_fee() {
+    let tx = deposit_tx("d-unlinked-fee", "ETH", dec!(2))
+        .with_value_gbp(dec!(2000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(3),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(3)));
+}
+
+#[test]
+fn unlinked_withdrawal_value_gbp_with_fee() {
+    let tx = withdrawal_tx("w-unlinked-fee", "ETH", dec!(2))
+        .with_value_gbp(dec!(2000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(3),
+            price: None,
+        });
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events[0].fee_gbp, Some(dec!(3)));
+}
+
+#[test]
+fn serde_round_trip_valuation_price() {
+    let tx = trade_tx("serde-price", ("BTC", dec!(0.5)), ("ETH", dec!(8)))
+        .with_price(gbp_price("ETH", dec!(1875)))
+        .build();
+
+    let json = serde_json::to_string(&tx).unwrap();
+    let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
+    assert!(matches!(
+        round_tripped.valuation,
+        Some(Valuation::Price(ref p)) if p.base == "ETH"
+    ));
+}
+
+#[test]
+fn serde_round_trip_valuation_value_gbp() {
+    let tx = trade_tx("serde-value", ("BTC", dec!(0.5)), ("ETH", dec!(8)))
+        .with_value_gbp(dec!(15000))
+        .build();
+
+    let json = serde_json::to_string(&tx).unwrap();
+    let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        round_tripped.valuation,
+        Some(Valuation::ValueGbp(dec!(15000)))
+    );
+}
+
+#[test]
+fn serde_round_trip_valuation_none() {
+    let tx = trade_tx("serde-none", ("GBP", dec!(1000)), ("BTC", dec!(0.05))).build();
+
+    let json = serde_json::to_string(&tx).unwrap();
+    assert!(!json.contains("\"valuation\""));
+
+    let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
+    assert_eq!(round_tripped.valuation, None);
 }

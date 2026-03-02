@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::error::TransactionError;
 use super::model::{Asset, AssetRegistry, Transaction, TransactionType};
 use super::normalize::{is_gbp, normalize_currency};
+use super::valuation::Valuation;
 use crate::core::events::{AssetClass, Tag};
 use crate::core::price::Price;
 
@@ -71,7 +72,7 @@ pub(super) fn validate_assets(
             }
         }
 
-        if let Some(price) = &tx.price {
+        if let Some(price) = tx.valuation.as_ref().and_then(Valuation::price) {
             validate_symbol(&registry, price.base.as_str())?;
         }
     }

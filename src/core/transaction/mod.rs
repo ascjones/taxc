@@ -8,6 +8,7 @@ mod error;
 mod model;
 mod normalize;
 mod validate;
+mod valuation;
 
 pub use error::TransactionError;
 #[allow(unused_imports)]
@@ -15,6 +16,8 @@ pub use model::{
     Amount, Asset, AssetRegistry, ConversionOptions, Fee, Transaction, TransactionInput,
     TransactionType,
 };
+#[allow(unused_imports)]
+pub use valuation::Valuation;
 
 use normalize::{normalize_assets, normalize_transactions};
 use validate::{validate_assets, validate_links};

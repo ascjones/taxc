@@ -4,6 +4,7 @@ use super::error::TransactionError;
 use super::model::{AssetRegistry, Fee, Transaction, TransactionType};
 use super::normalize::{is_gbp, normalize_currency};
 use super::validate::{asset_class_for, validate_price_base};
+use super::valuation::Valuation;
 use crate::core::events::{EventType, Tag, TaxableEvent};
 use crate::core::price::Price;
 
@@ -17,7 +18,7 @@ impl Transaction {
             id,
             datetime,
             description,
-            price,
+            valuation,
             fee,
             tag,
             details,
@@ -42,20 +43,31 @@ impl Transaction {
                 }
 
                 let value_gbp = if is_gbp(&sold.asset) || is_gbp(&bought.asset) {
-                    if price.is_some() {
-                        return Err(TransactionError::GbpTradePriceNotAllowed { id: id.clone() });
-                    }
-                    if is_gbp(&sold.asset) {
-                        sold.quantity
-                    } else {
-                        bought.quantity
+                    match valuation.as_ref() {
+                        None => {
+                            if is_gbp(&sold.asset) {
+                                sold.quantity
+                            } else {
+                                bought.quantity
+                            }
+                        }
+                        Some(_) => {
+                            return Err(TransactionError::GbpTradeValuationNotAllowed {
+                                id: id.clone(),
+                            });
+                        }
                     }
                 } else {
-                    let p = price
-                        .as_ref()
-                        .ok_or_else(|| TransactionError::MissingTradePrice { id: id.clone() })?;
-                    validate_price_base(id, p, &bought.asset)?;
-                    p.to_gbp(bought.quantity)?
+                    match valuation.as_ref() {
+                        Some(Valuation::Price(price)) => {
+                            validate_price_base(id, price, &bought.asset)?;
+                            price.to_gbp(bought.quantity)?
+                        }
+                        Some(Valuation::ValueGbp(value_gbp)) => *value_gbp,
+                        None => {
+                            return Err(TransactionError::MissingTradeValuation { id: id.clone() });
+                        }
+                    }
                 };
 
                 let mut events = Vec::new();
@@ -63,13 +75,11 @@ impl Transaction {
                 let has_disposal = !is_gbp(&sold.asset);
                 let has_acquisition = !is_gbp(&bought.asset);
 
+                let tx_price = valuation.as_ref().and_then(Valuation::price);
+
                 // Fee uses trade price if fee asset matches bought asset
                 let fee_gbp = match fee {
-                    Some(f) => Some(fee_to_gbp_with_context(
-                        f,
-                        Some(&bought.asset),
-                        price.as_ref(),
-                    )?),
+                    Some(f) => Some(fee_to_gbp_with_context(f, Some(&bought.asset), tx_price)?),
                     None => None,
                 };
 
@@ -120,8 +130,8 @@ impl Transaction {
 
                     let value_gbp = match tag {
                         Tag::Dividend | Tag::Interest if is_gbp(&amount.asset) => {
-                            if price.is_some() {
-                                return Err(TransactionError::GbpIncomePriceNotAllowed {
+                            if valuation.is_some() {
+                                return Err(TransactionError::GbpIncomeValuationNotAllowed {
                                     id: id.clone(),
                                     tag: tag_name(*tag).to_string(),
                                 });
@@ -133,21 +143,18 @@ impl Transaction {
                         | Tag::OtherIncome
                         | Tag::AirdropIncome
                         | Tag::Dividend
-                        | Tag::Interest => {
-                            let tx_price =
-                                require_tagged_price(id, *tag, "deposit", price.as_ref())?;
-                            validate_price_base(id, tx_price, &amount.asset)?;
-                            tx_price.to_gbp(amount.quantity)?
-                        }
-                        Tag::Gift => {
-                            let tx_price =
-                                require_tagged_price(id, *tag, "deposit", price.as_ref())?;
-                            validate_price_base(id, tx_price, &amount.asset)?;
-                            tx_price.to_gbp(amount.quantity)?
-                        }
+                        | Tag::Interest
+                        | Tag::Gift => valuation_to_gbp_required(
+                            id,
+                            *tag,
+                            "deposit",
+                            valuation.as_ref(),
+                            &amount.asset,
+                            amount.quantity,
+                        )?,
                         Tag::Airdrop => {
-                            if price.is_some() {
-                                return Err(TransactionError::AirdropPriceNotAllowed {
+                            if valuation.is_some() {
+                                return Err(TransactionError::AirdropValuationNotAllowed {
                                     id: id.clone(),
                                 });
                             }
@@ -162,11 +169,12 @@ impl Transaction {
                         }
                     };
 
-                    // For airdrops and GBP income, there is no price context for fee resolution.
-                    let (priced_asset, tx_price) = if *tag == Tag::Airdrop || price.is_none() {
+                    // For airdrops, GBP income, and direct GBP valuations there is no price context.
+                    let tx_price = valuation.as_ref().and_then(Valuation::price);
+                    let (priced_asset, tx_price) = if *tag == Tag::Airdrop || tx_price.is_none() {
                         (None, None)
                     } else {
-                        (Some(amount.asset.as_str()), price.as_ref())
+                        (Some(amount.asset.as_str()), tx_price)
                     };
                     let fee_gbp = match fee {
                         Some(f) => Some(fee_to_gbp_with_context(f, priced_asset, tx_price)?),
@@ -201,22 +209,22 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
+                let tx_price = valuation.as_ref().and_then(Valuation::price);
                 let fee_gbp = match fee {
                     Some(f) => Some(fee_to_gbp_with_context(
                         f,
-                        price.as_ref().map(|_| amount.asset.as_str()),
-                        price.as_ref(),
+                        tx_price.map(|_| amount.asset.as_str()),
+                        tx_price,
                     )?),
                     None => None,
                 };
 
-                let value_gbp = match price {
-                    Some(p) => {
-                        validate_price_base(id, p, &amount.asset)?;
-                        p.to_gbp(amount.quantity)?
-                    }
-                    None => Decimal::ZERO,
-                };
+                let value_gbp = valuation_to_gbp_optional(
+                    id,
+                    valuation.as_ref(),
+                    &amount.asset,
+                    amount.quantity,
+                )?;
 
                 log::warn!(
                     "Unlinked deposit treated as acquisition: id={} asset={}",
@@ -255,14 +263,17 @@ impl Transaction {
                         });
                     }
 
-                    let tx_price = require_tagged_price(id, *tag, "withdrawal", price.as_ref())?;
-                    validate_price_base(id, tx_price, &amount.asset)?;
+                    let value_gbp = valuation_to_gbp_required(
+                        id,
+                        *tag,
+                        "withdrawal",
+                        valuation.as_ref(),
+                        &amount.asset,
+                        amount.quantity,
+                    )?;
+                    let tx_price = valuation.as_ref().and_then(Valuation::price);
                     let fee_gbp = match fee {
-                        Some(f) => Some(fee_to_gbp_with_context(
-                            f,
-                            Some(&amount.asset),
-                            Some(tx_price),
-                        )?),
+                        Some(f) => Some(fee_to_gbp_with_context(f, Some(&amount.asset), tx_price)?),
                         None => None,
                     };
 
@@ -275,7 +286,7 @@ impl Transaction {
                         asset: normalize_currency(&amount.asset),
                         asset_class: asset_class_for(registry, &amount.asset),
                         quantity: amount.quantity,
-                        value_gbp: tx_price.to_gbp(amount.quantity)?,
+                        value_gbp,
                         fee_gbp,
                         description: description.clone(),
                     }]);
@@ -294,22 +305,22 @@ impl Transaction {
                     return Ok(vec![]);
                 }
 
+                let tx_price = valuation.as_ref().and_then(Valuation::price);
                 let fee_gbp = match fee {
                     Some(f) => Some(fee_to_gbp_with_context(
                         f,
-                        price.as_ref().map(|_| amount.asset.as_str()),
-                        price.as_ref(),
+                        tx_price.map(|_| amount.asset.as_str()),
+                        tx_price,
                     )?),
                     None => None,
                 };
 
-                let value_gbp = match price {
-                    Some(p) => {
-                        validate_price_base(id, p, &amount.asset)?;
-                        p.to_gbp(amount.quantity)?
-                    }
-                    None => Decimal::ZERO,
-                };
+                let value_gbp = valuation_to_gbp_optional(
+                    id,
+                    valuation.as_ref(),
+                    &amount.asset,
+                    amount.quantity,
+                )?;
 
                 log::warn!(
                     "Unlinked withdrawal treated as disposal: id={} asset={}",
@@ -378,15 +389,40 @@ fn tag_name(tag: Tag) -> &'static str {
     }
 }
 
-fn require_tagged_price<'a>(
+fn valuation_to_gbp_required(
     id: &str,
     tag: Tag,
     tx_type: &str,
-    price: Option<&'a Price>,
-) -> Result<&'a Price, TransactionError> {
-    price.ok_or_else(|| TransactionError::MissingTaggedPrice {
-        id: id.to_string(),
-        tag: tag_name(tag).to_string(),
-        tx_type: tx_type.to_string(),
-    })
+    valuation: Option<&Valuation>,
+    expected_asset: &str,
+    quantity: Decimal,
+) -> Result<Decimal, TransactionError> {
+    match valuation {
+        Some(Valuation::Price(price)) => {
+            validate_price_base(id, price, expected_asset)?;
+            price.to_gbp(quantity)
+        }
+        Some(Valuation::ValueGbp(value_gbp)) => Ok(*value_gbp),
+        None => Err(TransactionError::MissingTaggedValuation {
+            id: id.to_string(),
+            tag: tag_name(tag).to_string(),
+            tx_type: tx_type.to_string(),
+        }),
+    }
+}
+
+fn valuation_to_gbp_optional(
+    id: &str,
+    valuation: Option<&Valuation>,
+    expected_asset: &str,
+    quantity: Decimal,
+) -> Result<Decimal, TransactionError> {
+    match valuation {
+        Some(Valuation::Price(price)) => {
+            validate_price_base(id, price, expected_asset)?;
+            price.to_gbp(quantity)
+        }
+        Some(Valuation::ValueGbp(value_gbp)) => Ok(*value_gbp),
+        None => Ok(Decimal::ZERO),
+    }
 }

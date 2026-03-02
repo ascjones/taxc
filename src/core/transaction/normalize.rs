@@ -1,9 +1,10 @@
 use super::model::{Asset, Transaction, TransactionType};
+use super::valuation::Valuation;
 
 pub(super) fn normalize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions {
-        // Normalize price at transaction level
-        if let Some(p) = tx.price.as_mut() {
+        // Normalize valuation price object at transaction level.
+        if let Some(Valuation::Price(p)) = tx.valuation.as_mut() {
             p.base = normalize_currency(&p.base);
             if let Some(quote) = p.quote.as_mut() {
                 *quote = normalize_currency(quote);

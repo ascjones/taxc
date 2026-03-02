@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::datetime::deserialize_datetime;
+use super::valuation::Valuation;
 use crate::core::events::{AssetClass, Tag};
 use crate::core::price::Price;
 
@@ -29,9 +30,9 @@ pub struct Transaction {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
-    /// Optional price for valuation
-    #[serde(default)]
-    pub price: Option<Price>,
+    /// Optional valuation: a price object or direct GBP total
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valuation: Option<Valuation>,
     /// Optional fee for this transaction
     #[serde(default)]
     pub fee: Option<Fee>,

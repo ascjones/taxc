@@ -193,22 +193,21 @@
           "description": "Unique identifier for this transaction",
           "type": "string"
         },
-        "price": {
-          "description": "Optional price for valuation",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Price"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "tag": {
           "description": "Optional transaction tag used for classification",
           "$ref": "#/$defs/Tag",
           "default": "Unclassified"
+        },
+        "valuation": {
+          "description": "Optional valuation: a price object or direct GBP total",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Valuation"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "oneOf": [
@@ -286,6 +285,17 @@
         "id",
         "datetime",
         "account"
+      ]
+    },
+    "Valuation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Price"
+        },
+        {
+          "type": "number",
+          "format": "double"
+        }
       ]
     }
   }

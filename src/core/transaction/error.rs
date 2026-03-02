@@ -8,10 +8,10 @@ pub enum TransactionError {
     LinkedTransactionTypeMismatch { id: String, linked_id: String },
     #[error("linked transaction is not reciprocal: {id} -> {linked_id}")]
     LinkedTransactionNotReciprocal { id: String, linked_id: String },
-    #[error("price required when neither side is GBP: {id}")]
-    MissingTradePrice { id: String },
-    #[error("price required for {tag} {tx_type}: {id}")]
-    MissingTaggedPrice {
+    #[error("valuation required when neither side is GBP: {id}")]
+    MissingTradeValuation { id: String },
+    #[error("valuation required for {tag} {tx_type}: {id}")]
+    MissingTaggedValuation {
         id: String,
         tag: String,
         tx_type: String,
@@ -20,12 +20,12 @@ pub enum TransactionError {
     TaggedDepositLinked { id: String },
     #[error("tagged withdrawal cannot have linked_deposit: {id}")]
     TaggedWithdrawalLinked { id: String },
-    #[error("airdrop deposit must not include price: {id}")]
-    AirdropPriceNotAllowed { id: String },
-    #[error("GBP {tag} deposit must not include price: {id}")]
-    GbpIncomePriceNotAllowed { id: String, tag: String },
-    #[error("price is not needed for GBP trades, value is derived from quantities: {id}")]
-    GbpTradePriceNotAllowed { id: String },
+    #[error("airdrop deposit must not include valuation: {id}")]
+    AirdropValuationNotAllowed { id: String },
+    #[error("GBP {tag} deposit must not include valuation: {id}")]
+    GbpIncomeValuationNotAllowed { id: String, tag: String },
+    #[error("valuation is not needed for GBP trades, value is derived from quantities: {id}")]
+    GbpTradeValuationNotAllowed { id: String },
     #[error("{tag} tag not allowed on {tx_type}: {id}")]
     InvalidTagForType {
         id: String,

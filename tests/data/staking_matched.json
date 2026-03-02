@@ -11,7 +11,7 @@
       "type": "Deposit",
       "tag": "StakingReward",
       "amount": { "asset": "ETH", "quantity": 1.0 },
-      "price": { "base": "ETH", "rate": 2000 }
+      "valuation": { "base": "ETH", "rate": 2000 }
     },
     {
       "id": "d-1",

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// For direct GBP prices: value_gbp = quantity * rate
 /// For FX prices: value_gbp = quantity * rate * fx_rate
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Price {
     /// The asset this price refers to (e.g., "BTC", "ETH")
     pub base: String,

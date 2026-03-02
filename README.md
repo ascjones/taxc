@@ -122,7 +122,7 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 | `description` | Optional description |
 | `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal` |
 | `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Dividend`, `Interest`, `Gift` |
-| `price` | Optional price for valuation (see Price section below) |
+| `valuation` | Optional valuation: either a Price object or a direct GBP total number |
 | `fee` | Optional fee (see Fee section below) |
 
 ### Types
@@ -130,22 +130,24 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 **Trade**
 - `sold`: asset you gave up
 - `bought`: asset you received
-- Requires `price` when neither side is GBP (price.base must match bought asset)
+- Requires `valuation` when neither side is GBP
+- If `valuation` is a Price object, `valuation.base` must match `bought.asset`
 - `tag` must be `Unclassified` (default) or `Trade`
 
 **Deposit**
 - `amount`
 - `linked_withdrawal` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
-- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`, `Dividend`, `Interest`): require `price` and create income acquisitions
-- `tag: Gift`: requires `price` and creates `GiftIn`
-- `tag: Airdrop`: must not include `price`, creates zero-cost acquisition
+- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`, `Dividend`, `Interest`): require `valuation` and create income acquisitions
+- GBP `Dividend` and `Interest` deposits must not include `valuation`; value is taken from the GBP quantity
+- `tag: Gift`: requires `valuation` and creates `GiftIn`
+- `tag: Airdrop`: must not include `valuation`, creates zero-cost acquisition
 
 **Withdrawal**
 - `amount`
 - `linked_deposit` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
-- `tag: Gift`: requires `price` and creates `GiftOut`
+- `tag: Gift`: requires `valuation` and creates `GiftOut`
 - Other explicit tags on withdrawals are rejected
 
 ### Asset Registry Entry
@@ -161,6 +163,26 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 |-------|-------------|
 | `asset` | Asset identifier (must exist in top-level `assets`, unless GBP) |
 | `quantity` | Amount of asset |
+
+### Valuation
+
+`valuation` replaces the old transaction-level `price` field.
+
+It accepts either:
+- A Price object for per-unit pricing
+- A direct GBP total number when your broker statement already gives the transaction's GBP value
+
+Examples:
+
+```json
+"valuation": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
+```
+
+```json
+"valuation": 15000
+```
+
+Use a Price object when you know the per-unit rate. Use a GBP number when you know only the total GBP value.
 
 ### Price
 
@@ -181,19 +203,21 @@ For FX prices: `value = quantity * rate * fx_rate`
 |-------|-------------|
 | `asset` | Fee asset symbol |
 | `amount` | Fee amount |
-| `price` | Optional if `asset` is GBP or matches the priced asset; required otherwise |
+| `price` | Optional if `asset` is GBP or matches the transaction asset with a Price valuation; required otherwise |
 
 Fee pricing rules:
 - GBP fees need no price
 - If the fee has an explicit `price`, that is used
-- For Trade: if fee asset matches the `bought` asset, the trade's `price` is used
-- For tagged Deposit/Withdrawal with price: if fee asset matches the transaction asset, transaction `price` is used
-- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `price` is present and fee asset matches `amount.asset`
-- For `Airdrop` deposits (no price): fee must be GBP or have an explicit `price`
+- For Trade: if fee asset matches the `bought` asset, the trade's `valuation` is used only when that valuation is a Price object
+- For tagged Deposit/Withdrawal: if fee asset matches the transaction asset, transaction `valuation` is used only when that valuation is a Price object
+- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `valuation` is a Price object and fee asset matches `amount.asset`
+- For `Airdrop` deposits (no valuation): fee must be GBP or have an explicit `price`
+- If `valuation` is a direct GBP number, there is no per-unit price available for fee inference
 
 **Notes**
 - Unlinked crypto deposits/withdrawals with `tag: Unclassified` become unclassified events (`UnclassifiedIn`/`UnclassifiedOut`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
-- For crypto-to-crypto trades, the GBP value is taken from the acquired asset price.
+- For crypto-to-crypto trades, the GBP value can come from either the acquired asset Price valuation or a direct GBP total.
+- Input format breaking change: transaction-level `price` has been renamed to `valuation`.
 
 ### Example JSON
 
@@ -230,7 +254,7 @@ Fee pricing rules:
       "type": "Trade",
       "sold": { "asset": "BTC", "quantity": 0.01 },
       "bought": { "asset": "ETH", "quantity": 0.5 },
-      "price": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
+      "valuation": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
     },
     {
       "id": "tx-004",
@@ -240,7 +264,7 @@ Fee pricing rules:
       "type": "Deposit",
       "tag": "StakingReward",
       "amount": { "asset": "ETH", "quantity": 0.01 },
-      "price": { "base": "ETH", "rate": 2000 }
+      "valuation": 20
     }
   ]
 }
