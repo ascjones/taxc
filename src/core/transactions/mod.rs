@@ -1,23 +1,44 @@
+use std::collections::HashMap;
 use std::io::Read;
 
+use crate::core::events::AssetClass;
 use crate::core::events::TaxableEvent;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 mod convert;
 mod datetime;
 mod error;
-mod model;
 mod normalize;
+mod transaction;
 mod validate;
 mod valuation;
 
 pub use error::TransactionError;
 #[allow(unused_imports)]
-pub use model::{
-    Amount, Asset, AssetRegistry, ConversionOptions, Fee, Transaction, TransactionInput,
-    TransactionType,
-};
+pub use transaction::{Amount, Fee, Transaction, TransactionType};
 #[allow(unused_imports)]
 pub use valuation::Valuation;
+
+/// Input root for transaction JSON
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Transactions {
+    pub assets: Vec<Asset>,
+    pub transactions: Vec<Transaction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Asset {
+    pub symbol: String,
+    pub asset_class: AssetClass,
+}
+
+pub type AssetRegistry = HashMap<String, Asset>;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ConversionOptions {
+    pub exclude_unlinked: bool,
+}
 
 use normalize::{normalize_assets, normalize_transactions};
 use validate::{validate_assets, validate_links};
@@ -26,7 +47,7 @@ use validate::{validate_assets, validate_links};
 pub fn read_transactions_json<R: Read>(
     reader: R,
 ) -> anyhow::Result<(Vec<Transaction>, AssetRegistry)> {
-    let input: TransactionInput = serde_json::from_reader(reader)?;
+    let input: Transactions = serde_json::from_reader(reader)?;
     let mut assets = input.assets;
     let mut transactions = input.transactions;
     normalize_assets(&mut assets);

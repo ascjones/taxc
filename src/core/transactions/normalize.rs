@@ -1,5 +1,5 @@
-use super::model::{Asset, Transaction, TransactionType};
 use super::valuation::Valuation;
+use super::{Asset, Transaction, TransactionType};
 
 pub(super) fn normalize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions {

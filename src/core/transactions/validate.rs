@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::TransactionError;
-use super::model::{Asset, AssetRegistry, Transaction, TransactionType};
 use super::normalize::{is_gbp, normalize_currency};
 use super::valuation::Valuation;
+use super::{Asset, AssetRegistry, Transaction, TransactionType};
 use crate::core::events::{AssetClass, Tag};
 use crate::core::price::Price;
 

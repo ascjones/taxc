@@ -1,10 +1,10 @@
 use rust_decimal::Decimal;
 
 use super::error::TransactionError;
-use super::model::{AssetRegistry, Fee, Transaction, TransactionType};
 use super::normalize::{is_gbp, normalize_currency};
 use super::validate::{asset_class_for, validate_price_base};
 use super::valuation::Valuation;
+use super::{AssetRegistry, Fee, Transaction, TransactionType};
 use crate::core::events::{EventType, Tag, TaxableEvent};
 use crate::core::price::Price;
 

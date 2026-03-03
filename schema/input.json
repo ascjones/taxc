@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "TransactionInput",
+  "title": "Transactions",
   "description": "Input root for transaction JSON",
   "type": "object",
   "properties": {

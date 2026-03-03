@@ -1,7 +1,7 @@
 //! Schema command - print JSON schemas for input/output formats
 
 use crate::cmd::report::ReportData;
-use crate::core::TransactionInput;
+use crate::core::Transactions;
 use clap::{Args, ValueEnum};
 use schemars::schema_for;
 
@@ -23,7 +23,7 @@ pub struct SchemaCommand {
 impl SchemaCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let schema = match self.schema_type {
-            SchemaType::Input => schema_for!(TransactionInput),
+            SchemaType::Input => schema_for!(Transactions),
             SchemaType::Output => schema_for!(ReportData),
         };
         println!("{}", serde_json::to_string_pretty(&schema)?);

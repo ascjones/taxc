@@ -2,19 +2,11 @@ use chrono::{DateTime, FixedOffset};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use super::datetime::deserialize_datetime;
 use super::valuation::Valuation;
-use crate::core::events::{AssetClass, Tag};
+use crate::core::events::Tag;
 use crate::core::price::Price;
-
-/// Input root for transaction JSON
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct TransactionInput {
-    pub assets: Vec<Asset>,
-    pub transactions: Vec<Transaction>,
-}
 
 /// Transaction record with common fields + type-specific data
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -66,19 +58,11 @@ pub enum TransactionType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct Asset {
-    pub symbol: String,
-    pub asset_class: AssetClass,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Amount {
     pub asset: String,
     #[schemars(with = "f64")]
     pub quantity: Decimal,
 }
-
-pub type AssetRegistry = HashMap<String, Asset>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Fee {
@@ -87,9 +71,4 @@ pub struct Fee {
     pub amount: Decimal,
     #[serde(default)]
     pub price: Option<Price>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ConversionOptions {
-    pub exclude_unlinked: bool,
 }

@@ -1,7 +1,7 @@
 pub mod cgt;
 pub mod events;
 pub mod price;
-pub mod transaction;
+pub mod transactions;
 pub mod uk;
 pub mod warnings;
 
@@ -12,9 +12,9 @@ pub use cgt::{
 };
 pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
 #[allow(unused_imports)]
-pub use transaction::{
+pub use transactions::{
     read_transactions_json, transactions_to_events, Amount, Asset, AssetRegistry,
-    ConversionOptions, TransactionError, TransactionInput,
+    ConversionOptions, TransactionError, Transactions,
 };
 pub use uk::{TaxBand, TaxYear};
 pub use warnings::Warning;
