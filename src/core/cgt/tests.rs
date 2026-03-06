@@ -1,106 +1,11 @@
 use super::*;
-use crate::core::{AssetClass, Tag};
+use crate::core::events::builders::{acq, acq_with_fee, disp, disp_with_fee, event, staking};
+use crate::core::AssetClass;
 use chrono::DateTime;
 use rust_decimal_macros::dec;
 
 fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
     DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
-}
-
-fn event(
-    event_type: EventType,
-    tag: Tag,
-    date: &str,
-    asset: &str,
-    qty: Decimal,
-    value: Decimal,
-    fee: Option<Decimal>,
-) -> TaxableEvent {
-    TaxableEvent {
-        id: 0,
-        source_transaction_id: "tx-test".to_string(),
-        datetime: dt(date),
-        event_type,
-        tag,
-        asset: asset.to_string(),
-        asset_class: AssetClass::Crypto,
-        quantity: qty,
-        value_gbp: value,
-        fee_gbp: fee,
-        description: None,
-    }
-}
-
-fn acq(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-    event(
-        EventType::Acquisition,
-        Tag::Trade,
-        date,
-        asset,
-        qty,
-        value,
-        None,
-    )
-}
-
-fn acq_with_fee(
-    date: &str,
-    asset: &str,
-    qty: Decimal,
-    value: Decimal,
-    fee: Decimal,
-) -> TaxableEvent {
-    event(
-        EventType::Acquisition,
-        Tag::Trade,
-        date,
-        asset,
-        qty,
-        value,
-        Some(fee),
-    )
-}
-
-fn disp(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-    event(
-        EventType::Disposal,
-        Tag::Trade,
-        date,
-        asset,
-        qty,
-        value,
-        None,
-    )
-}
-
-fn disp_with_fee(
-    date: &str,
-    asset: &str,
-    qty: Decimal,
-    value: Decimal,
-    fee: Decimal,
-) -> TaxableEvent {
-    event(
-        EventType::Disposal,
-        Tag::Trade,
-        date,
-        asset,
-        qty,
-        value,
-        Some(fee),
-    )
-}
-
-fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
-    event(
-        EventType::Acquisition,
-        Tag::StakingReward,
-        date,
-        asset,
-        qty,
-        value,
-        None,
-    )
 }
 
 #[test]

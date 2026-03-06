@@ -107,6 +107,113 @@ impl TaxableEvent {
 }
 
 #[cfg(test)]
+pub mod builders {
+    use super::*;
+    use chrono::{DateTime, FixedOffset};
+    use rust_decimal::Decimal;
+
+    fn dt(date: &str) -> DateTime<FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
+    }
+
+    pub fn event(
+        event_type: EventType,
+        tag: Tag,
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        value: Decimal,
+        fee: Option<Decimal>,
+    ) -> TaxableEvent {
+        TaxableEvent {
+            id: 0,
+            source_transaction_id: "tx-test".to_string(),
+            datetime: dt(date),
+            event_type,
+            tag,
+            asset: asset.to_string(),
+            asset_class: AssetClass::Crypto,
+            quantity: qty,
+            value_gbp: value,
+            fee_gbp: fee,
+            description: None,
+        }
+    }
+
+    pub fn acq(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
+        event(
+            EventType::Acquisition,
+            Tag::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
+    }
+
+    pub fn acq_with_fee(
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        value: Decimal,
+        fee: Decimal,
+    ) -> TaxableEvent {
+        event(
+            EventType::Acquisition,
+            Tag::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            Some(fee),
+        )
+    }
+
+    pub fn disp(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
+        event(
+            EventType::Disposal,
+            Tag::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
+    }
+
+    pub fn disp_with_fee(
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        value: Decimal,
+        fee: Decimal,
+    ) -> TaxableEvent {
+        event(
+            EventType::Disposal,
+            Tag::Trade,
+            date,
+            asset,
+            qty,
+            value,
+            Some(fee),
+        )
+    }
+
+    pub fn staking(date: &str, asset: &str, qty: Decimal, value: Decimal) -> TaxableEvent {
+        event(
+            EventType::Acquisition,
+            Tag::StakingReward,
+            date,
+            asset,
+            qty,
+            value,
+            None,
+        )
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;

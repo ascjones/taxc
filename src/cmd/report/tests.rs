@@ -1,12 +1,8 @@
 use super::*;
 use crate::cmd::filter::EventFilter;
-use crate::core::{AssetClass, EventType, Tag, TaxableEvent};
-use chrono::DateTime;
+use crate::core::events::builders::{acq, disp};
+use crate::core::{Tag, TaxableEvent};
 use rust_decimal_macros::dec;
-
-fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
-    DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
-}
 
 fn no_filter() -> EventFilter {
     EventFilter {
@@ -21,30 +17,14 @@ fn no_filter() -> EventFilter {
 fn gift_event_types_in_report_data() {
     let events = vec![
         TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-01-01"),
-            event_type: EventType::Acquisition,
             tag: Tag::Gift,
-            asset: "ETH".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(2),
-            value_gbp: dec!(2000),
-            fee_gbp: None,
             description: Some("Gift received".to_string()),
+            ..acq("2024-01-01", "ETH", dec!(2), dec!(2000))
         },
         TaxableEvent {
-            id: 2,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-02-01"),
-            event_type: EventType::Disposal,
             tag: Tag::Gift,
-            asset: "ETH".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(1500),
-            fee_gbp: None,
             description: Some("Gift given".to_string()),
+            ..disp("2024-02-01", "ETH", dec!(1), dec!(1500))
         },
     ];
 
@@ -61,42 +41,15 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
     let events = vec![
         TaxableEvent {
             id: 1,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-15"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(30000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-15", "BTC", dec!(1), dec!(30000))
         },
         TaxableEvent {
             id: 2,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-15"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(40000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-15", "BTC", dec!(1), dec!(40000))
         },
         TaxableEvent {
             id: 3,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-15"),
-            event_type: EventType::Disposal,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(2),
-            value_gbp: dec!(80000),
-            fee_gbp: None,
-            description: None,
+            ..disp("2024-06-15", "BTC", dec!(2), dec!(80000))
         },
     ];
 
@@ -124,55 +77,19 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
     let events = vec![
         TaxableEvent {
             id: 1,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-01-01"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(5),
-            value_gbp: dec!(100000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-01-01", "BTC", dec!(5), dec!(100000))
         },
         TaxableEvent {
             id: 2,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-01"),
-            event_type: EventType::Disposal,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(25000),
-            fee_gbp: None,
-            description: None,
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
         },
         TaxableEvent {
             id: 3,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-10"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(22000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-10", "BTC", dec!(1), dec!(22000))
         },
         TaxableEvent {
             id: 4,
-            source_transaction_id: "tx-test".to_string(),
-            datetime: dt("2024-06-10"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1),
-            value_gbp: dec!(24000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-10", "BTC", dec!(1), dec!(24000))
         },
     ];
 
@@ -200,15 +117,7 @@ fn warning_records_link_source_transaction_and_event_ids() {
     let events = vec![TaxableEvent {
         id: 1,
         source_transaction_id: "tx-1".to_string(),
-        datetime: dt("2024-06-01"),
-        event_type: EventType::Disposal,
-        tag: Tag::Trade,
-        asset: "BTC".to_string(),
-        asset_class: AssetClass::Crypto,
-        quantity: dec!(1),
-        value_gbp: dec!(25000),
-        fee_gbp: None,
-        description: None,
+        ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
     }];
 
     let cgt_report = calculate_cgt(events.clone()).unwrap();
@@ -228,41 +137,20 @@ fn summary_includes_dividend_and_interest_totals() {
         TaxableEvent {
             id: 1,
             source_transaction_id: "tx-1".to_string(),
-            datetime: dt("2024-06-01"),
-            event_type: EventType::Acquisition,
             tag: Tag::Salary,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(0.1),
-            value_gbp: dec!(1000),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-01", "BTC", dec!(0.1), dec!(1000))
         },
         TaxableEvent {
             id: 2,
             source_transaction_id: "tx-2".to_string(),
-            datetime: dt("2024-06-02"),
-            event_type: EventType::Acquisition,
             tag: Tag::Dividend,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(0.02),
-            value_gbp: dec!(200),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-02", "BTC", dec!(0.02), dec!(200))
         },
         TaxableEvent {
             id: 3,
             source_transaction_id: "tx-3".to_string(),
-            datetime: dt("2024-06-03"),
-            event_type: EventType::Acquisition,
             tag: Tag::Interest,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(0.03),
-            value_gbp: dec!(300),
-            fee_gbp: None,
-            description: None,
+            ..acq("2024-06-03", "BTC", dec!(0.03), dec!(300))
         },
     ];
 
