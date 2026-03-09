@@ -1,7 +1,7 @@
 use super::*;
 use crate::cmd::filter::EventFilter;
 use crate::core::events::builders::{acq, disp};
-use crate::core::{EventType, Tag, TaxableEvent};
+use crate::core::{AssetClass, EventType, Tag, TaxableEvent};
 use rust_decimal_macros::dec;
 
 fn no_filter() -> EventFilter {
@@ -164,4 +164,48 @@ fn summary_includes_dividend_and_interest_totals() {
     assert_eq!(data.summary.total_income, "1500.00");
     assert_eq!(data.summary.total_dividend_income, "200.00");
     assert_eq!(data.summary.total_interest_income, "300.00");
+}
+
+#[test]
+fn summary_separates_crypto_and_stock_cgt_totals() {
+    let events = vec![
+        // Crypto: buy then sell
+        acq("2024-01-01", "BTC", dec!(1), dec!(20000)),
+        TaxableEvent {
+            id: 2,
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+        },
+        // Stock: buy then sell
+        TaxableEvent {
+            asset_class: AssetClass::Stock,
+            ..acq("2024-01-01", "AAPL", dec!(10), dec!(1500))
+        },
+        TaxableEvent {
+            id: 4,
+            asset_class: AssetClass::Stock,
+            ..disp("2024-06-01", "AAPL", dec!(10), dec!(2000))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
+
+    // Combined totals
+    assert_eq!(data.summary.total_proceeds, "27000.00");
+    assert_eq!(data.summary.total_gain, "5500.00");
+
+    // Crypto totals
+    assert_eq!(data.summary.crypto.proceeds, "25000.00");
+    assert_eq!(data.summary.crypto.costs, "20000.00");
+    assert_eq!(data.summary.crypto.gain, "5000.00");
+
+    // Stock totals
+    assert_eq!(data.summary.stocks.proceeds, "2000.00");
+    assert_eq!(data.summary.stocks.costs, "1500.00");
+    assert_eq!(data.summary.stocks.gain, "500.00");
+
+    // Fiat totals (no fiat disposals in this test)
+    assert_eq!(data.summary.fiat.proceeds, "0.00");
+    assert_eq!(data.summary.fiat.costs, "0.00");
+    assert_eq!(data.summary.fiat.gain, "0.00");
 }

@@ -26,6 +26,25 @@
     "summary"
   ],
   "$defs": {
+    "AssetClassTotals": {
+      "type": "object",
+      "properties": {
+        "costs": {
+          "type": "string"
+        },
+        "gain": {
+          "type": "string"
+        },
+        "proceeds": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "proceeds",
+        "costs",
+        "gain"
+      ]
+    },
     "CgtDetails": {
       "description": "CGT details for disposal events",
       "type": "object",
@@ -233,6 +252,10 @@
           "format": "uint",
           "minimum": 0
         },
+        "crypto": {
+          "description": "Per-asset-class CGT totals (classified only)",
+          "$ref": "#/$defs/AssetClassTotals"
+        },
         "disposal_count": {
           "type": "integer",
           "format": "uint",
@@ -242,6 +265,9 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0
+        },
+        "fiat": {
+          "$ref": "#/$defs/AssetClassTotals"
         },
         "income_count": {
           "type": "integer",
@@ -259,6 +285,9 @@
             "string",
             "null"
           ]
+        },
+        "stocks": {
+          "$ref": "#/$defs/AssetClassTotals"
         },
         "tax_years": {
           "type": "array",
@@ -314,6 +343,9 @@
         "total_proceeds_with_unclassified",
         "total_costs_with_unclassified",
         "total_gain_with_unclassified",
+        "crypto",
+        "stocks",
+        "fiat",
         "total_income",
         "total_dividend_income",
         "total_interest_income",

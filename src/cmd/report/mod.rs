@@ -5,13 +5,14 @@ pub mod html;
 use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
 use crate::core::{
-    calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, EventType,
-    MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
+    calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, DisposalRecord,
+    EventType, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
 };
 use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -161,6 +162,13 @@ struct AcquisitionDetail {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub struct AssetClassTotals {
+    pub proceeds: String,
+    pub costs: String,
+    pub gain: String,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub struct Summary {
     pub total_proceeds: String,
     pub total_costs: String,
@@ -169,6 +177,10 @@ pub struct Summary {
     pub total_proceeds_with_unclassified: String,
     pub total_costs_with_unclassified: String,
     pub total_gain_with_unclassified: String,
+    /// Per-asset-class CGT totals (classified only)
+    pub crypto: AssetClassTotals,
+    pub stocks: AssetClassTotals,
+    pub fiat: AssetClassTotals,
     pub total_income: String,
     pub total_dividend_income: String,
     pub total_interest_income: String,
@@ -193,7 +205,6 @@ pub(super) fn build_report_data(
     filter: &EventFilter,
 ) -> anyhow::Result<ReportData> {
     use chrono::NaiveDate;
-    use std::collections::HashMap;
 
     // Filter events for reporting/output rows.
     let filtered_events: Vec<_> = filter.apply(events);
@@ -371,6 +382,12 @@ pub(super) fn build_report_data(
         })
         .collect();
 
+    // Build asset -> asset_class mapping from events
+    let asset_class_map: HashMap<String, AssetClass> = filtered_events
+        .iter()
+        .map(|e| (e.asset.clone(), e.asset_class.clone()))
+        .collect();
+
     // Calculate summary from disposals that match the active filter.
     let filtered_disposals: Vec<_> = cgt_report
         .disposals
@@ -391,6 +408,12 @@ pub(super) fn build_report_data(
         .map(|d| d.allowable_cost_gbp + d.fees_gbp)
         .sum();
     let total_gain: Decimal = classified_disposals.iter().map(|d| d.gain_gbp).sum();
+
+    // Per-asset-class totals (classified only)
+    let crypto =
+        sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Crypto);
+    let stocks = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Stock);
+    let fiat = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Fiat);
 
     // Totals including unclassified events
     let total_proceeds_with_unclassified: Decimal =
@@ -468,6 +491,9 @@ pub(super) fn build_report_data(
             total_proceeds_with_unclassified: format!("{:.2}", total_proceeds_with_unclassified),
             total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
             total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
+            crypto,
+            stocks,
+            fiat,
             total_income: format!("{:.2}", total_income),
             total_dividend_income: format!("{:.2}", total_dividend_income),
             total_interest_income: format!("{:.2}", total_interest_income),
@@ -483,6 +509,31 @@ pub(super) fn build_report_data(
             max_date: max_date.map(|d| d.format("%Y-%m-%d").to_string()),
         },
     })
+}
+
+fn sum_disposals_by_class(
+    disposals: &[&DisposalRecord],
+    asset_class_map: &HashMap<String, AssetClass>,
+    class: AssetClass,
+) -> AssetClassTotals {
+    let (proceeds, costs, gain) = disposals
+        .iter()
+        .filter(|d| asset_class_map.get(&d.asset) == Some(&class))
+        .fold(
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            |(proceeds, costs, gain), d| {
+                (
+                    proceeds + d.proceeds_gbp,
+                    costs + d.allowable_cost_gbp + d.fees_gbp,
+                    gain + d.gain_gbp,
+                )
+            },
+        );
+    AssetClassTotals {
+        proceeds: format!("{:.2}", proceeds),
+        costs: format!("{:.2}", costs),
+        gain: format!("{:.2}", gain),
+    }
 }
 
 fn format_event_type(event_type: EventType, tag: Tag) -> String {
