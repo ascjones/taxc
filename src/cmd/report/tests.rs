@@ -1,7 +1,7 @@
 use super::*;
 use crate::cmd::filter::EventFilter;
 use crate::core::events::builders::{acq, disp};
-use crate::core::{Tag, TaxableEvent};
+use crate::core::{EventType, Tag, TaxableEvent};
 use rust_decimal_macros::dec;
 
 fn no_filter() -> EventFilter {
@@ -32,8 +32,12 @@ fn gift_event_types_in_report_data() {
     let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
 
     let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
-    assert!(event_types.iter().any(|t| t == "GiftIn"));
-    assert!(event_types.iter().any(|t| t == "GiftOut"));
+    assert!(event_types
+        .iter()
+        .any(|t| t == display_event_type(EventType::Acquisition, Tag::Gift)));
+    assert!(event_types
+        .iter()
+        .any(|t| t == display_event_type(EventType::Disposal, Tag::Gift)));
 }
 
 #[test]
@@ -59,7 +63,7 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
     let disposal = data
         .events
         .iter()
-        .find(|e| e.event_type == "Disposal")
+        .find(|e| e.event_type == display_event_type(EventType::Disposal, Tag::Trade))
         .and_then(|e| e.cgt.as_ref())
         .expect("expected disposal with CGT details");
 
@@ -99,7 +103,7 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
     let disposal = data
         .events
         .iter()
-        .find(|e| e.event_type == "Disposal")
+        .find(|e| e.event_type == display_event_type(EventType::Disposal, Tag::Trade))
         .and_then(|e| e.cgt.as_ref())
         .expect("expected disposal with CGT details");
 
