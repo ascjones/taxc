@@ -11,6 +11,17 @@ Changes that require README updates include:
 - Changing output formats or adding new output modes
 - Updating supported tax years or rates
 
+## Code Navigation
+
+Use the LSP tool (rust-analyzer) for code navigation and understanding. Prefer LSP over grep/glob when:
+- Finding where a type, function, or trait is defined (`goToDefinition`)
+- Finding all usages of a symbol (`findReferences`)
+- Understanding a symbol's type or documentation (`hover`)
+- Listing symbols in a file (`documentSymbol`) or workspace (`workspaceSymbol`)
+- Tracing call chains (`incomingCalls`, `outgoingCalls`)
+
+Load the LSP tool at the start of each session with `select:LSP` via ToolSearch.
+
 ## Architecture
 
 - `src/cmd/` depends on `src/core/`, never the reverse.
