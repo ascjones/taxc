@@ -184,6 +184,12 @@ main {
     color: var(--danger);
 }
 
+.summary-counts {
+    font-size: 0.875rem;
+    color: var(--gray-500);
+    margin-bottom: 1rem;
+}
+
 .warnings-banner {
     background: #fef3c7;
     color: #92400e;

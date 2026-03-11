@@ -40,16 +40,29 @@ function formatEventType(type, tag, warnings) {
 function warningTypeName(warning) {
     if (!warning) return '';
     if (typeof warning === 'string') return warning;
-    return warning.type || '';
+    return Object.keys(warning)[0] || '';
 }
 
 function hasWarningType(warnings, warningType) {
     return !!warnings && warnings.some(w => warningTypeName(w) === warningType);
 }
 
+function formatWarningDisplay(w) {
+    if (typeof w === 'string') return w;
+    const type = Object.keys(w)[0] || '';
+    if (type === 'UnclassifiedEvent') return 'Unclassified';
+    if (type === 'InsufficientCostBasis') {
+        const detail = w[type];
+        if (detail && detail.available === '0') return 'No Cost Basis';
+        if (detail) return `Insufficient Cost Basis (${detail.available}/${detail.required})`;
+        return 'Insufficient Cost Basis';
+    }
+    return type;
+}
+
 function formatWarnings(warnings) {
     if (!warnings || warnings.length === 0) return '';
-    return warnings.map(w => `<span class="warning-badge">${w}</span>`).join(' ');
+    return warnings.map(w => `<span class="warning-badge">${formatWarningDisplay(w)}</span>`).join(' ');
 }
 
 function renderEventsTable(events) {
@@ -57,7 +70,7 @@ function renderEventsTable(events) {
     tbody.innerHTML = '';
 
     events.forEach((e, idx) => {
-        const isDisposal = e.cgt !== null;
+        const isDisposal = !!e.cgt;
         const row = document.createElement('tr');
         row.className = isDisposal ? 'disposal-row' : '';
 
@@ -74,7 +87,7 @@ function renderEventsTable(events) {
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
             <td>${isDisposal ? formatCurrency(e.cgt.gain_gbp) : '-'}</td>
-            <td>${e.description || ''}</td>
+            <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>
         `;
 
         if (isDisposal) {
@@ -138,7 +151,7 @@ function formatMatchedAcquisition(mc) {
         details += ` · ${formatCurrency(mc.matched_original_value)}`;
     }
 
-    if (mc.matched_row_id !== null) {
+    if (mc.matched_row_id != null) {
         return `<a href="#row-${mc.matched_row_id}" class="acquisition-link">${details}</a>`;
     }
     return details;
@@ -244,18 +257,44 @@ function calculateFilteredSummary(events) {
     let totalProceeds = 0;
     let totalCosts = 0;
     let totalGain = 0;
+    let totalProceedsWithUnclassified = 0;
+    let totalCostsWithUnclassified = 0;
+    let totalGainWithUnclassified = 0;
     let totalIncome = 0;
     let totalDividendIncome = 0;
     let totalInterestIncome = 0;
     let warningCount = 0;
     let unclassifiedCount = 0;
     let costBasisWarningCount = 0;
+    let disposalCount = 0;
+    let incomeCount = 0;
+    const classTotals = { crypto: {p:0,c:0,g:0}, stock: {p:0,c:0,g:0}, fiat: {p:0,c:0,g:0} };
 
     events.forEach(e => {
         if (e.cgt) {
-            totalProceeds += parseFloat(e.cgt.proceeds_gbp) || 0;
-            totalCosts += parseFloat(e.cgt.cost_gbp) || 0;
-            totalGain += parseFloat(e.cgt.gain_gbp) || 0;
+            const proceeds = parseFloat(e.cgt.proceeds_gbp) || 0;
+            const costs = parseFloat(e.cgt.cost_gbp) || 0;
+            const gain = parseFloat(e.cgt.gain_gbp) || 0;
+            const isUnclassified = hasWarningType(e.warnings, 'UnclassifiedEvent');
+
+            totalProceedsWithUnclassified += proceeds;
+            totalCostsWithUnclassified += costs;
+            totalGainWithUnclassified += gain;
+
+            if (!isUnclassified) {
+                totalProceeds += proceeds;
+                totalCosts += costs;
+                totalGain += gain;
+
+                const cls = (e.asset_class || '').toLowerCase();
+                if (classTotals[cls]) {
+                    classTotals[cls].p += proceeds;
+                    classTotals[cls].c += costs;
+                    classTotals[cls].g += gain;
+                }
+            }
+
+            disposalCount++;
         }
 
         if (e.warnings && e.warnings.length > 0) {
@@ -264,16 +303,19 @@ function calculateFilteredSummary(events) {
             if (hasWarningType(e.warnings, 'InsufficientCostBasis'))
                 costBasisWarningCount++;
         }
+
         const tag = (e.tag || '').toLowerCase();
         const valueGbp = parseFloat(e.value_gbp) || 0;
+        const isIncome = ['stakingreward', 'salary', 'otherincome', 'airdropincome', 'dividend', 'interest'].includes(tag);
 
-        if (['stakingreward', 'salary', 'otherincome', 'airdropincome', 'dividend', 'interest'].includes(tag)) {
+        if (isIncome && e.event_kind === 'acquisition') {
             totalIncome += valueGbp;
+            incomeCount++;
         }
-        if (tag === 'dividend') {
+        if (tag === 'dividend' && e.event_kind === 'acquisition') {
             totalDividendIncome += valueGbp;
         }
-        if (tag === 'interest') {
+        if (tag === 'interest' && e.event_kind === 'acquisition') {
             totalInterestIncome += valueGbp;
         }
     });
@@ -282,12 +324,18 @@ function calculateFilteredSummary(events) {
         totalProceeds,
         totalCosts,
         totalGain,
+        totalProceedsWithUnclassified,
+        totalCostsWithUnclassified,
+        totalGainWithUnclassified,
         totalIncome,
         totalDividendIncome,
         totalInterestIncome,
         warningCount,
         unclassifiedCount,
-        costBasisWarningCount
+        costBasisWarningCount,
+        disposalCount,
+        incomeCount,
+        classTotals
     };
 }
 
@@ -310,6 +358,24 @@ function updateSummary(events) {
         gainCard.classList.remove('negative');
     }
 
+    // Asset class breakdown
+    const breakdownEl = document.getElementById('summary-class-breakdown');
+    if (summary.disposalCount > 0) {
+        const ct = summary.classTotals;
+        const parts = [];
+        if (ct.crypto.g !== 0 || ct.crypto.p !== 0) parts.push(`Crypto: ${formatCurrency(ct.crypto.g)}`);
+        if (ct.stock.g !== 0 || ct.stock.p !== 0) parts.push(`Stocks: ${formatCurrency(ct.stock.g)}`);
+        if (ct.fiat.g !== 0 || ct.fiat.p !== 0) parts.push(`Fiat: ${formatCurrency(ct.fiat.g)}`);
+        breakdownEl.textContent = parts.join(' · ');
+    } else {
+        breakdownEl.textContent = '';
+    }
+
+    // Counts
+    document.getElementById('summary-counts').textContent =
+        `${events.length} events · ${summary.disposalCount} disposals · ${summary.incomeCount} income`;
+
+    // Warnings banner
     const warningsBanner = document.getElementById('warnings-banner');
     if (summary.warningCount > 0) {
         warningsBanner.style.display = 'flex';
@@ -325,11 +391,11 @@ function updateSummary(events) {
     // Show "inc. unclassified" sub-values only if there are unclassified events
     if (summary.unclassifiedCount > 0) {
         document.getElementById('summary-proceeds-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalProceeds)}`;
+            `inc. unclassified: ${formatCurrency(summary.totalProceedsWithUnclassified)}`;
         document.getElementById('summary-costs-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalCosts)}`;
+            `inc. unclassified: ${formatCurrency(summary.totalCostsWithUnclassified)}`;
         document.getElementById('summary-gain-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalGain)}`;
+            `inc. unclassified: ${formatCurrency(summary.totalGainWithUnclassified)}`;
     } else {
         document.getElementById('summary-proceeds-inc').textContent = '';
         document.getElementById('summary-costs-inc').textContent = '';
