@@ -3,94 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UK Tax Report</title>
+    <title>taxc — UK Tax Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
 __CSS__
     </style>
 </head>
 <body>
-    <header>
-        <h1>UK Tax Report</h1>
-        <div class="filters">
-            <div class="filter-row">
-                <div class="filter-group">
-                    <label>Date Range</label>
-                    <div class="date-range">
-                        <input type="date" id="date-from" onchange="applyFilters()">
-                        <span>to</span>
-                        <input type="date" id="date-to" onchange="applyFilters()">
-                    </div>
-                </div>
-                <div class="filter-group">
-                    <label for="tax-year">Tax Year</label>
-                    <select id="tax-year" onchange="applyFilters()">
-                        <option value="">All Years</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="asset-search">Asset</label>
-                    <input type="text" id="asset-search" placeholder="Search assets..." oninput="applyFilters()">
-                </div>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <h1>taxc</h1>
+                <span class="subtitle">UK Capital Gains Tax Report</span>
             </div>
-            <div class="filter-row">
-                <div class="filter-group">
-                    <label>Event Type</label>
-                    <div class="checkbox-group">
-                        <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
-                        <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
+            <div class="filter-bar">
+                <div class="filter-section">
+                    <div class="filter-group">
+                        <span class="filter-label">Date Range</span>
+                        <div class="date-inputs">
+                            <input type="date" id="date-from" onchange="applyFilters()">
+                            <span class="date-sep">—</span>
+                            <input type="date" id="date-to" onchange="applyFilters()">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <span class="filter-label">Tax Year</span>
+                        <select id="tax-year" onchange="applyFilters()">
+                            <option value="">All Years</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <span class="filter-label">Asset</span>
+                        <input type="text" id="asset-search" placeholder="Search…" oninput="applyFilters()">
                     </div>
                 </div>
-                <div class="filter-group">
-                    <label>Tag</label>
-                    <div class="checkbox-group">
-                        <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
-                        <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> StakingReward</label>
-                        <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
-                        <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> OtherIncome</label>
-                        <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
-                        <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> AirdropIncome</label>
-                        <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
-                        <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
-                        <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
-                        <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
+                <div class="filter-section">
+                    <div class="filter-group">
+                        <span class="filter-label">Type</span>
+                        <div class="chip-group">
+                            <label class="filter-chip chip-gain"><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"><span>Acquisition</span></label>
+                            <label class="filter-chip chip-loss"><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"><span>Disposal</span></label>
+                        </div>
                     </div>
-                </div>
-                <div class="filter-group">
-                    <label>Asset Class</label>
-                    <div class="checkbox-group">
-                        <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
-                        <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
-                        <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
+                    <div class="filter-group">
+                        <span class="filter-label">Tag</span>
+                        <div class="chip-group">
+                            <label class="filter-chip"><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"><span>Trade</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"><span>Staking</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"><span>Salary</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"><span>Other</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"><span>Airdrop</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"><span>Airdrop Inc</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"><span>Dividend</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"><span>Interest</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"><span>Gift</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"><span>Unclassified</span></label>
+                        </div>
                     </div>
+                    <div class="filter-group">
+                        <span class="filter-label">Class</span>
+                        <div class="chip-group">
+                            <label class="filter-chip"><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"><span>Crypto</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="class-stock" checked onchange="applyFilters()"><span>Stock</span></label>
+                            <label class="filter-chip"><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"><span>Fiat</span></label>
+                        </div>
+                    </div>
+                    <button class="reset-btn" onclick="resetFilters()">Reset</button>
                 </div>
-                <button class="reset-btn" onclick="resetFilters()">Reset Filters</button>
             </div>
         </div>
     </header>
 
-    <main>
-        <section class="summary-cards">
-            <div class="card">
-                <h3>Total Proceeds</h3>
-                <p class="value" id="summary-proceeds">-</p>
-                <p class="sub-value" id="summary-proceeds-inc"></p>
+    <main class="dashboard-body">
+        <section class="metrics">
+            <div class="metric-card">
+                <span class="metric-label">Proceeds</span>
+                <span class="metric-value" id="summary-proceeds">—</span>
+                <span class="metric-sub" id="summary-proceeds-inc"></span>
             </div>
-            <div class="card">
-                <h3>Total Costs</h3>
-                <p class="value" id="summary-costs">-</p>
-                <p class="sub-value" id="summary-costs-inc"></p>
+            <div class="metric-card">
+                <span class="metric-label">Costs</span>
+                <span class="metric-value" id="summary-costs">—</span>
+                <span class="metric-sub" id="summary-costs-inc"></span>
             </div>
-            <div class="card gain">
-                <h3>Total Gain/Loss</h3>
-                <p class="value" id="summary-gain">-</p>
-                <p class="sub-value" id="summary-gain-inc"></p>
-                <p class="sub-value" id="summary-class-breakdown"></p>
+            <div class="metric-card metric-gain">
+                <span class="metric-label">Gain / Loss</span>
+                <span class="metric-value" id="summary-gain">—</span>
+                <span class="metric-sub" id="summary-gain-inc"></span>
+                <span class="metric-sub" id="summary-class-breakdown"></span>
             </div>
-            <div class="card">
-                <h3>Total Income</h3>
-                <p class="value" id="summary-income">-</p>
-                <p class="sub-value" id="summary-income-dividend"></p>
-                <p class="sub-value" id="summary-income-interest"></p>
+            <div class="metric-card metric-income">
+                <span class="metric-label">Income</span>
+                <span class="metric-value" id="summary-income">—</span>
+                <span class="metric-sub" id="summary-income-dividend"></span>
+                <span class="metric-sub" id="summary-income-interest"></span>
             </div>
         </section>
         <p class="summary-counts" id="summary-counts"></p>
@@ -99,14 +107,17 @@ __CSS__
             <span id="warning-summary"></span>
         </div>
 
-        <section class="data-section">
-            <h2>Transactions <span class="count" id="events-count"></span></h2>
+        <section class="table-section">
+            <div class="table-header">
+                <h2>Transactions</h2>
+                <span class="count" id="events-count"></span>
+            </div>
             <div class="table-container">
                 <table id="events-table">
                     <thead>
                         <tr>
-                            <th></th>
-                            <th>Date/Time</th>
+                            <th style="width:32px"></th>
+                            <th>Date</th>
                             <th>Type</th>
                             <th>Qty</th>
                             <th>Asset</th>

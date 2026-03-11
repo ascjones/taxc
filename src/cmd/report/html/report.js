@@ -29,8 +29,11 @@ function formatRuleBadge(rule) {
     return `<span class="rule-badge rule-${className}">${rule}</span>`;
 }
 
-function formatEventType(type, tag, warnings) {
+function formatEventType(type, tag, warnings, eventKind) {
     let className = `tag-${(tag || '').toLowerCase()}`;
+    if (eventKind === 'disposal') {
+        className = 'tag-disposal';
+    }
     if (hasWarningType(warnings, 'UnclassifiedEvent')) {
         className = 'tag-unclassified';
     }
@@ -76,17 +79,25 @@ function renderEventsTable(events) {
 
         let expandButton = '';
         if (isDisposal && e.cgt.matching_components.length > 0) {
-            expandButton = `<span class="expand-btn">+</span>`;
+            expandButton = `<span class="expand-chevron"></span>`;
         }
+
+        const gainCell = isDisposal
+            ? (() => {
+                const val = parseFloat(e.cgt.gain_gbp);
+                const cls = val >= 0 ? 'gain-value' : 'loss-value';
+                return `<td class="${cls}">${formatCurrency(e.cgt.gain_gbp)}</td>`;
+            })()
+            : '<td>—</td>';
 
         row.innerHTML = `
             <td>${expandButton}</td>
             <td>${formatDateTime(e.datetime)}</td>
-            <td>${formatEventType(e.event_type, e.tag, e.warnings)}</td>
+            <td>${formatEventType(e.event_type, e.tag, e.warnings, e.event_kind)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
-            <td>${isDisposal ? formatCurrency(e.cgt.gain_gbp) : '-'}</td>
+            ${gainCell}
             <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>
         `;
 
@@ -136,7 +147,7 @@ function renderEventsTable(events) {
 }
 
 function formatMatchedAcquisition(mc) {
-    if (!mc.matched_date) return '-';
+    if (!mc.matched_date) return '—';
     const date = new Date(mc.matched_date);
     const dateStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
@@ -163,20 +174,20 @@ function toggleDetails(row, event, idx) {
 
     if (currentExpandedRow && currentExpandedRow !== detailsRow) {
         currentExpandedRow.style.display = 'none';
-        const prevBtn = currentExpandedRow.previousElementSibling.querySelector('.expand-btn');
-        if (prevBtn) prevBtn.textContent = '+';
+        const prevBtn = currentExpandedRow.previousElementSibling.querySelector('.expand-chevron');
+        if (prevBtn) prevBtn.classList.remove('expanded');
     }
 
     if (detailsRow.style.display === 'none') {
         detailsRow.style.display = 'table-row';
         currentExpandedRow = detailsRow;
-        const btn = row.querySelector('.expand-btn');
-        if (btn) btn.textContent = '-';
+        const btn = row.querySelector('.expand-chevron');
+        if (btn) btn.classList.add('expanded');
     } else {
         detailsRow.style.display = 'none';
         currentExpandedRow = null;
-        const btn = row.querySelector('.expand-btn');
-        if (btn) btn.textContent = '+';
+        const btn = row.querySelector('.expand-chevron');
+        if (btn) btn.classList.remove('expanded');
     }
 }
 
@@ -351,7 +362,7 @@ function updateSummary(events) {
     document.getElementById('summary-income-interest').textContent =
         'Interest: ' + formatCurrency(summary.totalInterestIncome);
 
-    const gainCard = document.querySelector('.card.gain');
+    const gainCard = document.querySelector('.metric-gain');
     if (summary.totalGain < 0) {
         gainCard.classList.add('negative');
     } else {
