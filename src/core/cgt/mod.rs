@@ -617,7 +617,6 @@ struct DisposalKey {
     datetime: String,
     asset: String,
     quantity: String,
-    proceeds: String,
 }
 
 impl DisposalKey {
@@ -627,7 +626,6 @@ impl DisposalKey {
             datetime: disposal.datetime.to_rfc3339(),
             asset: disposal.asset.clone(),
             quantity: format_decimal_key(disposal.quantity, 8),
-            proceeds: format_decimal_key(disposal.proceeds_gbp, 2),
         }
     }
 
@@ -637,7 +635,6 @@ impl DisposalKey {
             datetime: event.datetime.to_rfc3339(),
             asset: event.asset.clone(),
             quantity: format_decimal_key(event.quantity, 8),
-            proceeds: format_decimal_key(event.value_gbp, 2),
         }
     }
 }

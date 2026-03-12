@@ -1207,3 +1207,49 @@ fn no_gain_no_loss_with_same_day_acquisition() {
     // Proceeds must equal cost
     assert_eq!(disposal.proceeds_gbp, disposal.allowable_cost_gbp);
 }
+
+/// DisposalIndex key-based fallback must find NoGainNoLoss disposals
+/// even though their proceeds_gbp differs from the event's value_gbp.
+#[test]
+fn disposal_index_finds_ngnl_by_key_fallback() {
+    let events = vec![
+        acq("2024-01-01", "XYZ", dec!(100), dec!(1000)),
+        event(
+            EventType::Disposal,
+            Tag::NoGainNoLoss,
+            "2024-06-15",
+            "XYZ",
+            dec!(50),
+            dec!(800), // market value, ignored by CGT
+            None,
+        ),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    assert_eq!(report.disposals.len(), 1);
+
+    // Build a lookup event with a different id so by_id won't match,
+    // forcing the key-based fallback path.
+    let lookup = TaxableEvent {
+        id: 9999,
+        source_transaction_id: "other".to_string(),
+        account: String::new(),
+        datetime: dt("2024-06-15"),
+        event_type: EventType::Disposal,
+        tag: Tag::NoGainNoLoss,
+        asset: "XYZ".to_string(),
+        asset_class: AssetClass::Crypto,
+        quantity: dec!(50),
+        value_gbp: dec!(800),
+        fee_gbp: None,
+        description: None,
+    };
+
+    let mut index = DisposalIndex::new(&report);
+    let found = index.find(&lookup);
+    assert!(
+        found.is_some(),
+        "key-based fallback should find NGNL disposal"
+    );
+    assert_eq!(found.unwrap().gain_gbp, dec!(0));
+}
