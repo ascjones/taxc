@@ -29,6 +29,18 @@ function formatRuleBadge(rule) {
     return `<span class="rule-badge rule-${className}">${rule}</span>`;
 }
 
+function formatTag(tag) {
+    if (!tag || tag === 'Trade') return '';
+    const labels = {
+        StakingReward: 'Staking',
+        OtherIncome: 'Other',
+        AirdropIncome: 'Airdrop Inc',
+    };
+    const label = labels[tag] || tag;
+    const className = `tag-pill tag-${tag.toLowerCase()}`;
+    return `<span class="${className}">${label}</span>`;
+}
+
 function formatEventType(type, tag, warnings, eventKind) {
     let className = `tag-${(tag || '').toLowerCase()}`;
     if (eventKind === 'disposal') {
@@ -95,6 +107,7 @@ function renderEventsTable(events) {
             <td>${expandButton}</td>
             <td>${formatDateTime(e.datetime)}</td>
             <td>${formatEventType(e.event_type, e.tag, e.warnings, e.event_kind)}</td>
+            <td>${formatTag(e.tag)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
@@ -113,7 +126,7 @@ function renderEventsTable(events) {
             detailsRow.className = 'details-row';
             detailsRow.style.display = 'none';
             detailsRow.innerHTML = `
-                <td colspan="8">
+                <td colspan="9">
                     <div class="details-content">
                         <div class="details-header">
                             <div class="details-title">Matching Details</div>

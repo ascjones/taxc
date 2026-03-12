@@ -484,9 +484,22 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     border: 1px solid rgba(210, 153, 34, 0.25);
 }
 
+/* ---- Tag pills ---- */
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.4rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.625rem;
+    font-weight: 500;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+    opacity: 0.85;
+}
+
 /* ---- Disposal rows ---- */
 .disposal-row { cursor: pointer; }
-.disposal-row td:nth-child(7) { font-weight: 600; }
+.disposal-row td:nth-child(8) { font-weight: 600; }
 
 .gain-value { color: var(--gain) !important; }
 .loss-value { color: var(--loss) !important; }
