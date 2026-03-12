@@ -19,3 +19,6 @@ serde_json = "1.0"
 opener = "0.8"
 thiserror = "2.0"
 schemars = { version = "1.2", features = ["chrono04"] }
+
+[dev-dependencies]
+headless_chrome = { version = "1.0", features = ["fetch"] }

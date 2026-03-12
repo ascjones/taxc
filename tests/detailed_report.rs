@@ -1,14 +1,6 @@
 //! E2E tests for report, pools, summary, and validate command functionality
 
-use std::{fs, path::PathBuf, process::Command, time::SystemTime};
-
-fn unique_tmp_file(name: &str, ext: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("taxc-{name}-{nanos}.{ext}"))
-}
+use std::process::Command;
 
 /// Test that the report JSON output includes mixed matching rules
 #[test]
@@ -272,41 +264,6 @@ fn report_json_summary_respects_asset_filter() {
     assert_eq!(summary["total_proceeds"], "12000.00");
     assert_eq!(summary["total_costs"], "10000.00");
     assert_eq!(summary["total_gain"], "2000.00");
-}
-
-#[test]
-fn report_html_respects_from_to_and_event_kind() {
-    let out = unique_tmp_file("report-filter", "html");
-    let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-            "--from",
-            "2030-01-01",
-            "--event-kind",
-            "acquisition",
-        ])
-        .output()
-        .expect("Failed to execute command");
-
-    assert!(output.status.success(), "Command failed: {:?}", output);
-    let html = fs::read_to_string(&out).expect("failed reading generated HTML");
-
-    assert!(
-        html.contains("\"events\":[]"),
-        "expected no events in embedded data"
-    );
-    assert!(
-        html.contains("\"event_count\":0"),
-        "expected filtered summary event_count=0"
-    );
-
-    let _ = fs::remove_file(out);
 }
 
 /// Test report command with year filter
