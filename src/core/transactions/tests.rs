@@ -974,6 +974,33 @@ fn deposit_gift_value_gbp_with_fee() {
 }
 
 #[test]
+fn no_gain_no_loss_withdrawal_creates_disposal() {
+    let tx = withdrawal_tx("w-ngnl", "ETH", dec!(2))
+        .with_tag(Tag::NoGainNoLoss)
+        .with_price(gbp_price("ETH", dec!(1000)));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Disposal);
+    assert_eq!(events[0].tag, Tag::NoGainNoLoss);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn no_gain_no_loss_deposit_errors() {
+    let tx = deposit_tx("d-ngnl", "ETH", dec!(2))
+        .with_tag(Tag::NoGainNoLoss)
+        .with_price(gbp_price("ETH", dec!(1000)));
+
+    let err = convert_one(&tx).unwrap_err();
+    assert!(
+        err.to_string().contains("NoGainNoLoss"),
+        "Expected error about NoGainNoLoss on deposit, got: {}",
+        err
+    );
+}
+
+#[test]
 fn withdrawal_gift_value_gbp_with_fee() {
     let tx = withdrawal_tx("w-gift-fee", "ETH", dec!(2))
         .with_tag(Tag::Gift)

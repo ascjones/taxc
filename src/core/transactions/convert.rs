@@ -163,7 +163,7 @@ impl Transaction {
                             }
                             Decimal::ZERO
                         }
-                        Tag::Trade | Tag::Unclassified => {
+                        Tag::Trade | Tag::Unclassified | Tag::NoGainNoLoss => {
                             return Err(TransactionError::InvalidTagForType {
                                 id: id.clone(),
                                 tag: tag_name(*tag).to_string(),
@@ -260,7 +260,7 @@ impl Transaction {
                         return Err(TransactionError::TaggedWithdrawalLinked { id: id.clone() });
                     }
 
-                    if *tag != Tag::Gift {
+                    if !matches!(tag, Tag::Gift | Tag::NoGainNoLoss) {
                         return Err(TransactionError::InvalidTagForType {
                             id: id.clone(),
                             tag: tag_name(*tag).to_string(),
@@ -287,7 +287,7 @@ impl Transaction {
                         source_transaction_id: id.clone(),
                         account: account.clone(),
                         event_type: EventType::Disposal,
-                        tag: Tag::Gift,
+                        tag: *tag,
                         datetime: *datetime,
                         asset: normalize_currency(&amount.asset),
                         asset_class: asset_class_for(registry, &amount.asset),
@@ -393,6 +393,7 @@ fn tag_name(tag: Tag) -> &'static str {
         Tag::Dividend => "Dividend",
         Tag::Interest => "Interest",
         Tag::Gift => "Gift",
+        Tag::NoGainNoLoss => "NoGainNoLoss",
     }
 }
 

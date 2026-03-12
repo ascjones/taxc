@@ -492,7 +492,15 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     );
                 }
 
-                let gain = event.value_gbp - total_allowable_cost - fees;
+                // No gain/no loss: deemed proceeds = allowable cost + fees
+                let (proceeds, gain) = if event.tag == Tag::NoGainNoLoss {
+                    (total_allowable_cost + fees, Decimal::ZERO)
+                } else {
+                    (
+                        event.value_gbp,
+                        event.value_gbp - total_allowable_cost - fees,
+                    )
+                };
 
                 // Capture pool state after disposal
                 let pool_after = pools
@@ -548,7 +556,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     tax_year,
                     asset: event.asset.clone(),
                     quantity: event.quantity,
-                    proceeds_gbp: event.value_gbp,
+                    proceeds_gbp: proceeds,
                     allowable_cost_gbp: total_allowable_cost,
                     fees_gbp: fees,
                     gain_gbp: gain,

@@ -154,6 +154,11 @@
           "description": "Unclassified event - needs review",
           "type": "string",
           "const": "Unclassified"
+        },
+        {
+          "description": "No gain/no loss transfer (e.g. spouse/civil partner under s58 TCGA 1992)",
+          "type": "string",
+          "const": "NoGainNoLoss"
         }
       ]
     },

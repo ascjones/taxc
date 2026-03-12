@@ -266,6 +266,60 @@ fn report_json_summary_respects_asset_filter() {
     assert_eq!(summary["total_gain"], "2000.00");
 }
 
+/// Test no gain/no loss disposal produces zero gain and correct pool reduction
+#[test]
+fn report_no_gain_no_loss_spouse_transfer() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/ngnl_spouse.json",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
+
+    let events = json["events"].as_array().expect("Missing events array");
+
+    // Find the NGNL disposal
+    let ngnl = events
+        .iter()
+        .find(|e| e["tag"] == "NoGainNoLoss")
+        .expect("Missing NoGainNoLoss event");
+
+    assert_eq!(ngnl["event_kind"], "disposal");
+    let cgt = ngnl
+        .get("cgt")
+        .expect("NGNL disposal should have CGT details");
+    // Gain must be zero
+    assert_eq!(cgt["gain_gbp"], "0.00");
+    // Proceeds should equal cost (no gain no loss)
+    assert_eq!(cgt["proceeds_gbp"], cgt["cost_gbp"]);
+
+    // Find the normal sale
+    let sale = events
+        .iter()
+        .find(|e| e["event_type"] == "Disposal" && e["tag"] == "Trade")
+        .expect("Missing normal disposal");
+
+    let sale_cgt = sale.get("cgt").expect("Sale should have CGT details");
+    // Bought 2 BTC for £50,000. Transferred 1 at cost £25,000. Sold 1 for £40,000.
+    // Gain = £40,000 - £25,000 = £15,000
+    assert_eq!(sale_cgt["proceeds_gbp"], "40000.00");
+    assert_eq!(sale_cgt["cost_gbp"], "25000.00");
+    assert_eq!(sale_cgt["gain_gbp"], "15000.00");
+
+    // Summary should include both disposals but NGNL contributes zero gain
+    let summary = json.get("summary").expect("Missing summary");
+    assert_eq!(summary["disposal_count"], 2);
+    assert_eq!(summary["total_gain"], "15000.00");
+}
+
 /// Test report command with year filter
 #[test]
 fn report_filter_by_year() {

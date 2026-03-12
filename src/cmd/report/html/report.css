@@ -482,6 +482,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     border: 1px solid var(--warning-border);
 }
 
+.tag-nogainnoloss {
+    background: rgba(148, 163, 184, 0.08);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
 .tag-unclassified {
     background: rgba(210, 153, 34, 0.08);
     color: var(--warning);

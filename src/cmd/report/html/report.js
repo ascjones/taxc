@@ -35,6 +35,7 @@ function formatTag(tag) {
         StakingReward: 'Staking',
         OtherIncome: 'Other',
         AirdropIncome: 'Airdrop Inc',
+        NoGainNoLoss: 'NGNL',
     };
     const label = labels[tag] || tag;
     const className = `tag-pill tag-${tag.toLowerCase()}`;
@@ -234,6 +235,7 @@ function applyFilters() {
             dividend: document.getElementById('tag-dividend').checked,
             interest: document.getElementById('tag-interest').checked,
             gift: document.getElementById('tag-gift').checked,
+            nogainnoloss: document.getElementById('tag-nogainnoloss').checked,
             unclassified: document.getElementById('tag-unclassified').checked
         },
         classes: {
@@ -445,6 +447,7 @@ function resetFilters() {
     document.getElementById('tag-dividend').checked = true;
     document.getElementById('tag-interest').checked = true;
     document.getElementById('tag-gift').checked = true;
+    document.getElementById('tag-nogainnoloss').checked = true;
     document.getElementById('tag-unclassified').checked = true;
     document.getElementById('class-crypto').checked = true;
     document.getElementById('class-stock').checked = true;

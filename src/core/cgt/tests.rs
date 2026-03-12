@@ -1094,3 +1094,116 @@ fn pool_history_staking_rewards_tracked() {
     assert_eq!(report.pool_history.entries[0].tag, Tag::StakingReward);
     assert_eq!(report.pool_history.entries[1].quantity, dec!(150)); // Accumulated
 }
+
+/// HMRC s58 TCGA 1992: Transfer between spouses is "no gain no loss".
+/// Person buys 1000 shares at £5 each, then transfers 500 to spouse.
+/// The disposal should produce zero gain regardless of market value.
+#[test]
+fn no_gain_no_loss_spouse_transfer() {
+    let events = vec![
+        acq("2024-01-01", "XYZ", dec!(1000), dec!(5000)),
+        // Transfer 500 shares to spouse at market value of £8,000 (£16/share)
+        // but tagged NoGainNoLoss so gain must be zero
+        event(
+            EventType::Disposal,
+            Tag::NoGainNoLoss,
+            "2024-06-15",
+            "XYZ",
+            dec!(500),
+            dec!(8000), // market value - irrelevant for gain
+            None,
+        ),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    assert_eq!(report.disposals.len(), 1);
+
+    let disposal = &report.disposals[0];
+    // Gain must be zero
+    assert_eq!(disposal.gain_gbp, dec!(0));
+    // Allowable cost is proportional pool cost: 500/1000 * £5000 = £2500
+    assert_eq!(disposal.allowable_cost_gbp, dec!(2500));
+    // Proceeds are deemed to equal cost (not market value)
+    assert_eq!(disposal.proceeds_gbp, dec!(2500));
+
+    // Pool should retain the other 500 shares at £2500
+    let pool = report.pools.get("XYZ").unwrap();
+    assert_eq!(pool.quantity, dec!(500));
+    assert_eq!(pool.cost_gbp, dec!(2500));
+}
+
+/// HMRC example: No gain no loss disposal followed by a normal sale.
+/// Verifies that the pool is correctly reduced after a NGNL transfer
+/// and subsequent disposal uses the reduced pool.
+#[test]
+fn no_gain_no_loss_then_normal_sale() {
+    let events = vec![
+        // Buy 200 shares at £10 each = £2,000
+        acq("2024-01-01", "ABC", dec!(200), dec!(2000)),
+        // Transfer 100 shares to spouse (market value £1,500 = £15/share)
+        event(
+            EventType::Disposal,
+            Tag::NoGainNoLoss,
+            "2024-03-01",
+            "ABC",
+            dec!(100),
+            dec!(1500),
+            None,
+        ),
+        // Sell remaining 100 shares for £2,000 (£20/share)
+        disp("2024-06-01", "ABC", dec!(100), dec!(2000)),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    assert_eq!(report.disposals.len(), 2);
+
+    // First disposal: no gain no loss
+    let ngnl = &report.disposals[0];
+    assert_eq!(ngnl.gain_gbp, dec!(0));
+    assert_eq!(ngnl.allowable_cost_gbp, dec!(1000)); // 100/200 * £2000
+    assert_eq!(ngnl.proceeds_gbp, dec!(1000));
+
+    // Second disposal: normal sale
+    // Pool after NGNL: 100 shares at £1000
+    // Sell 100 shares for £2000, cost £1000, gain = £1000
+    let sale = &report.disposals[1];
+    assert_eq!(sale.proceeds_gbp, dec!(2000));
+    assert_eq!(sale.allowable_cost_gbp, dec!(1000));
+    assert_eq!(sale.gain_gbp, dec!(1000));
+
+    // Pool should be empty
+    let pool = report.pools.get("ABC").unwrap();
+    assert_eq!(pool.quantity, dec!(0));
+}
+
+/// HMRC s58: No gain no loss with same-day matching.
+/// If a NGNL disposal matches a same-day acquisition, the cost from
+/// the same-day rule is used and gain is still zero.
+#[test]
+fn no_gain_no_loss_with_same_day_acquisition() {
+    let events = vec![
+        // Existing pool: 100 shares at £1000
+        acq("2024-01-01", "DEF", dec!(100), dec!(1000)),
+        // NGNL disposal of 50 shares (market value £750)
+        event(
+            EventType::Disposal,
+            Tag::NoGainNoLoss,
+            "2024-06-15",
+            "DEF",
+            dec!(50),
+            dec!(750),
+            None,
+        ),
+        // Same-day acquisition of 30 shares at £600
+        acq("2024-06-15", "DEF", dec!(30), dec!(600)),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    assert_eq!(report.disposals.len(), 1);
+
+    let disposal = &report.disposals[0];
+    // Gain must still be zero regardless of matching rules used
+    assert_eq!(disposal.gain_gbp, dec!(0));
+    // Proceeds must equal cost
+    assert_eq!(disposal.proceeds_gbp, disposal.allowable_cost_gbp);
+}

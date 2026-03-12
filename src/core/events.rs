@@ -26,6 +26,8 @@ pub enum Tag {
     Dividend,
     Interest,
     Gift,
+    /// No gain/no loss transfer (e.g. spouse/civil partner under s58 TCGA 1992)
+    NoGainNoLoss,
 }
 
 impl Tag {
@@ -54,6 +56,7 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
         (EventType::Acquisition, Tag::Interest) => "Interest",
         (EventType::Acquisition, Tag::Gift) => "GiftIn",
         (EventType::Disposal, Tag::Gift) => "GiftOut",
+        (EventType::Disposal, Tag::NoGainNoLoss) => "NoGainNoLoss",
         (EventType::Acquisition, Tag::Unclassified) => "UnclassifiedIn",
         (EventType::Disposal, Tag::Unclassified) => "UnclassifiedOut",
         (EventType::Acquisition, _) => "Acquisition",
@@ -313,6 +316,10 @@ mod tests {
         assert_eq!(
             display_event_type(EventType::Acquisition, Tag::Interest),
             "Interest"
+        );
+        assert_eq!(
+            display_event_type(EventType::Disposal, Tag::NoGainNoLoss),
+            "NoGainNoLoss"
         );
     }
 

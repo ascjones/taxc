@@ -1,0 +1,35 @@
+{
+  "assets": [
+    { "symbol": "BTC", "asset_class": "Crypto" }
+  ],
+  "transactions": [
+    {
+      "id": "tx-001",
+      "datetime": "2024-01-15T10:00:00+00:00",
+      "account": "kraken",
+      "description": "Buy BTC",
+      "type": "Trade",
+      "sold": { "asset": "GBP", "quantity": 50000 },
+      "bought": { "asset": "BTC", "quantity": 2 }
+    },
+    {
+      "id": "tx-002",
+      "datetime": "2024-06-01T10:00:00+00:00",
+      "account": "kraken",
+      "description": "Transfer to spouse",
+      "type": "Withdrawal",
+      "tag": "NoGainNoLoss",
+      "amount": { "asset": "BTC", "quantity": 1 },
+      "valuation": 35000
+    },
+    {
+      "id": "tx-003",
+      "datetime": "2024-09-01T10:00:00+00:00",
+      "account": "kraken",
+      "description": "Sell remaining BTC",
+      "type": "Trade",
+      "sold": { "asset": "BTC", "quantity": 1 },
+      "bought": { "asset": "GBP", "quantity": 40000 }
+    }
+  ]
+}
