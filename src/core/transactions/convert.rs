@@ -17,6 +17,7 @@ impl Transaction {
         let Transaction {
             id,
             datetime,
+            account,
             description,
             valuation,
             fee,
@@ -87,6 +88,7 @@ impl Transaction {
                     events.push(TaxableEvent {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
+                        account: account.clone(),
                         event_type: EventType::Disposal,
                         tag: Tag::Trade,
                         datetime: *datetime,
@@ -104,6 +106,7 @@ impl Transaction {
                     events.push(TaxableEvent {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
+                        account: account.clone(),
                         event_type: EventType::Acquisition,
                         tag: Tag::Trade,
                         datetime: *datetime,
@@ -184,6 +187,7 @@ impl Transaction {
                     return Ok(vec![TaxableEvent {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
+                        account: account.clone(),
                         event_type: EventType::Acquisition,
                         tag: *tag,
                         datetime: *datetime,
@@ -234,6 +238,7 @@ impl Transaction {
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
                     source_transaction_id: id.clone(),
+                    account: account.clone(),
                     event_type: EventType::Acquisition,
                     tag: Tag::Unclassified,
                     datetime: *datetime,
@@ -280,6 +285,7 @@ impl Transaction {
                     return Ok(vec![TaxableEvent {
                         id: next_event_id(),
                         source_transaction_id: id.clone(),
+                        account: account.clone(),
                         event_type: EventType::Disposal,
                         tag: Tag::Gift,
                         datetime: *datetime,
@@ -330,6 +336,7 @@ impl Transaction {
                 Ok(vec![TaxableEvent {
                     id: next_event_id(),
                     source_transaction_id: id.clone(),
+                    account: account.clone(),
                     event_type: EventType::Disposal,
                     tag: Tag::Unclassified,
                     datetime: *datetime,

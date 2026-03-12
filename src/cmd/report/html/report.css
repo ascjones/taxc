@@ -432,27 +432,31 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 #events-table tbody tr:hover:not(.details-row) { background: var(--bg-hover); }
 
 /* ---- Event type badges ---- */
-.event-type {
+/* ---- Event direction arrows ---- */
+.event-arrow {
     display: inline-flex;
     align-items: center;
-    padding: 0.1875rem 0.5rem;
-    border-radius: var(--radius-pill);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    white-space: nowrap;
-    letter-spacing: 0.01em;
+    gap: 0.25rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1;
 }
+.event-arrow small {
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+}
+.arrow-in { color: var(--gain); }
+.arrow-out { color: var(--loss); }
+.arrow-warn { color: var(--warning); }
 
+/* ---- Tag pill colors ---- */
 .tag-trade {
     background: var(--gain-bg);
     color: var(--gain);
     border: 1px solid var(--gain-border);
-}
-
-.tag-disposal {
-    background: var(--loss-bg);
-    color: var(--loss);
-    border: 1px solid var(--loss-border);
 }
 
 .tag-stakingreward,

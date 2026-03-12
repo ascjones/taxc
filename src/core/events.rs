@@ -76,6 +76,9 @@ pub struct TaxableEvent {
     pub id: usize,
     /// Original input transaction ID for this event
     pub source_transaction_id: String,
+    /// Account this event originated from
+    #[serde(default)]
+    pub account: String,
     #[serde(rename = "date")]
     #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
@@ -128,6 +131,7 @@ pub mod builders {
         TaxableEvent {
             id: 0,
             source_transaction_id: "tx-test".to_string(),
+            account: String::new(),
             datetime: dt(date),
             event_type,
             tag,
@@ -223,6 +227,7 @@ mod tests {
         let event = TaxableEvent {
             id: 1,
             source_transaction_id: "tx-1".to_string(),
+            account: String::new(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             tag: Tag::Trade,
@@ -241,6 +246,7 @@ mod tests {
         let event = TaxableEvent {
             id: 1,
             source_transaction_id: "tx-1".to_string(),
+            account: String::new(),
             datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
             event_type: EventType::Acquisition,
             tag: Tag::Trade,

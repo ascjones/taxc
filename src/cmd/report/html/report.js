@@ -30,7 +30,7 @@ function formatRuleBadge(rule) {
 }
 
 function formatTag(tag) {
-    if (!tag || tag === 'Trade') return '';
+    if (!tag) return '';
     const labels = {
         StakingReward: 'Staking',
         OtherIncome: 'Other',
@@ -41,15 +41,13 @@ function formatTag(tag) {
     return `<span class="${className}">${label}</span>`;
 }
 
-function formatEventType(type, tag, warnings, eventKind) {
-    let className = `tag-${(tag || '').toLowerCase()}`;
-    if (eventKind === 'disposal') {
-        className = 'tag-disposal';
-    }
-    if (hasWarningType(warnings, 'UnclassifiedEvent')) {
-        className = 'tag-unclassified';
-    }
-    return `<span class="event-type ${className}">${type}</span>`;
+function formatEventType(eventKind, warnings) {
+    const isDisposal = eventKind === 'disposal';
+    const cls = isDisposal ? 'arrow-out' : 'arrow-in';
+    const arrow = isDisposal ? '&#x2197;' : '&#x2198;';
+    const label = isDisposal ? 'Disp.' : 'Acq.';
+    const warn = hasWarningType(warnings, 'UnclassifiedEvent') ? ' arrow-warn' : '';
+    return `<span class="event-arrow ${cls}${warn}">${arrow}<small>${label}</small></span>`;
 }
 
 function warningTypeName(warning) {
@@ -106,12 +104,13 @@ function renderEventsTable(events) {
         row.innerHTML = `
             <td>${expandButton}</td>
             <td>${formatDateTime(e.datetime)}</td>
-            <td>${formatEventType(e.event_type, e.tag, e.warnings, e.event_kind)}</td>
+            <td>${formatEventType(e.event_kind, e.warnings)}</td>
             <td>${formatTag(e.tag)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatCurrency(e.value_gbp)}</td>
             ${gainCell}
+            <td>${e.account || ''}</td>
             <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>
         `;
 
@@ -126,7 +125,7 @@ function renderEventsTable(events) {
             detailsRow.className = 'details-row';
             detailsRow.style.display = 'none';
             detailsRow.innerHTML = `
-                <td colspan="9">
+                <td colspan="10">
                     <div class="details-content">
                         <div class="details-header">
                             <div class="details-title">Matching Details</div>

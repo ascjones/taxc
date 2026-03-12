@@ -931,6 +931,7 @@ fn id_propagates_to_disposal_record() {
         TaxableEvent {
             id: 1,
             source_transaction_id: "tx-test".to_string(),
+            account: String::new(),
             datetime: dt("2024-01-01"),
             event_type: EventType::Acquisition,
             tag: Tag::Trade,
@@ -944,6 +945,7 @@ fn id_propagates_to_disposal_record() {
         TaxableEvent {
             id: 2,
             source_transaction_id: "tx-test".to_string(),
+            account: String::new(),
             datetime: dt("2024-06-15"),
             event_type: EventType::Disposal,
             tag: Tag::Trade,

@@ -180,6 +180,7 @@ mod tests {
         TaxableEvent {
             id: 1,
             source_transaction_id: "tx".to_string(),
+            account: String::new(),
             datetime: DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap(),
             event_type,
             tag: Tag::Trade,

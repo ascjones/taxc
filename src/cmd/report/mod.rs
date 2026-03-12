@@ -91,6 +91,7 @@ pub struct EventRow {
     pub id: usize,
     /// Source transaction identifier from input
     pub source_transaction_id: String,
+    pub account: String,
     pub datetime: String,
     pub tax_year: String,
     pub event_kind: String,
@@ -346,6 +347,7 @@ pub(super) fn build_report_data(
             Ok(EventRow {
                 id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
+                account: e.account.clone(),
                 datetime: e.datetime.to_rfc3339(),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_kind: match e.event_type {
