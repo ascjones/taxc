@@ -71,6 +71,7 @@ function formatWarnings(warnings) {
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-body');
     tbody.innerHTML = '';
+    currentExpandedRow = null;
 
     events.forEach((e, idx) => {
         const isDisposal = !!e.cgt;

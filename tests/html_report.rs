@@ -174,3 +174,84 @@ fn report_html_renders_in_browser() {
 
     let _ = fs::remove_file(out);
 }
+
+/// Test that toggling the disposal filter off and on doesn't break expand/collapse
+#[test]
+fn report_html_expand_works_after_filter_toggle() {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::time::Duration;
+
+    let out = unique_tmp_file("report-html-toggle", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--output",
+            &out_str,
+        ])
+        .output()
+        .expect("Failed to execute command");
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build launch options"),
+    )
+    .expect("Failed to launch browser");
+
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    // Toggle disposal filter off then on to trigger re-render
+    tab.evaluate(
+        r#"
+        document.getElementById('type-disposal').click();
+        document.getElementById('type-disposal').click();
+        "#,
+        false,
+    )
+    .expect("Failed to toggle filter");
+
+    // Click on a disposal row to expand it
+    let expanded = tab
+        .evaluate(
+            r#"
+            (function() {
+                var row = document.querySelector('.disposal-row');
+                if (!row) return 'no disposal row found';
+                row.click();
+                var details = row.nextElementSibling;
+                if (!details || !details.classList.contains('details-row'))
+                    return 'no details row after disposal row';
+                if (details.style.display === 'none')
+                    return 'details row not visible after click';
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to test expand");
+    let result = expanded
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(
+        result.is_empty(),
+        "Expand failed after filter toggle: {}",
+        result
+    );
+
+    let _ = fs::remove_file(out);
+}
