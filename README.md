@@ -15,215 +15,37 @@ cargo install --git https://github.com/ascjones/taxc
 All commands accept an optional positional `FILE` (JSON). If omitted or set to `-`, input is read from stdin.
 
 ```
-cat transactions.json | taxc summary --year 2025
-taxc report - < transactions.json
+taxc summary transactions.json -y 2025
+taxc report transactions.json
+taxc pools transactions.json --daily
+taxc schema input
 ```
 
-### Summary - Tax Calculations
+### `taxc summary` - Tax Calculations
 
-Show aggregated tax summary with CGT and income calculations:
+Aggregated CGT and income calculations. Use `-y 2025` for a tax year, or `--from`/`--to` for a date range. Add `--json` for machine-readable output, `-t higher` for different tax bands.
 
-```
-taxc summary [OPTIONS] [FILE]
-```
+### `taxc report` - Tax Report
 
-| Option | Description |
-|--------|-------------|
-| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
-| `--from <DATE>` | Filter events from this date inclusive (`YYYY-MM-DD`) |
-| `--to <DATE>` | Filter events to this date inclusive (`YYYY-MM-DD`) |
-| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
-| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` |
-| `-t, --tax-band <BAND>` | Tax band: `basic`, `higher`, `additional` (default: basic) |
-| `--json` | Output as JSON instead of formatted text |
-| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
+Self-contained HTML report opened in your browser, with summary cards, interactive filtering, expandable disposal matching details, and color-coded tags/rules. Use `-o file.html` to save instead, or `--json` for structured data.
 
-Note: `--year` cannot be combined with `--from`/`--to`.
+### `taxc pools` - Pool Balances
 
-### Report - Tax Report
+Section 104 pool balances over time. Year-end snapshots by default, or `--daily` for daily history.
 
-Generate a tax report (HTML by default, or JSON):
+### `taxc schema` - Format Reference
 
-```
-taxc report [OPTIONS] [FILE]
-```
+Print JSON schemas for input (`taxc schema input`, default) or output (`taxc schema output`) formats. Schemas are also checked into `schema/` for version tracking.
 
-| Option | Description |
-|--------|-------------|
-| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
-| `--from <DATE>` | Filter events from this date inclusive (`YYYY-MM-DD`) |
-| `--to <DATE>` | Filter events to this date inclusive (`YYYY-MM-DD`) |
-| `-o, --output <FILE>` | Output file path (default: opens in browser for HTML) |
-| `--json` | Output as JSON instead of HTML |
-| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
-| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` |
-| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
+All filtering commands share: `-y`/`--from`/`--to` (date), `-a` (asset), `--event-kind` (disposal/acquisition), `--exclude-unlinked`.
 
-Note: `--year` cannot be combined with `--from`/`--to`.
+## Input Format
 
-### Pools - Pool Balances
+JSON with top-level `assets` and `transactions` fields. Run `taxc schema input` for the full schema.
 
-Show pool balances over time (year-end snapshots by default, or daily history):
+Three transaction types: **Trade** (asset swap via `sold`/`bought`), **Deposit** (asset received), **Withdrawal** (asset sent). Transactions can be tagged for tax classification (income types, gifts, transfers, no gain/no loss).
 
-```
-taxc pools [OPTIONS] [FILE]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-y, --year <YEAR>` | Tax-year alias (expands to `--from` April 6 of prior year and `--to` April 5 of this year) |
-| `--from <DATE>` | Filter entries from this date inclusive (`YYYY-MM-DD`) |
-| `--to <DATE>` | Filter entries to this date inclusive (`YYYY-MM-DD`) |
-| `-a, --asset <ASSET>` | Filter by asset (e.g., BTC, ETH) |
-| `--event-kind <KIND>` | Filter by event kind: `disposal` or `acquisition` (daily mode only) |
-| `--daily` | Show daily time-series instead of year-end snapshots |
-| `--json` | Output as JSON instead of formatted table |
-| `--exclude-unlinked` | Don't include unlinked deposits/withdrawals in calculations |
-
-Notes:
-- `--year` cannot be combined with `--from`/`--to`.
-- `--event-kind` requires `--daily`.
-- In year-end mode, `--from`/`--to` apply to the year-end snapshot date (April 5).
-
-### Schema - Format Reference
-
-Print JSON schemas for input or output formats. Useful for coding agents or tooling integration.
-
-```
-taxc schema [input|output]
-```
-
-- `taxc schema` or `taxc schema input` - Input transaction format (default)
-- `taxc schema output` - Output report format (JSON mode)
-
-Schemas are also checked into `schema/` for version tracking.
-
-## Input Format (JSON Transactions)
-
-taxc accepts JSON with top-level `assets` and `transactions` fields.
-
-| Field | Description |
-|-------|-------------|
-| `assets` | Required list of asset definitions (symbol + optional asset_class) |
-| `transactions` | Required list of transaction records |
-
-- Every non-GBP symbol referenced in transactions must appear in `assets`.
-- `GBP` is implicit and does not need to be listed.
-
-**Datetime** must be RFC3339 with an offset (e.g., `2024-06-15T09:00:00+00:00`). Date-only values are accepted and assumed to be UTC midnight.
-
-### Shared Fields
-
-| Field | Description |
-|-------|-------------|
-| `id` | Unique identifier for linking and traceability |
-| `datetime` | RFC3339 datetime with offset |
-| `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
-| `description` | Optional description |
-| `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal` |
-| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Dividend`, `Interest`, `Gift`, `NoGainNoLoss` |
-| `valuation` | Optional valuation: either a Price object or a direct GBP total number |
-| `fee` | Optional fee (see Fee section below) |
-
-### Types
-
-**Trade**
-- `sold`: asset you gave up
-- `bought`: asset you received
-- Requires `valuation` when neither side is GBP
-- If `valuation` is a Price object, `valuation.base` must match `bought.asset`
-- `tag` must be `Unclassified` (default) or `Trade`
-
-**Deposit**
-- `amount`
-- `linked_withdrawal` to mark transfers
-- `tag: Unclassified` (default): existing transfer/unclassified behavior
-- Income tags (`StakingReward`, `Salary`, `OtherIncome`, `AirdropIncome`, `Dividend`, `Interest`): require `valuation` and create income acquisitions
-- GBP `Dividend` and `Interest` deposits must not include `valuation`; value is taken from the GBP quantity
-- `tag: Gift`: requires `valuation` and creates `GiftIn`
-- `tag: Airdrop`: must not include `valuation`, creates zero-cost acquisition
-
-**Withdrawal**
-- `amount`
-- `linked_deposit` to mark transfers
-- `tag: Unclassified` (default): existing transfer/unclassified behavior
-- `tag: Gift`: requires `valuation` and creates `GiftOut`
-- `tag: NoGainNoLoss`: `valuation` is optional; if present, it is informational only for the disposal value and does not affect CGT proceeds/gain
-- Other explicit tags on withdrawals are rejected
-
-### Asset Registry Entry
-
-| Field | Description |
-|-------|-------------|
-| `symbol` | Asset identifier (e.g., BTC, ETH, AAPL) |
-| `asset_class` | `Crypto` (default) or `Stock` |
-
-### Amount
-
-| Field | Description |
-|-------|-------------|
-| `asset` | Asset identifier (must exist in top-level `assets`, unless GBP) |
-| `quantity` | Amount of asset |
-
-### Valuation
-
-`valuation` replaces the old transaction-level `price` field.
-
-It accepts either:
-- A Price object for per-unit pricing
-- A direct GBP total number when your broker statement already gives the transaction's GBP value
-
-Examples:
-
-```json
-"valuation": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
-```
-
-```json
-"valuation": 15000
-```
-
-Use a Price object when you know the per-unit rate. Use a GBP number when you know only the total GBP value.
-
-For `tag: NoGainNoLoss` withdrawals, `valuation` is optional. If supplied, it is accepted for reporting and fee-pricing context, but HMRC no gain/no loss treatment still deems proceeds from allowable cost rather than the supplied valuation.
-
-### Price
-
-| Field | Description |
-|-------|-------------|
-| `base` | Asset symbol this price refers to (e.g., "BTC") |
-| `quote` | Optional foreign currency (e.g., "USD") - requires `fx_rate` |
-| `rate` | Price per unit (in GBP, or in quote currency if FX fields present) |
-| `fx_rate` | Optional FX rate to convert quote to GBP - requires `quote` |
-| `source` | Optional source of price data |
-
-For direct GBP prices: `value = quantity * rate`
-For FX prices: `value = quantity * rate * fx_rate`
-
-### Fee
-
-| Field | Description |
-|-------|-------------|
-| `asset` | Fee asset symbol |
-| `amount` | Fee amount |
-| `price` | Optional if `asset` is GBP or matches the transaction asset with a Price valuation; required otherwise |
-
-Fee pricing rules:
-- GBP fees need no price
-- If the fee has an explicit `price`, that is used
-- For Trade: if fee asset matches the `bought` asset, the trade's `valuation` is used only when that valuation is a Price object
-- For tagged Deposit/Withdrawal: if fee asset matches the transaction asset, transaction `valuation` is used only when that valuation is a Price object
-- For `NoGainNoLoss` withdrawals without a Price valuation, non-GBP fees need their own explicit `fee.price`
-- For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `valuation` is a Price object and fee asset matches `amount.asset`
-- For `Airdrop` deposits (no valuation): fee must be GBP or have an explicit `price`
-- If `valuation` is a direct GBP number, there is no per-unit price available for fee inference
-
-**Notes**
-- Unlinked crypto deposits/withdrawals with `tag: Unclassified` become unclassified events (`UnclassifiedIn`/`UnclassifiedOut`) with `value_gbp = 0` unless `--exclude-unlinked` is set.
-- For crypto-to-crypto trades, the GBP value can come from either the acquired asset Price valuation or a direct GBP total.
-- Input format breaking change: transaction-level `price` has been renamed to `valuation`.
-
-### Example JSON
+### Example
 
 ```json
 {
@@ -235,36 +57,25 @@ Fee pricing rules:
   "transactions": [
     {
       "id": "tx-001",
-      "datetime": "2024-01-01T10:00:00+00:00",
-      "account": "bank",
-      "description": "Fund exchange",
-      "type": "Deposit",
-      "amount": { "asset": "GBP", "quantity": 5000 }
-    },
-    {
-      "id": "tx-002",
       "datetime": "2024-01-02T09:00:00+00:00",
       "account": "kraken",
-      "description": "Buy BTC with GBP",
       "type": "Trade",
       "sold": { "asset": "GBP", "quantity": 1000 },
       "bought": { "asset": "BTC", "quantity": 0.025 }
     },
     {
-      "id": "tx-003",
+      "id": "tx-002",
       "datetime": "2024-08-31T10:00:00+00:00",
       "account": "kraken",
-      "description": "Swap BTC for ETH (priced in USD)",
       "type": "Trade",
       "sold": { "asset": "BTC", "quantity": 0.01 },
       "bought": { "asset": "ETH", "quantity": 0.5 },
       "valuation": { "base": "ETH", "rate": 2000, "quote": "USD", "fx_rate": 0.79 }
     },
     {
-      "id": "tx-004",
+      "id": "tx-003",
       "datetime": "2024-10-01T00:00:00+00:00",
       "account": "ledger",
-      "description": "ETH staking reward",
       "type": "Deposit",
       "tag": "StakingReward",
       "amount": { "asset": "ETH", "quantity": 0.01 },
@@ -273,98 +84,6 @@ Fee pricing rules:
   ]
 }
 ```
-
-## Example Output
-
-### Summary Command
-
-```
-taxc summary transactions.json -y 2025
-```
-
-```
-TAX SUMMARY (2024/25) - basic rate
-
-CAPITAL GAINS
-  Disposals: 2
-  Proceeds: £15,000.00 | Costs: £10,017.50 | Gain: £4,962.50
-  Exempt: £3,000.00 | Taxable: £1,962.50
-  CGT @ 18%: £353.25 | @ 24%: £471.00
-
-INCOME
-  Income: £250.00 (Tax @ 20%: £50.00)
-  Dividend: £0.00
-  Interest: £0.00
-
-TOTAL TAX LIABILITY: £403.25 (basic)
-```
-
-### Summary JSON (stable)
-
-`taxc summary --json` is the machine-friendly summary endpoint. Monetary fields are numeric values in GBP.
-
-Example shape:
-
-```json
-{
-  "tax_year": "2024/25",
-  "filters": {
-    "from": "2024-04-06",
-    "to": "2025-04-05",
-    "asset": null,
-    "event_kind": null,
-    "exclude_unlinked": false
-  },
-  "tax_band": "basic",
-  "disposal_count": 5,
-  "gross_gains": 12000.0,
-  "in_year_losses": 2000.0,
-  "net_gain_before_aea": 10000.0,
-  "aea": 3000.0,
-  "taxable_gain": 7000.0,
-  "cgt_rate_pct": 18,
-  "estimated_cgt": 1260.0,
-  "income": 1500.0,
-  "dividend_income": 200.0,
-  "interest_income": 300.0,
-  "income_rate_pct": 20,
-  "estimated_income_tax": 300.0,
-  "estimated_total_tax": 1560.0,
-  "currency": "GBP"
-}
-```
-
-### Report Command
-
-```
-taxc report transactions.json
-```
-
-Generates a self-contained HTML file and opens it in your default browser. Features:
-
-- **Summary cards** - Total proceeds, costs, gains/losses, total income with Dividend and Interest subtotals
-- **Interactive filtering** - Filter by date range, tax year, event type, tag, asset class, or search by asset
-- **Event table with drill-down** - All taxable events with expandable disposal matching details
-- **Contextual value notes** - HTML tooltips explain when a displayed event value is derived from tax basis rather than transaction valuation
-- **Color-coded tags** - Badges for income tags (including Dividend and Interest), trade, gift, airdrop, and unclassified events
-- **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
-- **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
-- **Color-coded gains/losses** - Green for gains, red for losses
-
-Use `-o report.html` to write to a specific file instead of opening in browser.
-
-Use `--json` to output the report data as JSON (for integration with other tools):
-
-```
-taxc report transactions.json --json > report.json
-```
-
-Report JSON includes:
-- Per-event `warnings` attached to each event row
-- Per-event `source_transaction_id` to link warnings/events back to input transactions
-- Event `id` values are sequential integers (`1..n`) in event order
-- Optional per-event `value_gbp_note` when the displayed value is derived specially for reporting
-- A top-level `warnings` list with `source_transaction_ids` and `related_event_ids`
 
 ## HMRC Share Identification Rules
 
