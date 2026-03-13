@@ -1,6 +1,14 @@
 const DATA = __JSON_DATA__;
 
+const eventById = new Map((DATA.events || []).map(ev => [ev.id, ev]));
+
 let currentExpandedRow = null;
+let currentExpandedTxRow = null;
+let activeTab = 'transactions';
+let eventsStale = false;
+let transactionsStale = false;
+let initialized = false;
+let lastFilters = null;
 
 function formatCurrency(value) {
     const num = parseFloat(value) || 0;
@@ -101,6 +109,196 @@ function formatValueCell(event) {
     `;
 }
 
+function formatGainCell(e) {
+    if (!e.cgt) return '<td>\u2014</td>';
+    const val = parseFloat(e.cgt.gain_gbp);
+    const cls = val >= 0 ? 'gain-value' : 'loss-value';
+    return `<td class="${cls}">${formatCurrency(e.cgt.gain_gbp)}</td>`;
+}
+
+function navigateToRow(tab, tbodyId, dataAttr, id) {
+    switchTab(tab);
+    setTimeout(() => {
+        const row = document.querySelector(`#${tbodyId} tr[data-${dataAttr}="${id}"]`);
+        if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.classList.remove('row-highlight');
+            void row.offsetWidth;
+            row.classList.add('row-highlight');
+        }
+    }, 50);
+}
+
+function navigateToEvent(eventId) {
+    navigateToRow('events', 'events-body', 'event-id', eventId);
+}
+
+function navigateToTransaction(txId) {
+    navigateToRow('transactions', 'transactions-body', 'tx-id', txId);
+}
+
+function toggleExpandableRow(row, detailsClass, getCurrentExpanded, setCurrentExpanded) {
+    const detailsRow = row.nextElementSibling;
+    if (!detailsRow || !detailsRow.classList.contains(detailsClass)) return;
+
+    const current = getCurrentExpanded();
+    if (current && current !== detailsRow) {
+        current.style.display = 'none';
+        const prevBtn = current.previousElementSibling.querySelector('.expand-chevron');
+        if (prevBtn) prevBtn.classList.remove('expanded');
+    }
+
+    if (detailsRow.style.display === 'none') {
+        detailsRow.style.display = 'table-row';
+        setCurrentExpanded(detailsRow);
+        const btn = row.querySelector('.expand-chevron');
+        if (btn) btn.classList.add('expanded');
+    } else {
+        detailsRow.style.display = 'none';
+        setCurrentExpanded(null);
+        const btn = row.querySelector('.expand-chevron');
+        if (btn) btn.classList.remove('expanded');
+    }
+}
+
+function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.getElementById('events-section').style.display = tab === 'events' ? '' : 'none';
+    document.getElementById('transactions-section').style.display = tab === 'transactions' ? '' : 'none';
+
+    if (tab === 'events' && eventsStale && lastFilters) {
+        renderEventsTable(filterEvents(DATA.events, lastFilters));
+        eventsStale = false;
+    }
+    if (tab === 'transactions' && transactionsStale && lastFilters) {
+        const filtered = filterTransactions(DATA.transactions || [], lastFilters);
+        renderTransactionsTable(filtered);
+        document.getElementById('transactions-count').textContent = `(${filtered.length})`;
+        transactionsStale = false;
+    }
+}
+
+function formatTransactionType(type) {
+    const cls = `tx-type-${type.toLowerCase()}`;
+    return `<span class="tx-type-badge ${cls}">${type}</span>`;
+}
+
+function formatAmounts(amounts) {
+    return amounts.map(a => {
+        const label = amounts.length > 1 ? `<span class="tx-amount-label">${a.label}</span>` : '';
+        return `<div class="tx-amount-line">${label}${formatQuantity(a.quantity)} ${a.asset}</div>`;
+    }).join('');
+}
+
+function formatFee(fee) {
+    if (!fee) return '\u2014';
+    return `${formatQuantity(fee.amount)} ${fee.asset}`;
+}
+
+function renderTransactionsTable(transactions) {
+    const tbody = document.getElementById('transactions-body');
+    tbody.innerHTML = '';
+    currentExpandedTxRow = null;
+
+    transactions.forEach(tx => {
+        const row = document.createElement('tr');
+        row.className = 'tx-row';
+        row.dataset.txId = tx.id;
+
+        const hasEvents = tx.event_ids && tx.event_ids.length > 0;
+        const expandButton = hasEvents ? '<span class="expand-chevron"></span>' : '';
+
+        row.innerHTML = `
+            <td>${expandButton}</td>
+            <td>${formatDateTime(tx.datetime)}</td>
+            <td>${formatTransactionType(tx.transaction_type)}</td>
+            <td>${formatTag(tx.tag)}</td>
+            <td class="tx-amounts">${formatAmounts(tx.amounts)}</td>
+            <td class="tx-fee">${formatFee(tx.fee)}</td>
+            <td>${tx.account || ''}</td>
+            <td>${tx.description || ''}</td>
+        `;
+
+        if (hasEvents) {
+            row.addEventListener('click', () => toggleExpandableRow(
+                row, 'expandable-row',
+                () => currentExpandedTxRow,
+                v => { currentExpandedTxRow = v; }
+            ));
+        }
+
+        tbody.appendChild(row);
+
+        if (hasEvents) {
+            const detailsRow = document.createElement('tr');
+            detailsRow.className = 'expandable-row';
+            detailsRow.style.display = 'none';
+
+            const eventRows = tx.event_ids.map(id => {
+                const e = eventById.get(id);
+                if (!e) return '';
+                return `
+                    <tr class="tx-event-detail-row" onclick="event.stopPropagation(); navigateToEvent(${id})">
+                        <td>${formatEventType(e.event_kind, e.warnings)}</td>
+                        <td>${formatTag(e.tag)}</td>
+                        <td>${formatQuantity(e.quantity)}</td>
+                        <td>${e.asset}</td>
+                        <td>${formatValueCell(e)}</td>
+                        ${formatGainCell(e)}
+                        <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            detailsRow.innerHTML = `
+                <td colspan="8">
+                    <div class="tx-events-content">
+                        <div class="expandable-title">Generated Events</div>
+                        <table class="detail-subtable">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Tag</th>
+                                    <th>Qty</th>
+                                    <th>Asset</th>
+                                    <th>Value</th>
+                                    <th>Gain/Loss</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>${eventRows}</tbody>
+                        </table>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(detailsRow);
+        }
+    });
+}
+
+function filterTransactions(transactions, filters) {
+    return transactions.filter(tx => {
+        if (filters.dateFrom && tx.datetime < filters.dateFrom) return false;
+        if (filters.dateTo && tx.datetime > filters.dateTo + 'T23:59:59') return false;
+        if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
+
+        if (filters.assetSearch) {
+            const matchesAsset = tx.amounts.some(a => a.asset.toLowerCase().includes(filters.assetSearch));
+            if (!matchesAsset) return false;
+        }
+
+        const tag = (tx.tag || '').toLowerCase();
+        if (tag && Object.prototype.hasOwnProperty.call(filters.tags, tag) && !filters.tags[tag]) {
+            return false;
+        }
+
+        return true;
+    });
+}
+
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-body');
     tbody.innerHTML = '';
@@ -110,51 +308,53 @@ function renderEventsTable(events) {
         const isDisposal = !!e.cgt;
         const row = document.createElement('tr');
         row.className = isDisposal ? 'disposal-row' : '';
+        row.dataset.eventId = String(e.id);
 
         let expandButton = '';
         if (isDisposal && e.cgt.matching_components.length > 0) {
             expandButton = `<span class="expand-chevron"></span>`;
         }
 
-        const gainCell = isDisposal
-            ? (() => {
-                const val = parseFloat(e.cgt.gain_gbp);
-                const cls = val >= 0 ? 'gain-value' : 'loss-value';
-                return `<td class="${cls}">${formatCurrency(e.cgt.gain_gbp)}</td>`;
-            })()
-            : '<td>—</td>';
+        const txIcon = e.source_transaction_id
+            ? `<span class="source-tx-icon" onclick="event.stopPropagation(); navigateToTransaction('${escapeHtml(e.source_transaction_id)}')" title="${escapeHtml(e.source_transaction_id)}">&#x21c4;</span>`
+            : '';
 
         row.innerHTML = `
             <td>${expandButton}</td>
+            <td>${txIcon}</td>
             <td>${formatDateTime(e.datetime)}</td>
             <td>${formatEventType(e.event_kind, e.warnings)}</td>
             <td>${formatTag(e.tag)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
             <td>${formatValueCell(e)}</td>
-            ${gainCell}
+            ${formatGainCell(e)}
             <td>${e.account || ''}</td>
             <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>
         `;
 
         if (isDisposal) {
-            row.addEventListener('click', () => toggleDetails(row, e, idx));
+            row.addEventListener('click', () => toggleExpandableRow(
+                row, 'expandable-row',
+                () => currentExpandedRow,
+                v => { currentExpandedRow = v; }
+            ));
         }
 
         tbody.appendChild(row);
 
         if (isDisposal && e.cgt.matching_components.length > 0) {
             const detailsRow = document.createElement('tr');
-            detailsRow.className = 'details-row';
+            detailsRow.className = 'expandable-row';
             detailsRow.style.display = 'none';
             detailsRow.innerHTML = `
-                <td colspan="10">
+                <td colspan="11">
                     <div class="details-content">
                         <div class="details-header">
-                            <div class="details-title">Matching Details</div>
+                            <div class="expandable-title">Matching Details</div>
                             <div>${formatWarnings(e.cgt.warnings)}</div>
                         </div>
-                        <table class="matching-table">
+                        <table class="detail-subtable">
                             <thead>
                                 <tr>
                                     <th>Rule</th>
@@ -183,48 +383,25 @@ function renderEventsTable(events) {
 }
 
 function formatMatchedAcquisition(mc) {
-    if (!mc.matched_date) return '—';
+    if (!mc.matched_date) return '\u2014';
     const date = new Date(mc.matched_date);
     const dateStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
     let details = `${dateStr}`;
     if (mc.matched_event_type) {
-        details += ` · ${mc.matched_event_type}`;
+        details += ` \u00b7 ${mc.matched_event_type}`;
     }
     if (mc.matched_original_qty) {
-        details += ` · ${formatQuantity(mc.matched_original_qty)}`;
+        details += ` \u00b7 ${formatQuantity(mc.matched_original_qty)}`;
     }
     if (mc.matched_original_value) {
-        details += ` · ${formatCurrency(mc.matched_original_value)}`;
+        details += ` \u00b7 ${formatCurrency(mc.matched_original_value)}`;
     }
 
     if (mc.matched_row_id != null) {
         return `<a href="#row-${mc.matched_row_id}" class="acquisition-link">${details}</a>`;
     }
     return details;
-}
-
-function toggleDetails(row, event, idx) {
-    const detailsRow = row.nextElementSibling;
-    if (!detailsRow || !detailsRow.classList.contains('details-row')) return;
-
-    if (currentExpandedRow && currentExpandedRow !== detailsRow) {
-        currentExpandedRow.style.display = 'none';
-        const prevBtn = currentExpandedRow.previousElementSibling.querySelector('.expand-chevron');
-        if (prevBtn) prevBtn.classList.remove('expanded');
-    }
-
-    if (detailsRow.style.display === 'none') {
-        detailsRow.style.display = 'table-row';
-        currentExpandedRow = detailsRow;
-        const btn = row.querySelector('.expand-chevron');
-        if (btn) btn.classList.add('expanded');
-    } else {
-        detailsRow.style.display = 'none';
-        currentExpandedRow = null;
-        const btn = row.querySelector('.expand-chevron');
-        if (btn) btn.classList.remove('expanded');
-    }
 }
 
 function populateFilters() {
@@ -267,9 +444,31 @@ function applyFilters() {
         }
     };
 
+    lastFilters = filters;
+
     const filteredEvents = filterEvents(DATA.events, filters);
-    renderEventsTable(filteredEvents);
     updateSummary(filteredEvents);
+
+    const filteredTransactions = filterTransactions(DATA.transactions || [], filters);
+
+    if (!initialized || activeTab === 'events') {
+        renderEventsTable(filteredEvents);
+        eventsStale = false;
+    } else {
+        eventsStale = true;
+    }
+
+    if (!initialized || activeTab === 'transactions') {
+        renderTransactionsTable(filteredTransactions);
+        transactionsStale = false;
+    } else {
+        transactionsStale = true;
+    }
+
+    initialized = true;
+
+    document.getElementById('events-count').textContent = `(${filteredEvents.length})`;
+    document.getElementById('transactions-count').textContent = `(${filteredTransactions.length})`;
 }
 
 function filterEvents(events, filters) {
@@ -414,14 +613,14 @@ function updateSummary(events) {
         if (ct.crypto.g !== 0 || ct.crypto.p !== 0) parts.push(`Crypto: ${formatCurrency(ct.crypto.g)}`);
         if (ct.stock.g !== 0 || ct.stock.p !== 0) parts.push(`Stocks: ${formatCurrency(ct.stock.g)}`);
         if (ct.fiat.g !== 0 || ct.fiat.p !== 0) parts.push(`Fiat: ${formatCurrency(ct.fiat.g)}`);
-        breakdownEl.textContent = parts.join(' · ');
+        breakdownEl.textContent = parts.join(' \u00b7 ');
     } else {
         breakdownEl.textContent = '';
     }
 
     // Counts
     document.getElementById('summary-counts').textContent =
-        `${events.length} events · ${summary.disposalCount} disposals · ${summary.incomeCount} income`;
+        `${events.length} events \u00b7 ${summary.disposalCount} disposals \u00b7 ${summary.incomeCount} income`;
 
     // Warnings banner
     const warningsBanner = document.getElementById('warnings-banner');

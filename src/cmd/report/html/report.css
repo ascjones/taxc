@@ -370,6 +370,45 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     cursor: help;
 }
 
+/* ---- Tab bar ---- */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: -1px;
+    position: relative;
+    z-index: 1;
+}
+
+.tab-btn {
+    padding: 0.625rem 1.25rem;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+
+.tab-btn:hover {
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+}
+
+.tab-btn.active {
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    border-color: var(--border);
+}
+
+.tab-btn .count {
+    font-weight: 400;
+    margin-left: 0.25rem;
+}
+
 /* ---- Table section ---- */
 .table-section {
     background: var(--bg-surface);
@@ -402,12 +441,13 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
 .table-container { overflow-x: auto; }
 
-#events-table {
+/* Shared data table styles (events + transactions) */
+.data-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-#events-table th {
+.data-table th {
     padding: 0.625rem 1rem;
     text-align: left;
     font-size: 0.6875rem;
@@ -423,7 +463,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     z-index: 1;
 }
 
-#events-table td {
+.data-table td {
     padding: 0.625rem 1rem;
     border-bottom: 1px solid var(--border-subtle);
     font-size: 0.8125rem;
@@ -431,27 +471,27 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     vertical-align: middle;
 }
 
-/* Monospace for number columns: Qty, Value, Gain/Loss */
-#events-table td:nth-child(4),
+.data-table tbody tr { transition: background 0.1s; }
+.data-table tbody tr:hover:not(.expandable-row) { background: var(--bg-hover); }
+
+/* Monospace for number columns: Qty(6), Value(8), Gain/Loss(9) */
 #events-table td:nth-child(6),
-#events-table td:nth-child(7) {
+#events-table td:nth-child(8),
+#events-table td:nth-child(9) {
     font-family: var(--font-mono);
     font-size: 0.8125rem;
     font-weight: 500;
 }
 
 /* Right-align number columns */
-#events-table th:nth-child(4),
-#events-table td:nth-child(4),
 #events-table th:nth-child(6),
 #events-table td:nth-child(6),
-#events-table th:nth-child(7),
-#events-table td:nth-child(7) {
+#events-table th:nth-child(8),
+#events-table td:nth-child(8),
+#events-table th:nth-child(9),
+#events-table td:nth-child(9) {
     text-align: right;
 }
-
-#events-table tbody tr { transition: background 0.1s; }
-#events-table tbody tr:hover:not(.details-row) { background: var(--bg-hover); }
 
 /* ---- Event type badges ---- */
 /* ---- Event direction arrows ---- */
@@ -531,7 +571,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
 /* ---- Disposal rows ---- */
 .disposal-row { cursor: pointer; }
-.disposal-row td:nth-child(8) { font-weight: 600; }
+.disposal-row td:nth-child(9) { font-weight: 600; }
 
 .gain-value { color: var(--gain) !important; }
 .loss-value { color: var(--loss) !important; }
@@ -564,18 +604,23 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     background: var(--accent-bg);
 }
 
-/* ---- Details row ---- */
-.details-row { background: var(--bg-elevated) !important; }
-.details-row:hover { background: var(--bg-elevated) !important; }
+/* ---- Expandable detail rows (shared by events + transactions) ---- */
+.expandable-row { background: var(--bg-elevated) !important; }
+.expandable-row:hover { background: var(--bg-elevated) !important; }
 
-.details-row > td {
+.expandable-row > td {
     padding: 0 !important;
     border-bottom: 1px solid var(--border) !important;
 }
 
-.details-content {
+.details-content,
+.tx-events-content {
     padding: 1rem 1.5rem 1.25rem;
     animation: slideDown 0.2s ease;
+}
+
+.tx-events-content {
+    padding: 0.75rem 1.5rem 1rem;
 }
 
 .details-header {
@@ -585,21 +630,22 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     margin-bottom: 0.75rem;
 }
 
-.details-title {
+.expandable-title {
     font-size: 0.75rem;
     font-weight: 700;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    margin-bottom: 0.5rem;
 }
 
-/* ---- Matching table ---- */
-.matching-table {
+/* ---- Detail subtable (shared by matching details + tx events) ---- */
+.detail-subtable {
     width: 100%;
     border-collapse: collapse;
 }
 
-.matching-table th {
+.detail-subtable th {
     padding: 0.5rem 0.75rem;
     text-align: left;
     font-size: 0.625rem;
@@ -610,20 +656,14 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     border-bottom: 1px solid var(--border);
 }
 
-.matching-table td {
+.detail-subtable td {
     padding: 0.5rem 0.75rem;
     font-size: 0.8125rem;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-subtle);
 }
 
-.matching-table td:nth-child(2),
-.matching-table td:nth-child(3) {
-    font-family: var(--font-mono);
-    font-weight: 500;
-}
-
-.matching-table tr:last-child td { border-bottom: none; }
+.detail-subtable tr:last-child td { border-bottom: none; }
 
 /* ---- Rule badges ---- */
 .rule-badge {
@@ -667,6 +707,95 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     background: var(--warning-bg);
     color: var(--warning);
     border: 1px solid var(--warning-border);
+}
+
+/* ---- Transactions table ---- */
+.tx-row { cursor: pointer; }
+
+.tx-type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.4rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
+
+.tx-type-trade {
+    background: var(--accent-bg);
+    color: var(--accent);
+}
+
+.tx-type-deposit {
+    background: var(--gain-bg);
+    color: var(--gain);
+}
+
+.tx-type-withdrawal {
+    background: var(--loss-bg);
+    color: var(--loss);
+}
+
+.tx-amounts {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.tx-amount-label {
+    color: var(--text-muted);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    margin-right: 0.25rem;
+}
+
+.tx-amount-line + .tx-amount-line {
+    margin-top: 0.125rem;
+}
+
+.tx-fee {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+/* Event row source tx icon */
+.source-tx-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.source-tx-icon:hover {
+    color: var(--accent);
+    background: var(--accent-bg);
+}
+
+.tx-event-detail-row {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.tx-event-detail-row:hover {
+    background: var(--bg-hover);
+}
+
+/* Highlight animation for navigated-to rows */
+.row-highlight {
+    animation: highlightPulse 1.5s ease;
+}
+
+@keyframes highlightPulse {
+    0% { background: var(--accent-bg); }
+    100% { background: transparent; }
 }
 
 /* ---- Acquisition link ---- */

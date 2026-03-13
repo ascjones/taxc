@@ -108,15 +108,37 @@ __CSS__
             <span id="warning-summary"></span>
         </div>
 
-        <section class="table-section">
-            <div class="table-header">
-                <h2>Transactions</h2>
-                <span class="count" id="events-count"></span>
-            </div>
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="transactions" onclick="switchTab('transactions')">Transactions <span class="count" id="transactions-count"></span></button>
+            <button class="tab-btn" data-tab="events" onclick="switchTab('events')">Events <span class="count" id="events-count"></span></button>
+        </div>
+
+        <section class="table-section" id="transactions-section">
             <div class="table-container">
-                <table id="events-table">
+                <table id="transactions-table" class="data-table">
                     <thead>
                         <tr>
+                            <th style="width:32px"></th>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Tag</th>
+                            <th>Details</th>
+                            <th>Fee</th>
+                            <th>Account</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactions-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="table-section" id="events-section" style="display:none">
+            <div class="table-container">
+                <table id="events-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:32px"></th>
                             <th style="width:32px"></th>
                             <th>Date</th>
                             <th style="width:48px"></th>

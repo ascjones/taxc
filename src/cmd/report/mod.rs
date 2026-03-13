@@ -5,7 +5,8 @@ pub mod html;
 pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values.";
 
 use super::filter::{EventFilter, FilterArgs};
-use super::read_events;
+use super::read_transactions_and_events;
+use crate::core::transactions::{Transaction, TransactionType};
 use crate::core::{
     calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, DisposalRecord,
     EventType, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
@@ -46,12 +47,13 @@ pub struct ReportCommand {
 impl ReportCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let event_filter = self.filter.build(self.asset.clone())?;
-        let events = read_events(&self.file, self.exclude_unlinked)?;
+        let (transactions, events) =
+            read_transactions_and_events(&self.file, self.exclude_unlinked)?;
 
         let cgt_report = calculate_cgt(events.clone())?;
 
         if self.json {
-            let data = build_report_data(&events, &cgt_report, &event_filter)?;
+            let data = build_report_data(&[], &events, &cgt_report, &event_filter)?;
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -61,7 +63,7 @@ impl ReportCommand {
                 println!("{}", json);
             }
         } else {
-            let html = html::generate_html(&events, &cgt_report, &event_filter)?;
+            let html = html::generate_html(&transactions, &events, &cgt_report, &event_filter)?;
 
             if let Some(ref output_path) = self.output {
                 std::fs::write(output_path, &html)?;
@@ -82,9 +84,43 @@ impl ReportCommand {
 /// Data structure for embedding in HTML as JSON
 #[derive(Serialize, JsonSchema)]
 pub struct ReportData {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub transactions: Vec<TransactionRow>,
     pub events: Vec<EventRow>,
     pub warnings: Vec<WarningRecord>,
     pub summary: Summary,
+}
+
+/// A serialized input transaction for the transactions view
+#[derive(Serialize, JsonSchema)]
+pub struct TransactionRow {
+    pub id: String,
+    pub datetime: String,
+    pub tax_year: String,
+    pub account: String,
+    pub transaction_type: String,
+    pub tag: Tag,
+    pub description: String,
+    /// Assets involved (e.g. for Trade: sold + bought; for Deposit/Withdrawal: single amount)
+    pub amounts: Vec<TransactionAmount>,
+    /// Fee if any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee: Option<TransactionFee>,
+    /// Event IDs generated from this transaction
+    pub event_ids: Vec<usize>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct TransactionAmount {
+    pub label: String,
+    pub asset: String,
+    pub quantity: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct TransactionFee {
+    pub asset: String,
+    pub amount: String,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -205,6 +241,7 @@ pub struct Summary {
 }
 
 pub(super) fn build_report_data(
+    transactions: &[Transaction],
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
     filter: &EventFilter,
@@ -499,7 +536,77 @@ pub(super) fn build_report_data(
         .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
         .count();
 
+    // Build transaction_id -> event_ids mapping
+    let mut tx_event_map: HashMap<String, Vec<usize>> = HashMap::new();
+    for e in &filtered_events {
+        tx_event_map
+            .entry(e.source_transaction_id.clone())
+            .or_default()
+            .push(e.id);
+    }
+
+    // Build transaction rows
+    let transaction_rows: Vec<TransactionRow> = transactions
+        .iter()
+        .map(|tx| {
+            let (transaction_type, amounts) = match &tx.details {
+                TransactionType::Trade { sold, bought } => (
+                    "Trade".to_string(),
+                    vec![
+                        TransactionAmount {
+                            label: "Sold".to_string(),
+                            asset: sold.asset.clone(),
+                            quantity: sold.quantity.to_string(),
+                        },
+                        TransactionAmount {
+                            label: "Bought".to_string(),
+                            asset: bought.asset.clone(),
+                            quantity: bought.quantity.to_string(),
+                        },
+                    ],
+                ),
+                TransactionType::Deposit { amount, .. } => (
+                    "Deposit".to_string(),
+                    vec![TransactionAmount {
+                        label: "Amount".to_string(),
+                        asset: amount.asset.clone(),
+                        quantity: amount.quantity.to_string(),
+                    }],
+                ),
+                TransactionType::Withdrawal { amount, .. } => (
+                    "Withdrawal".to_string(),
+                    vec![TransactionAmount {
+                        label: "Amount".to_string(),
+                        asset: amount.asset.clone(),
+                        quantity: amount.quantity.to_string(),
+                    }],
+                ),
+            };
+
+            let fee = tx.fee.as_ref().map(|f| TransactionFee {
+                asset: f.asset.clone(),
+                amount: f.amount.to_string(),
+            });
+
+            let event_ids = tx_event_map.get(&tx.id).cloned().unwrap_or_default();
+
+            TransactionRow {
+                id: tx.id.clone(),
+                datetime: tx.datetime.to_rfc3339(),
+                tax_year: TaxYear::from_date(tx.datetime.date_naive()).display(),
+                account: tx.account.clone(),
+                transaction_type,
+                tag: tx.tag,
+                description: tx.description.clone().unwrap_or_default(),
+                amounts,
+                fee,
+                event_ids,
+            }
+        })
+        .collect();
+
     Ok(ReportData {
+        transactions: transaction_rows,
         events: event_rows,
         warnings,
         summary: Summary {
