@@ -1,6 +1,6 @@
 use super::*;
 use crate::cmd::filter::EventFilter;
-use crate::core::events::builders::{acq, disp};
+use crate::core::events::builders::{acq, disp, event};
 use crate::core::{AssetClass, EventType, Tag, TaxableEvent};
 use rust_decimal_macros::dec;
 
@@ -208,4 +208,35 @@ fn summary_separates_crypto_and_stock_cgt_totals() {
     assert_eq!(data.summary.fiat.proceeds, "0.00");
     assert_eq!(data.summary.fiat.costs, "0.00");
     assert_eq!(data.summary.fiat.gain, "0.00");
+}
+
+#[test]
+fn no_gain_no_loss_report_value_uses_cost_basis_with_note() {
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(2), dec!(50000)),
+        TaxableEvent {
+            id: 2,
+            ..event(
+                EventType::Disposal,
+                Tag::NoGainNoLoss,
+                "2024-06-01",
+                "BTC",
+                dec!(1),
+                dec!(0),
+                None,
+            )
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&events, &cgt_report, &no_filter()).unwrap();
+
+    let ngnl = data
+        .events
+        .iter()
+        .find(|e| e.tag == Tag::NoGainNoLoss)
+        .expect("expected no gain/no loss event");
+
+    assert_eq!(ngnl.value_gbp, "25000.00");
+    assert_eq!(ngnl.value_gbp_note.as_deref(), Some(NGNL_VALUE_NOTE));
 }

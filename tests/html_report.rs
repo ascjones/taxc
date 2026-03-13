@@ -45,6 +45,37 @@ fn report_html_respects_from_to_and_event_kind() {
     let _ = fs::remove_file(out);
 }
 
+#[test]
+fn report_html_embeds_ngnl_value_note() {
+    let out = unique_tmp_file("report-ngnl-note", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/ngnl_spouse.json",
+            "--output",
+            &out_str,
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let html = fs::read_to_string(&out).expect("failed reading generated HTML");
+
+    assert!(
+        html.contains("\"value_gbp\":\"25000.00\""),
+        "expected NGNL report value to use transferred cost basis"
+    );
+    assert!(
+        html.contains("\"value_gbp_note\":\"No gain/no loss transfer: value shows transferred allowable cost basis."),
+        "expected NGNL value note to be embedded in HTML data"
+    );
+
+    let _ = fs::remove_file(out);
+}
+
 /// Test that the HTML report renders correctly in a headless browser:
 /// JS executes without errors, summary metrics are populated, and the events table has rows.
 #[test]

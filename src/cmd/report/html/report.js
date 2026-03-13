@@ -79,6 +79,28 @@ function formatWarnings(warnings) {
     return warnings.map(w => `<span class="warning-badge">${formatWarningDisplay(w)}</span>`).join(' ');
 }
 
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatValueCell(event) {
+    const value = formatCurrency(event.value_gbp);
+    if (!event.value_gbp_note) return value;
+
+    const note = escapeHtml(event.value_gbp_note);
+    return `
+        <span class="value-with-note">
+            <span>${value}</span>
+            <span class="value-note" title="${note}" aria-label="${note}">i</span>
+        </span>
+    `;
+}
+
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-body');
     tbody.innerHTML = '';
@@ -109,7 +131,7 @@ function renderEventsTable(events) {
             <td>${formatTag(e.tag)}</td>
             <td>${formatQuantity(e.quantity)}</td>
             <td>${e.asset}</td>
-            <td>${formatCurrency(e.value_gbp)}</td>
+            <td>${formatValueCell(e)}</td>
             ${gainCell}
             <td>${e.account || ''}</td>
             <td>${e.description || ''} ${formatWarnings(e.warnings)}</td>

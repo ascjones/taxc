@@ -268,14 +268,23 @@ impl Transaction {
                         });
                     }
 
-                    let value_gbp = valuation_to_gbp_required(
-                        id,
-                        *tag,
-                        "withdrawal",
-                        valuation.as_ref(),
-                        &amount.asset,
-                        amount.quantity,
-                    )?;
+                    let value_gbp = if *tag == Tag::NoGainNoLoss {
+                        valuation_to_gbp_optional(
+                            id,
+                            valuation.as_ref(),
+                            &amount.asset,
+                            amount.quantity,
+                        )?
+                    } else {
+                        valuation_to_gbp_required(
+                            id,
+                            *tag,
+                            "withdrawal",
+                            valuation.as_ref(),
+                            &amount.asset,
+                            amount.quantity,
+                        )?
+                    };
                     let tx_price = valuation.as_ref().and_then(Valuation::price);
                     let fee_gbp = match fee {
                         Some(f) => Some(fee_to_gbp_with_context(f, Some(&amount.asset), tx_price)?),

@@ -987,6 +987,36 @@ fn no_gain_no_loss_withdrawal_creates_disposal() {
 }
 
 #[test]
+fn no_gain_no_loss_withdrawal_without_valuation_creates_disposal() {
+    let tx = withdrawal_tx("w-ngnl-none", "ETH", dec!(2)).with_tag(Tag::NoGainNoLoss);
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Disposal);
+    assert_eq!(events[0].tag, Tag::NoGainNoLoss);
+    assert_eq!(events[0].value_gbp, Decimal::ZERO);
+}
+
+#[test]
+fn no_gain_no_loss_without_valuation_crypto_fee_needs_own_price() {
+    let tx = withdrawal_tx("w-ngnl-fee-missing", "ETH", dec!(2))
+        .with_tag(Tag::NoGainNoLoss)
+        .with_fee(Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.1),
+            price: None,
+        });
+
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::MissingFeePrice {
+            asset: "ETH".to_string(),
+        }
+    );
+}
+
+#[test]
 fn no_gain_no_loss_deposit_errors() {
     let tx = deposit_tx("d-ngnl", "ETH", dec!(2))
         .with_tag(Tag::NoGainNoLoss)

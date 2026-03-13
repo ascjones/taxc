@@ -19,8 +19,7 @@
       "description": "Transfer to spouse",
       "type": "Withdrawal",
       "tag": "NoGainNoLoss",
-      "amount": { "asset": "BTC", "quantity": 1 },
-      "valuation": 35000
+      "amount": { "asset": "BTC", "quantity": 1 }
     },
     {
       "id": "tx-003",

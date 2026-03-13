@@ -2,6 +2,8 @@
 
 pub mod html;
 
+pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values.";
+
 use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
 use crate::core::{
@@ -101,6 +103,8 @@ pub struct EventRow {
     pub asset_class: String,
     pub quantity: String,
     pub value_gbp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_gbp_note: Option<String>,
     pub fees_gbp: String,
     pub description: String,
     /// Warnings attached to this event.
@@ -344,6 +348,17 @@ pub(super) fn build_report_data(
                 .map(|fee| format!("{:.2}", fee))
                 .unwrap_or_default();
 
+            let (value_gbp, value_gbp_note) = if e.tag == Tag::NoGainNoLoss {
+                (
+                    cgt.as_ref()
+                        .map(|details| details.cost_gbp.clone())
+                        .unwrap_or_else(|| format!("{:.2}", e.value_gbp)),
+                    Some(NGNL_VALUE_NOTE.to_string()),
+                )
+            } else {
+                (format!("{:.2}", e.value_gbp), None)
+            };
+
             Ok(EventRow {
                 id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
@@ -359,7 +374,8 @@ pub(super) fn build_report_data(
                 asset: e.asset.clone(),
                 asset_class: format_asset_class(&e.asset_class),
                 quantity: e.quantity.to_string(),
-                value_gbp: format!("{:.2}", e.value_gbp),
+                value_gbp,
+                value_gbp_note,
                 fees_gbp,
                 description: e.description.clone().unwrap_or_default(),
                 warnings: event_warnings,

@@ -121,7 +121,7 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 | `account` | Account/wallet label (e.g., `kraken`, `ledger`) |
 | `description` | Optional description |
 | `type` | Transaction type: `Trade`, `Deposit`, `Withdrawal` |
-| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Dividend`, `Interest`, `Gift` |
+| `tag` | Optional classification tag: `Unclassified` (default), `Trade`, `StakingReward`, `Salary`, `OtherIncome`, `Airdrop`, `AirdropIncome`, `Dividend`, `Interest`, `Gift`, `NoGainNoLoss` |
 | `valuation` | Optional valuation: either a Price object or a direct GBP total number |
 | `fee` | Optional fee (see Fee section below) |
 
@@ -148,6 +148,7 @@ taxc accepts JSON with top-level `assets` and `transactions` fields.
 - `linked_deposit` to mark transfers
 - `tag: Unclassified` (default): existing transfer/unclassified behavior
 - `tag: Gift`: requires `valuation` and creates `GiftOut`
+- `tag: NoGainNoLoss`: `valuation` is optional; if present, it is informational only for the disposal value and does not affect CGT proceeds/gain
 - Other explicit tags on withdrawals are rejected
 
 ### Asset Registry Entry
@@ -184,6 +185,8 @@ Examples:
 
 Use a Price object when you know the per-unit rate. Use a GBP number when you know only the total GBP value.
 
+For `tag: NoGainNoLoss` withdrawals, `valuation` is optional. If supplied, it is accepted for reporting and fee-pricing context, but HMRC no gain/no loss treatment still deems proceeds from allowable cost rather than the supplied valuation.
+
 ### Price
 
 | Field | Description |
@@ -210,6 +213,7 @@ Fee pricing rules:
 - If the fee has an explicit `price`, that is used
 - For Trade: if fee asset matches the `bought` asset, the trade's `valuation` is used only when that valuation is a Price object
 - For tagged Deposit/Withdrawal: if fee asset matches the transaction asset, transaction `valuation` is used only when that valuation is a Price object
+- For `NoGainNoLoss` withdrawals without a Price valuation, non-GBP fees need their own explicit `fee.price`
 - For unclassified Deposit/Withdrawal: fee must be GBP or have an explicit `price` unless `valuation` is a Price object and fee asset matches `amount.asset`
 - For `Airdrop` deposits (no valuation): fee must be GBP or have an explicit `price`
 - If `valuation` is a direct GBP number, there is no per-unit price available for fee inference
@@ -341,6 +345,7 @@ Generates a self-contained HTML file and opens it in your default browser. Featu
 - **Summary cards** - Total proceeds, costs, gains/losses, total income with Dividend and Interest subtotals
 - **Interactive filtering** - Filter by date range, tax year, event type, tag, asset class, or search by asset
 - **Event table with drill-down** - All taxable events with expandable disposal matching details
+- **Contextual value notes** - HTML tooltips explain when a displayed event value is derived from tax basis rather than transaction valuation
 - **Color-coded tags** - Badges for income tags (including Dividend and Interest), trade, gift, airdrop, and unclassified events
 - **Color-coded matching rules** - Same-Day (blue), B&B (amber), Pool (gray), Mixed (purple)
 - **Expandable disposal rows** - Click to see linked acquisition details with matched dates and costs
@@ -358,6 +363,7 @@ Report JSON includes:
 - Per-event `warnings` attached to each event row
 - Per-event `source_transaction_id` to link warnings/events back to input transactions
 - Event `id` values are sequential integers (`1..n`) in event order
+- Optional per-event `value_gbp_note` when the displayed value is derived specially for reporting
 - A top-level `warnings` list with `source_transaction_ids` and `related_event_ids`
 
 ## HMRC Share Identification Rules

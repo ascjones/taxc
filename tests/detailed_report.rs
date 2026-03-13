@@ -296,6 +296,11 @@ fn report_no_gain_no_loss_spouse_transfer() {
     let cgt = ngnl
         .get("cgt")
         .expect("NGNL disposal should have CGT details");
+    assert_eq!(ngnl["value_gbp"], "25000.00");
+    assert_eq!(
+        ngnl["value_gbp_note"],
+        "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values."
+    );
     // Gain must be zero
     assert_eq!(cgt["gain_gbp"], "0.00");
     // Proceeds should equal cost (no gain no loss)

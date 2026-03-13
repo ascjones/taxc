@@ -144,6 +144,12 @@
         "value_gbp": {
           "type": "string"
         },
+        "value_gbp_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "warnings": {
           "description": "Warnings attached to this event.",
           "type": "array",
