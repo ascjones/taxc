@@ -551,6 +551,161 @@ fn report_html_single_year_prepopulated() {
     let _ = fs::remove_file(out);
 }
 
+/// Test that changing the tax year dropdown updates date pickers and filters displayed data
+#[test]
+fn report_html_tax_year_changes_date_range() {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::time::Duration;
+
+    let out = unique_tmp_file("report-html-year-change", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--output",
+            &out_str,
+        ])
+        .output()
+        .expect("Failed to execute command");
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build launch options"),
+    )
+    .expect("Failed to launch browser");
+
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    // Get initial counts for comparison
+    let initial = tab
+        .evaluate(
+            r#"
+            (function() {
+                var txRows = document.querySelectorAll('#transactions-body .tx-row').length;
+                return JSON.stringify({ txRows: txRows });
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to get initial counts");
+    let initial_str = initial
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
+    let initial_tx: usize = serde_json::from_str::<serde_json::Value>(initial_str)
+        .ok()
+        .and_then(|v| v["txRows"].as_u64())
+        .unwrap_or(0) as usize;
+    assert!(initial_tx > 0, "Should have transaction rows initially");
+
+    // Select a specific tax year and verify date pickers update
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var sel = document.getElementById('tax-year');
+                var years = Array.from(sel.options).map(function(o) { return o.value; }).filter(Boolean);
+                if (years.length < 2) return 'need at least 2 tax years for this test, got: ' + years.length;
+
+                // Select the first tax year
+                sel.value = years[0];
+                onTaxYearChange();
+
+                var from = document.getElementById('date-from').value;
+                var to = document.getElementById('date-to').value;
+
+                // Parse expected bounds from the tax year string (e.g. "2023/24")
+                var parts = years[0].split('/');
+                var startYear = parseInt(parts[0], 10);
+                var expectedFrom = startYear + '-04-06';
+                var expectedTo = (startYear + 1) + '-04-05';
+
+                if (from !== expectedFrom) return 'date-from should be ' + expectedFrom + ', got: ' + from;
+                if (to !== expectedTo) return 'date-to should be ' + expectedTo + ', got: ' + to;
+
+                // Check that filtering actually changed the displayed rows
+                var txRows = document.querySelectorAll('#transactions-body .tx-row').length;
+
+                // Switch to second year
+                sel.value = years[1];
+                onTaxYearChange();
+
+                var from2 = document.getElementById('date-from').value;
+                var to2 = document.getElementById('date-to').value;
+                var parts2 = years[1].split('/');
+                var startYear2 = parseInt(parts2[0], 10);
+                var expectedFrom2 = startYear2 + '-04-06';
+                var expectedTo2 = (startYear2 + 1) + '-04-05';
+
+                if (from2 !== expectedFrom2) return 'date-from should be ' + expectedFrom2 + ', got: ' + from2;
+                if (to2 !== expectedTo2) return 'date-to should be ' + expectedTo2 + ', got: ' + to2;
+
+                var txRows2 = document.querySelectorAll('#transactions-body .tx-row').length;
+
+                // Select "All Years" and verify dates revert to data range
+                sel.value = '';
+                onTaxYearChange();
+
+                var fromAll = document.getElementById('date-from').value;
+                var toAll = document.getElementById('date-to').value;
+                var txRowsAll = document.querySelectorAll('#transactions-body .tx-row').length;
+
+                if (!fromAll) return 'date-from empty after selecting All Years';
+                if (!toAll) return 'date-to empty after selecting All Years';
+
+                return JSON.stringify({
+                    year1Rows: txRows,
+                    year2Rows: txRows2,
+                    allRows: txRowsAll
+                });
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to test tax year change");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+
+    // If it starts with '{', it's our success JSON; otherwise it's an error message
+    assert!(msg.starts_with('{'), "Tax year change test failed: {}", msg);
+
+    let counts: serde_json::Value = serde_json::from_str(msg).expect("Failed to parse counts");
+    let all_rows = counts["allRows"].as_u64().unwrap_or(0) as usize;
+
+    // "All Years" should show all rows (same as initial)
+    assert_eq!(
+        all_rows, initial_tx,
+        "All Years should restore full row count"
+    );
+
+    // At least one year should have fewer rows than the total (proving filtering works)
+    let year1_rows = counts["year1Rows"].as_u64().unwrap_or(0) as usize;
+    let year2_rows = counts["year2Rows"].as_u64().unwrap_or(0) as usize;
+    assert!(
+        year1_rows < initial_tx || year2_rows < initial_tx,
+        "At least one tax year should filter to fewer rows than total ({initial_tx}), got year1={year1_rows} year2={year2_rows}"
+    );
+
+    let _ = fs::remove_file(out);
+}
+
 /// Test that toggling the disposal filter off and on doesn't break expand/collapse
 #[test]
 fn report_html_expand_works_after_filter_toggle() {

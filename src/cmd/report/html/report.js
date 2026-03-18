@@ -450,6 +450,19 @@ function populateFilters() {
     }
 }
 
+function onTaxYearChange() {
+    const selected = document.getElementById('tax-year').value;
+    if (selected) {
+        const bounds = taxYearBounds(selected);
+        document.getElementById('date-from').value = bounds.from;
+        document.getElementById('date-to').value = bounds.to;
+    } else {
+        document.getElementById('date-from').value = dataDateRange.from || '';
+        document.getElementById('date-to').value = dataDateRange.to || '';
+    }
+    applyFilters();
+}
+
 function applyFilters() {
     const filters = {
         dateFrom: document.getElementById('date-from').value,
