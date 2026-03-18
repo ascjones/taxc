@@ -404,6 +404,34 @@ function formatMatchedAcquisition(mc) {
     return details;
 }
 
+function taxYearBounds(taxYearStr) {
+    const endYear = parseInt(taxYearStr.split('/')[0], 10) + 1;
+    const from = `${endYear - 1}-04-06`;
+    const to = `${endYear}-04-05`;
+    return { from, to };
+}
+
+function computeDateRange() {
+    const taxYears = DATA.summary.tax_years || [];
+    if (taxYears.length === 1) {
+        return taxYearBounds(taxYears[0]);
+    }
+
+    let min = null;
+    let max = null;
+    const consider = (dt) => {
+        if (!dt) return;
+        const d = dt.slice(0, 10);
+        if (!min || d < min) min = d;
+        if (!max || d > max) max = d;
+    };
+    (DATA.events || []).forEach(e => consider(e.datetime));
+    (DATA.transactions || []).forEach(t => consider(t.datetime));
+    return { from: min, to: max };
+}
+
+const dataDateRange = computeDateRange();
+
 function populateFilters() {
     const taxYearSelect = document.getElementById('tax-year');
     DATA.summary.tax_years.forEach(year => {
@@ -412,6 +440,14 @@ function populateFilters() {
         option.textContent = year;
         taxYearSelect.appendChild(option);
     });
+
+    if (dataDateRange.from) document.getElementById('date-from').value = dataDateRange.from;
+    if (dataDateRange.to) document.getElementById('date-to').value = dataDateRange.to;
+
+    // Auto-select single tax year
+    if (DATA.summary.tax_years.length === 1) {
+        taxYearSelect.value = DATA.summary.tax_years[0];
+    }
 }
 
 function applyFilters() {
@@ -653,9 +689,13 @@ function updateSummary(events) {
 }
 
 function resetFilters() {
-    document.getElementById('date-from').value = '';
-    document.getElementById('date-to').value = '';
-    document.getElementById('tax-year').value = '';
+    document.getElementById('date-from').value = dataDateRange.from || '';
+    document.getElementById('date-to').value = dataDateRange.to || '';
+    if (DATA.summary.tax_years.length === 1) {
+        document.getElementById('tax-year').value = DATA.summary.tax_years[0];
+    } else {
+        document.getElementById('tax-year').value = '';
+    }
     document.getElementById('asset-search').value = '';
     document.getElementById('type-acquisition').checked = true;
     document.getElementById('type-disposal').checked = true;

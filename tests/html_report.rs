@@ -363,6 +363,194 @@ fn report_html_transactions_tab_and_navigation() {
     let _ = fs::remove_file(out);
 }
 
+/// Test that date range filters are prepopulated with the min/max dates from the data
+#[test]
+fn report_html_date_range_prepopulated() {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::time::Duration;
+
+    let out = unique_tmp_file("report-html-dates", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--output",
+            &out_str,
+        ])
+        .output()
+        .expect("Failed to execute command");
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build launch options"),
+    )
+    .expect("Failed to launch browser");
+
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    // Verify date-from and date-to are populated with valid dates
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var from = document.getElementById('date-from').value;
+                var to = document.getElementById('date-to').value;
+                if (!from) return 'date-from is empty';
+                if (!to) return 'date-to is empty';
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return 'date-from not a valid date: ' + from;
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) return 'date-to not a valid date: ' + to;
+                if (from > to) return 'date-from (' + from + ') is after date-to (' + to + ')';
+                return 'ok:' + from + ':' + to;
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to check date filters");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(
+        msg.starts_with("ok:"),
+        "Date range prepopulation failed: {}",
+        msg
+    );
+
+    // Multi-year report: dates should match actual data range, tax year unselected
+    let data_check = tab
+        .evaluate(
+            r#"
+            (function() {
+                var from = document.getElementById('date-from').value;
+                var to = document.getElementById('date-to').value;
+                var allDates = DATA.events.map(function(e) { return e.datetime.slice(0, 10); })
+                    .concat((DATA.transactions || []).map(function(t) { return t.datetime.slice(0, 10); }));
+                allDates.sort();
+                var expectedMin = allDates[0];
+                var expectedMax = allDates[allDates.length - 1];
+                if (from !== expectedMin) return 'date-from ' + from + ' != expected min ' + expectedMin;
+                if (to !== expectedMax) return 'date-to ' + to + ' != expected max ' + expectedMax;
+                var taxYear = document.getElementById('tax-year').value;
+                if (taxYear !== '') return 'tax year should be unselected for multi-year, got: ' + taxYear;
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to verify date range matches data");
+    let msg = data_check
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Date range mismatch: {}", msg);
+
+    // Verify reset restores the data range (not empty)
+    let reset_check = tab
+        .evaluate(
+            r#"
+            (function() {
+                resetFilters();
+                var from = document.getElementById('date-from').value;
+                var to = document.getElementById('date-to').value;
+                if (!from) return 'date-from empty after reset';
+                if (!to) return 'date-to empty after reset';
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to check reset");
+    let msg = reset_check
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Reset date range check failed: {}", msg);
+
+    let _ = fs::remove_file(out);
+}
+
+/// Test that single tax year report prepopulates year boundaries and selects the tax year
+#[test]
+fn report_html_single_year_prepopulated() {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::time::Duration;
+
+    let out = unique_tmp_file("report-html-single-year", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "report",
+            "tests/data/mixed_rules.json",
+            "--year",
+            "2025",
+            "--output",
+            &out_str,
+        ])
+        .output()
+        .expect("Failed to execute command");
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build launch options"),
+    )
+    .expect("Failed to launch browser");
+
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var from = document.getElementById('date-from').value;
+                var to = document.getElementById('date-to').value;
+                if (from !== '2024-04-06') return 'date-from should be 2024-04-06, got: ' + from;
+                if (to !== '2025-04-05') return 'date-to should be 2025-04-05, got: ' + to;
+                var taxYear = document.getElementById('tax-year').value;
+                if (taxYear !== '2024/25') return 'tax year should be 2024/25, got: ' + taxYear;
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to check single year filters");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Single year prepopulation failed: {}", msg);
+
+    let _ = fs::remove_file(out);
+}
+
 /// Test that toggling the disposal filter off and on doesn't break expand/collapse
 #[test]
 fn report_html_expand_works_after_filter_toggle() {
