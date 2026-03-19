@@ -566,6 +566,44 @@ function populateFilters() {
     }
 }
 
+function toggleFilterDd(id) {
+    const dd = document.getElementById(id);
+    const panel = dd.querySelector('.filter-dd-panel');
+    const trigger = dd.querySelector('.filter-dd-trigger');
+    const isOpen = panel.classList.contains('open');
+
+    // Close all open dropdowns
+    document.querySelectorAll('.filter-dd-panel.open').forEach(p => {
+        p.classList.remove('open');
+        p.closest('.filter-dd').querySelector('.filter-dd-trigger').classList.remove('active');
+    });
+    document.removeEventListener('click', closeFilterDdOutside);
+
+    if (!isOpen) {
+        panel.classList.add('open');
+        trigger.classList.add('active');
+        setTimeout(() => document.addEventListener('click', closeFilterDdOutside), 0);
+    }
+}
+
+function closeFilterDdOutside(e) {
+    if (!e.target.closest('.filter-dd')) {
+        document.querySelectorAll('.filter-dd-panel.open').forEach(p => {
+            p.classList.remove('open');
+            p.closest('.filter-dd').querySelector('.filter-dd-trigger').classList.remove('active');
+        });
+        document.removeEventListener('click', closeFilterDdOutside);
+    }
+}
+
+function updateFilterDdStates() {
+    document.querySelectorAll('.filter-dd').forEach(dd => {
+        const boxes = dd.querySelectorAll('input[type="checkbox"]');
+        const allChecked = Array.from(boxes).every(b => b.checked);
+        dd.querySelector('.filter-dd-trigger').classList.toggle('has-filter', !allChecked);
+    });
+}
+
 function applyFilters() {
     const filters = {
         dateFrom: document.getElementById('date-from').value,
@@ -621,6 +659,7 @@ function applyFilters() {
 
     document.getElementById('events-count').textContent = `(${filteredEvents.length})`;
     document.getElementById('transactions-count').textContent = `(${filteredTransactions.length})`;
+    updateFilterDdStates();
 }
 
 function filterEvents(events, filters) {

@@ -65,38 +65,40 @@ __CSS__
                     </div>
                 </div>
                 <div class="filter-section">
-                    <div class="filter-group">
-                        <span class="filter-label">Type</span>
-                        <div class="chip-group">
-                            <label class="filter-chip chip-gain"><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"><span>Acquisition</span></label>
-                            <label class="filter-chip chip-loss"><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"><span>Disposal</span></label>
+                    <div class="filter-dropdown-bar">
+                        <div class="filter-dd" id="dd-type">
+                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-type')">Type <span class="filter-dd-caret">&#x25BE;</span></button>
+                            <div class="filter-dd-panel">
+                                <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
+                                <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
+                            </div>
                         </div>
-                    </div>
-                    <div class="filter-group">
-                        <span class="filter-label">Tag</span>
-                        <div class="chip-group">
-                            <label class="filter-chip"><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"><span>Trade</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"><span>Staking</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"><span>Salary</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"><span>Other</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"><span>Airdrop</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"><span>Airdrop Inc</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"><span>Dividend</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"><span>Interest</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"><span>Gift</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-nogainnoloss" checked onchange="applyFilters()"><span>NGNL</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"><span>Unclassified</span></label>
+                        <div class="filter-dd" id="dd-tag">
+                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-tag')">Tag <span class="filter-dd-caret">&#x25BE;</span></button>
+                            <div class="filter-dd-panel">
+                                <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
+                                <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> Staking</label>
+                                <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
+                                <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> Other</label>
+                                <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
+                                <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> Airdrop Inc</label>
+                                <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
+                                <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
+                                <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
+                                <label><input type="checkbox" id="tag-nogainnoloss" checked onchange="applyFilters()"> NGNL</label>
+                                <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
+                            </div>
                         </div>
-                    </div>
-                    <div class="filter-group">
-                        <span class="filter-label">Class</span>
-                        <div class="chip-group">
-                            <label class="filter-chip"><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"><span>Crypto</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="class-stock" checked onchange="applyFilters()"><span>Stock</span></label>
-                            <label class="filter-chip"><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"><span>Fiat</span></label>
+                        <div class="filter-dd" id="dd-class">
+                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-class')">Class <span class="filter-dd-caret">&#x25BE;</span></button>
+                            <div class="filter-dd-panel">
+                                <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
+                                <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
+                                <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
+                            </div>
                         </div>
+                        <button class="reset-btn" onclick="resetFilters()">Reset</button>
                     </div>
-                    <button class="reset-btn" onclick="resetFilters()">Reset</button>
                 </div>
             </div>
         </div>
