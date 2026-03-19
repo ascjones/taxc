@@ -171,22 +171,22 @@ fn report_html_renders_in_browser() {
         .unwrap_or(0);
     assert!(count > 0, "Events table should have rows, got {}", count);
 
-    // Verify tax year filter is populated with options
-    let option_count = tab
+    // Verify tax year preset buttons are populated in the date panel
+    let preset_count = tab
         .evaluate(
-            "document.querySelectorAll('#tax-year option').length",
+            "document.querySelectorAll('#date-preset-tax-years .date-preset').length",
             false,
         )
-        .expect("Failed to count tax year options");
-    let options = option_count
+        .expect("Failed to count tax year presets");
+    let presets = preset_count
         .value
         .as_ref()
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     assert!(
-        options > 1,
-        "Tax year dropdown should have options beyond 'All Years', got {}",
-        options
+        presets > 0,
+        "Date panel should have tax year preset buttons, got {}",
+        presets
     );
 
     // Verify disposal rows have expandable CGT details
@@ -612,18 +612,16 @@ fn report_html_tax_year_changes_date_range() {
         .unwrap_or(0) as usize;
     assert!(initial_tx > 0, "Should have transaction rows initially");
 
-    // Select a specific tax year and verify date pickers update
+    // Select a specific tax year preset and verify date pickers update
     let result = tab
         .evaluate(
             r#"
             (function() {
-                var sel = document.getElementById('tax-year');
-                var years = Array.from(sel.options).map(function(o) { return o.value; }).filter(Boolean);
+                var years = DATA.summary.tax_years;
                 if (years.length < 2) return 'need at least 2 tax years for this test, got: ' + years.length;
 
-                // Select the first tax year
-                sel.value = years[0];
-                onTaxYearChange();
+                // Select the first tax year via preset
+                selectPreset('ty:' + years[0]);
 
                 var from = document.getElementById('date-from').value;
                 var to = document.getElementById('date-to').value;
@@ -641,8 +639,7 @@ fn report_html_tax_year_changes_date_range() {
                 var txRows = document.querySelectorAll('#transactions-body .tx-row').length;
 
                 // Switch to second year
-                sel.value = years[1];
-                onTaxYearChange();
+                selectPreset('ty:' + years[1]);
 
                 var from2 = document.getElementById('date-from').value;
                 var to2 = document.getElementById('date-to').value;
@@ -656,16 +653,15 @@ fn report_html_tax_year_changes_date_range() {
 
                 var txRows2 = document.querySelectorAll('#transactions-body .tx-row').length;
 
-                // Select "All Years" and verify dates revert to data range
-                sel.value = '';
-                onTaxYearChange();
+                // Select "All data" preset and verify dates revert
+                selectPreset('all');
 
                 var fromAll = document.getElementById('date-from').value;
                 var toAll = document.getElementById('date-to').value;
                 var txRowsAll = document.querySelectorAll('#transactions-body .tx-row').length;
 
-                if (!fromAll) return 'date-from empty after selecting All Years';
-                if (!toAll) return 'date-to empty after selecting All Years';
+                if (!fromAll) return 'date-from empty after selecting All data';
+                if (!toAll) return 'date-to empty after selecting All data';
 
                 return JSON.stringify({
                     year1Rows: txRows,

@@ -431,36 +431,130 @@ function computeDateRange() {
 }
 
 const dataDateRange = computeDateRange();
+let activePreset = null;
 
-function populateFilters() {
-    const taxYearSelect = document.getElementById('tax-year');
-    DATA.summary.tax_years.forEach(year => {
-        const option = document.createElement('option');
-        option.value = year;
-        option.textContent = year;
-        taxYearSelect.appendChild(option);
-    });
+const LAST_N_DAYS = { 'last-7d': 6, 'last-30d': 29, 'last-90d': 89 };
 
-    if (dataDateRange.from) document.getElementById('date-from').value = dataDateRange.from;
-    if (dataDateRange.to) document.getElementById('date-to').value = dataDateRange.to;
-
-    // Auto-select single tax year
-    if (DATA.summary.tax_years.length === 1) {
-        taxYearSelect.value = DATA.summary.tax_years[0];
-    }
+function toggleDatePanel() {
+    document.getElementById('date-panel').classList.contains('open')
+        ? closeDatePanel() : openDatePanel();
 }
 
-function onTaxYearChange() {
-    const selected = document.getElementById('tax-year').value;
-    if (selected) {
-        const bounds = taxYearBounds(selected);
-        document.getElementById('date-from').value = bounds.from;
-        document.getElementById('date-to').value = bounds.to;
+function openDatePanel() {
+    document.getElementById('date-panel').classList.add('open');
+    document.getElementById('date-range-trigger').classList.add('active');
+    setTimeout(() => document.addEventListener('click', closeDatePanelOutside), 0);
+}
+
+function closeDatePanel() {
+    document.getElementById('date-panel').classList.remove('open');
+    document.getElementById('date-range-trigger').classList.remove('active');
+    document.removeEventListener('click', closeDatePanelOutside);
+}
+
+function closeDatePanelOutside(e) {
+    const wrapper = document.querySelector('.date-range-wrapper');
+    if (!wrapper.contains(e.target)) closeDatePanel();
+}
+
+function updateDateRangeLabel() {
+    const from = document.getElementById('date-from').value;
+    const to = document.getElementById('date-to').value;
+    const label = document.getElementById('date-range-label');
+
+    if (!from && !to) { label.textContent = 'All Data'; return; }
+
+    const fmt = (d) => {
+        const dt = new Date(d + 'T00:00:00');
+        return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+    };
+    label.textContent = `${from ? fmt(from) : '…'} — ${to ? fmt(to) : '…'}`;
+}
+
+function updatePresetHighlight() {
+    document.querySelectorAll('.date-preset').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.preset === activePreset);
+    });
+}
+
+function selectPreset(preset, skipApply) {
+    const today = new Date();
+    const toISO = (d) => d.toISOString().slice(0, 10);
+    let from, to, taxYear = '';
+
+    if (preset === 'all') {
+        from = dataDateRange.from || '';
+        to = dataDateRange.to || '';
+    } else if (LAST_N_DAYS[preset] != null) {
+        to = toISO(today);
+        const d = new Date(today); d.setDate(d.getDate() - LAST_N_DAYS[preset]);
+        from = toISO(d);
+    } else if (preset === 'mtd') {
+        from = toISO(new Date(today.getFullYear(), today.getMonth(), 1));
+        to = toISO(today);
+    } else if (preset === 'last-month') {
+        const d = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        from = toISO(d);
+        to = toISO(new Date(today.getFullYear(), today.getMonth(), 0));
+    } else if (preset === 'ytd') {
+        from = `${today.getFullYear()}-01-01`;
+        to = toISO(today);
+    } else if (preset === 'last-year') {
+        from = `${today.getFullYear() - 1}-01-01`;
+        to = `${today.getFullYear() - 1}-12-31`;
+    } else if (preset.startsWith('ty:')) {
+        const yearStr = preset.slice(3);
+        const bounds = taxYearBounds(yearStr);
+        from = bounds.from;
+        to = bounds.to;
+        taxYear = yearStr;
     } else {
-        document.getElementById('date-from').value = dataDateRange.from || '';
-        document.getElementById('date-to').value = dataDateRange.to || '';
+        return;
     }
+
+    activePreset = preset;
+    document.getElementById('tax-year').value = taxYear;
+    document.getElementById('date-from').value = from;
+    document.getElementById('date-to').value = to;
+    updateDateRangeLabel();
+    updatePresetHighlight();
+    if (!skipApply) applyFilters();
+    closeDatePanel();
+}
+
+function onCustomDateChange() {
+    activePreset = 'custom';
+    document.getElementById('tax-year').value = '';
+    updateDateRangeLabel();
+    updatePresetHighlight();
     applyFilters();
+}
+
+function populateFilters() {
+    // Build tax year preset buttons
+    const taxYearContainer = document.getElementById('date-preset-tax-years');
+    DATA.summary.tax_years.forEach(year => {
+        const btn = document.createElement('button');
+        btn.className = 'date-preset';
+        btn.dataset.preset = 'ty:' + year;
+        btn.textContent = year;
+        btn.addEventListener('click', () => selectPreset('ty:' + year));
+        taxYearContainer.appendChild(btn);
+    });
+
+    // Wire up non-tax-year preset buttons
+    document.querySelectorAll('.date-preset[data-preset]').forEach(btn => {
+        if (!btn.dataset.preset.startsWith('ty:')) {
+            btn.addEventListener('click', () => selectPreset(btn.dataset.preset));
+        }
+    });
+
+    // Set initial state
+    if (DATA.summary.tax_years.length === 1) {
+        selectPreset('ty:' + DATA.summary.tax_years[0]);
+    } else {
+        selectPreset('all');
+    }
 }
 
 function applyFilters() {
@@ -702,12 +796,10 @@ function updateSummary(events) {
 }
 
 function resetFilters() {
-    document.getElementById('date-from').value = dataDateRange.from || '';
-    document.getElementById('date-to').value = dataDateRange.to || '';
     if (DATA.summary.tax_years.length === 1) {
-        document.getElementById('tax-year').value = DATA.summary.tax_years[0];
+        selectPreset('ty:' + DATA.summary.tax_years[0], true);
     } else {
-        document.getElementById('tax-year').value = '';
+        selectPreset('all', true);
     }
     document.getElementById('asset-search').value = '';
     document.getElementById('type-acquisition').checked = true;
@@ -731,7 +823,6 @@ function resetFilters() {
 
 function init() {
     populateFilters();
-    applyFilters();
 }
 
 init();
