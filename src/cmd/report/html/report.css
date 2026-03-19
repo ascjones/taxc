@@ -954,15 +954,23 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     font-weight: 500;
 }
 
-.tx-amount-label {
-    color: var(--text-muted);
-    font-size: 0.6875rem;
-    font-weight: 400;
-    margin-right: 0.25rem;
+.tx-amount-flow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.tx-amount-line + .tx-amount-line {
-    margin-top: 0.125rem;
+.tx-flow-arrow {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.tx-amount-out {
+    color: var(--text-secondary);
+}
+
+.tx-amount-in {
+    color: var(--text-primary);
 }
 
 .tx-fee {

@@ -187,10 +187,19 @@ function formatTransactionType(type) {
 }
 
 function formatAmounts(amounts) {
-    return amounts.map(a => {
-        const label = amounts.length > 1 ? `<span class="tx-amount-label">${a.label}</span>` : '';
-        return `<div class="tx-amount-line">${label}${formatQuantity(a.quantity)} ${a.asset}</div>`;
-    }).join('');
+    if (amounts.length === 2) {
+        const sold = amounts.find(a => a.label === 'Sold') || amounts[0];
+        const bought = amounts.find(a => a.label === 'Bought') || amounts[1];
+        return `<div class="tx-amount-flow">`
+            + `<span class="tx-amount-out">${formatQuantity(sold.quantity)} ${sold.asset}</span>`
+            + `<span class="tx-flow-arrow">&#x2192;</span>`
+            + `<span class="tx-amount-in">${formatQuantity(bought.quantity)} ${bought.asset}</span>`
+            + `</div>`;
+    }
+    const a = amounts[0];
+    const prefix = a.label === 'Bought' || a.label === 'In' ? '+' : a.label === 'Sold' || a.label === 'Out' ? '−' : '';
+    const cls = prefix === '+' ? 'tx-amount-in' : prefix === '−' ? 'tx-amount-out' : '';
+    return `<div class="tx-amount-line"><span class="${cls}">${prefix}${formatQuantity(a.quantity)} ${a.asset}</span></div>`;
 }
 
 function formatFee(fee) {
