@@ -370,6 +370,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     border-radius: 1px;
 }
 
+.date-preset-all {
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+}
+
 .date-preset-tax-years {
     display: flex;
     flex-direction: column;
