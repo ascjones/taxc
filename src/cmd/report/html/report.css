@@ -409,25 +409,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     font-family: var(--font-mono);
 }
 
-.date-panel-apply {
-    margin-top: auto;
-    padding: 0.5rem 1rem;
-    background: var(--accent-bg);
-    border: 1px solid var(--accent-border);
-    border-radius: var(--radius-sm);
-    color: var(--accent);
-    font-family: var(--font-body);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-    text-align: center;
-}
-
-.date-panel-apply:hover {
-    background: rgba(88, 166, 255, 0.15);
-    border-color: var(--accent);
-}
 
 /* ---- Filter dropdown buttons ---- */
 .filter-dropdown-bar {
