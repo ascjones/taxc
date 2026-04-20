@@ -644,9 +644,7 @@ impl DisposalKey {
 }
 
 fn format_decimal_key(value: Decimal, dp: u32) -> String {
-    let s = format!("{:.*}", dp as usize, value);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
+    value.round_dp(dp).normalize().to_string()
 }
 
 pub struct DisposalIndex<'a> {

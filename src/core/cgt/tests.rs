@@ -1323,6 +1323,21 @@ fn pool_remove_never_goes_negative_on_awkward_split() {
 }
 
 #[test]
+fn format_decimal_key_behavior() {
+    // Pins the exact string formatting of DisposalKey.quantity so the helper
+    // can be simplified without changing its contract.
+    assert_eq!(format_decimal_key(dec!(50), 8), "50");
+    assert_eq!(format_decimal_key(dec!(1.5), 8), "1.5");
+    assert_eq!(format_decimal_key(dec!(0.00000001), 8), "0.00000001");
+    assert_eq!(format_decimal_key(dec!(1.23400000), 8), "1.234");
+    // More precision than `dp` → round to `dp`, then trim zeros.
+    assert_eq!(format_decimal_key(dec!(1.234567891), 8), "1.23456789");
+    // Whole numbers must not keep a trailing decimal point.
+    assert_eq!(format_decimal_key(dec!(0), 8), "0");
+    assert_eq!(format_decimal_key(dec!(100), 8), "100");
+}
+
+#[test]
 fn bnb_matches_exactly_30_days_after_disposal() {
     // HMRC CG51560: B&B covers acquisitions within 30 days after disposal.
     // Disposal 2024-06-15 + 30 days = 2024-07-15 must match.
