@@ -28,6 +28,12 @@ pub struct Price {
 
 impl Price {
     pub fn to_gbp(&self, quantity: Decimal) -> Result<Decimal, TransactionError> {
+        if self.rate <= Decimal::ZERO {
+            return Err(TransactionError::InvalidPrice(format!(
+                "rate must be positive, got {}",
+                self.rate
+            )));
+        }
         match (&self.quote, &self.fx_rate) {
             (None, None) => Ok(quantity * self.rate),
             (Some(quote), Some(fx_rate)) => {
@@ -35,6 +41,11 @@ impl Price {
                     return Err(TransactionError::InvalidPrice(
                         "quote is required and cannot be empty".to_string(),
                     ));
+                }
+                if *fx_rate <= Decimal::ZERO {
+                    return Err(TransactionError::InvalidPrice(format!(
+                        "fx_rate must be positive, got {fx_rate}"
+                    )));
                 }
                 Ok(quantity * self.rate * fx_rate)
             }

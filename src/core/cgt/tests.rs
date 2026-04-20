@@ -1253,3 +1253,93 @@ fn disposal_index_finds_ngnl_by_key_fallback() {
     );
     assert_eq!(found.unwrap().gain_gbp, dec!(0));
 }
+
+// === Bug-probe tests: rounding drift, precision mismatch, B&B boundary ===
+
+#[test]
+fn pool_partial_removals_preserve_total_cost() {
+    // After fully draining a pool with three equal partial disposals of a cost
+    // that doesn't divide cleanly, the sum of returned costs must equal the
+    // original total (no rounding drift leaked or invented).
+    let mut pool = Pool::new("X".to_string());
+    pool.add(dec!(3), dec!(100000));
+
+    let c1 = pool.remove(dec!(1));
+    let c2 = pool.remove(dec!(1));
+    let c3 = pool.remove(dec!(1));
+
+    assert_eq!(
+        c1 + c2 + c3,
+        dec!(100000),
+        "sum of removed costs must equal original cost"
+    );
+    assert_eq!(pool.quantity, Decimal::ZERO);
+    assert_eq!(pool.cost_gbp, Decimal::ZERO);
+}
+
+#[test]
+fn pool_many_small_removals_do_not_drift() {
+    // Repeatedly remove small portions. Pool's reported cost_gbp must remain
+    // >= 0 and consistent with (original_cost - sum_of_removed_costs).
+    let mut pool = Pool::new("X".to_string());
+    pool.add(dec!(10), dec!(1));
+
+    let mut removed_total = Decimal::ZERO;
+    for _ in 0..9 {
+        removed_total += pool.remove(dec!(1));
+    }
+
+    // With 2dp rounding on removal, each 1/10 slice rounds 0.10 exactly, so
+    // after 9 removals the pool should hold 1 qty for the remaining cost.
+    assert!(
+        pool.cost_gbp >= Decimal::ZERO,
+        "pool cost_gbp went negative: {}",
+        pool.cost_gbp
+    );
+    assert_eq!(
+        pool.cost_gbp + removed_total,
+        dec!(1),
+        "accounting invariant: removed + remaining == original"
+    );
+}
+
+#[test]
+fn pool_remove_never_goes_negative_on_awkward_split() {
+    // Construct a case where proportional rounding could exceed remaining
+    // cost. Pool cost of 0.01 with many units - removing one unit at a time
+    // must not leave the pool with negative cost.
+    let mut pool = Pool::new("X".to_string());
+    pool.add(dec!(100), dec!(0.01));
+
+    for _ in 0..50 {
+        pool.remove(dec!(1));
+        assert!(
+            pool.cost_gbp >= Decimal::ZERO,
+            "pool cost_gbp went negative: qty={}, cost={}",
+            pool.quantity,
+            pool.cost_gbp
+        );
+    }
+}
+
+#[test]
+fn bnb_matches_exactly_30_days_after_disposal() {
+    // HMRC CG51560: B&B covers acquisitions within 30 days after disposal.
+    // Disposal 2024-06-15 + 30 days = 2024-07-15 must match.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
+        acq("2024-07-15", "BTC", dec!(5), dec!(60000)), // exactly 30 days
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    let disposal = &report.disposals[0];
+
+    assert_eq!(disposal.matching_components.len(), 1);
+    assert_eq!(
+        disposal.matching_components[0].rule,
+        MatchingRule::BedAndBreakfast,
+        "acquisition exactly 30 days after disposal should be matched via B&B"
+    );
+    assert_eq!(disposal.allowable_cost_gbp, dec!(60000));
+}

@@ -207,6 +207,46 @@ fn price_fx_chain_applies_fx() {
 }
 
 #[test]
+fn price_rejects_negative_rate() {
+    let price = gbp_price("BTC", dec!(-1000));
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "negative rate must be rejected, got {err:?}"
+    );
+}
+
+#[test]
+fn price_rejects_zero_rate() {
+    let price = gbp_price("BTC", dec!(0));
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "zero rate must be rejected (would produce a gain with no cost basis), got {err:?}"
+    );
+}
+
+#[test]
+fn price_rejects_negative_fx_rate() {
+    let price = fx_price("BTC", dec!(40000), "USD", dec!(-0.79));
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "negative fx_rate must be rejected, got {err:?}"
+    );
+}
+
+#[test]
+fn price_rejects_zero_fx_rate() {
+    let price = fx_price("BTC", dec!(40000), "USD", dec!(0));
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "zero fx_rate must be rejected, got {err:?}"
+    );
+}
+
+#[test]
 fn trade_crypto_to_crypto_generates_two_events() {
     let tx = trade_tx("tx-1", ("BTC", dec!(0.01)), ("ETH", dec!(0.5))).with_price(fx_price(
         "ETH",
