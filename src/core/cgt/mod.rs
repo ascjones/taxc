@@ -20,14 +20,15 @@ fn serialize_decimal_2dp<S: Serializer>(d: &Decimal, serializer: S) -> Result<S:
     serializer.serialize_str(&format!("{:.2}", d))
 }
 
-/// Snapshot of pool state at a point in time (used in tests via pool_after)
+/// Snapshot of pool state at a point in time (test-only, surfaced via `pool_after`)
+#[cfg(test)]
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct PoolSnapshot {
     pub quantity: Decimal,
     pub cost_gbp: Decimal,
 }
 
+#[cfg(test)]
 impl From<&Pool> for PoolSnapshot {
     fn from(pool: &Pool) -> Self {
         PoolSnapshot {
@@ -196,8 +197,8 @@ pub struct DisposalRecord {
     pub allowable_cost_gbp: Decimal,
     pub fees_gbp: Decimal,
     pub gain_gbp: Decimal,
-    /// Pool state after this disposal (used in tests)
-    #[allow(dead_code)]
+    /// Pool state after this disposal (test-only)
+    #[cfg(test)]
     pub pool_after: PoolSnapshot,
     /// Breakdown by matching rule for detailed reporting
     pub matching_components: Vec<MatchingComponent>,
@@ -216,8 +217,8 @@ impl DisposalRecord {
 #[derive(Debug)]
 pub struct CgtReport {
     pub disposals: Vec<DisposalRecord>,
-    /// Final pool states (used in tests)
-    #[allow(dead_code)]
+    /// Final pool states (test-only)
+    #[cfg(test)]
     pub pools: HashMap<String, Pool>,
     pub pool_history: PoolHistory,
 }
@@ -502,7 +503,8 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     )
                 };
 
-                // Capture pool state after disposal
+                // Capture pool state after disposal (test-only)
+                #[cfg(test)]
                 let pool_after = pools
                     .get(&event.asset)
                     .map(PoolSnapshot::from)
@@ -560,6 +562,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     allowable_cost_gbp: total_allowable_cost,
                     fees_gbp: fees,
                     gain_gbp: gain,
+                    #[cfg(test)]
                     pool_after,
                     matching_components,
                     warnings,
@@ -589,6 +592,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
 
     Ok(CgtReport {
         disposals,
+        #[cfg(test)]
         pools,
         pool_history,
     })
