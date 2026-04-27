@@ -42,7 +42,6 @@ fn pool_basic_operations() {
     pool.add(dec!(10), dec!(1000));
     assert_eq!(pool.quantity, dec!(10));
     assert_eq!(pool.cost_gbp, dec!(1000));
-    assert_eq!(pool.cost_basis(), dec!(100));
 
     let cost = pool.remove(dec!(5));
     assert_eq!(cost, dec!(500));

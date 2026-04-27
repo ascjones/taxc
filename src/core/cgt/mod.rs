@@ -153,15 +153,6 @@ impl Pool {
             cost
         }
     }
-
-    #[cfg(test)]
-    pub fn cost_basis(&self) -> Decimal {
-        if self.quantity.is_zero() {
-            Decimal::ZERO
-        } else {
-            (self.cost_gbp / self.quantity).round_dp(8)
-        }
-    }
 }
 
 /// Record of a disposal for CGT purposes
