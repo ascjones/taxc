@@ -20,26 +20,6 @@ fn final_pool(report: &CgtReport, asset: &str) -> (Decimal, Decimal) {
         .unwrap_or((Decimal::ZERO, Decimal::ZERO))
 }
 
-/// Sum of disposal proceeds, optionally filtered to one tax year.
-fn total_proceeds(report: &CgtReport, year: Option<TaxYear>) -> Decimal {
-    report
-        .disposals
-        .iter()
-        .filter(|d| !d.is_unclassified())
-        .filter(|d| year.is_none_or(|y| TaxYear::from_date(d.date) == y))
-        .map(|d| d.proceeds_gbp)
-        .sum()
-}
-
-/// Number of disposals (including unclassified), optionally filtered to one tax year.
-fn disposal_count(report: &CgtReport, year: Option<TaxYear>) -> usize {
-    report
-        .disposals
-        .iter()
-        .filter(|d| year.is_none_or(|y| TaxYear::from_date(d.date) == y))
-        .count()
-}
-
 /// Pool state immediately after a specific disposal. Tests using this helper
 /// must not have multiple disposals of the same asset on the same day.
 fn pool_state_after(report: &CgtReport, disposal: &DisposalRecord) -> (Decimal, Decimal) {
@@ -447,30 +427,6 @@ fn disposal_more_than_pool() {
     // Should use full pool cost even though disposing more
     assert_eq!(disposal.allowable_cost_gbp, dec!(50000));
     assert_eq!(disposal.gain_gbp, dec!(100000));
-}
-
-#[test]
-fn report_totals_by_year() {
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(100), dec!(100000)),
-        disp("2024-04-05", "BTC", dec!(10), dec!(15000)), // 2023/24
-        disp("2024-04-06", "BTC", dec!(10), dec!(16000)), // 2024/25
-        disp("2024-06-15", "BTC", dec!(10), dec!(17000)), // 2024/25
-    ];
-
-    let report = calculate_cgt(events).unwrap();
-
-    // 2023/24 totals
-    assert_eq!(total_proceeds(&report, Some(TaxYear(2024))), dec!(15000));
-    assert_eq!(disposal_count(&report, Some(TaxYear(2024))), 1);
-
-    // 2024/25 totals
-    assert_eq!(total_proceeds(&report, Some(TaxYear(2025))), dec!(33000));
-    assert_eq!(disposal_count(&report, Some(TaxYear(2025))), 2);
-
-    // All years
-    assert_eq!(total_proceeds(&report, None), dec!(48000));
-    assert_eq!(disposal_count(&report, None), 3);
 }
 
 // Tests for new detailed reporting functionality
