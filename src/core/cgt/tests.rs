@@ -8,6 +8,34 @@ fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
     DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
 }
 
+/// Final pool state for an asset, derived from the last pool-history entry.
+fn final_pool(report: &CgtReport, asset: &str) -> (Decimal, Decimal) {
+    report
+        .pool_history
+        .entries
+        .iter()
+        .rev()
+        .find(|e| e.asset == asset)
+        .map(|e| (e.quantity, e.cost_gbp))
+        .unwrap_or((Decimal::ZERO, Decimal::ZERO))
+}
+
+/// Pool state immediately after a specific disposal. Tests using this helper
+/// must not have multiple disposals of the same asset on the same day.
+fn pool_state_after(report: &CgtReport, disposal: &DisposalRecord) -> (Decimal, Decimal) {
+    let entry = report
+        .pool_history
+        .entries
+        .iter()
+        .find(|e| {
+            e.date == disposal.date
+                && e.asset == disposal.asset
+                && e.event_type == EventType::Disposal
+        })
+        .expect("pool_history entry for disposal");
+    (entry.quantity, entry.cost_gbp)
+}
+
 #[test]
 fn pool_basic_operations() {
     let mut pool = Pool::new("BTC".to_string());
@@ -103,9 +131,9 @@ fn hmrc_bnb_example_1() {
     assert_eq!(disposal.allowable_cost_gbp, dec!(12000));
 
     // Pool should remain as the original holding (B&B acquisition not added).
-    let pool = report.pools.get("X").unwrap();
-    assert_eq!(pool.quantity, dec!(1000));
-    assert_eq!(pool.cost_gbp, dec!(10000));
+    let (qty, cost) = final_pool(&report, "X");
+    assert_eq!(qty, dec!(1000));
+    assert_eq!(cost, dec!(10000));
 }
 
 #[test]
@@ -138,9 +166,9 @@ fn hmrc_bnb_example_2() {
         .any(|c| c.rule == MatchingRule::Pool && c.quantity == dec!(1200)));
     assert_eq!(disposal.allowable_cost_gbp, dec!(2200));
 
-    let pool = report.pools.get("Y").unwrap();
-    assert_eq!(pool.quantity, dec!(1300));
-    assert_eq!(pool.cost_gbp, dec!(1300));
+    let (qty, cost) = final_pool(&report, "Y");
+    assert_eq!(qty, dec!(1300));
+    assert_eq!(cost, dec!(1300));
 }
 
 #[test]
@@ -163,9 +191,9 @@ fn hmrc_bnb_example_3() {
     assert_eq!(disposal.allowable_cost_gbp, dec!(2000));
 
     // Pool after later acquisition should include remaining + new shares.
-    let pool = report.pools.get("Z").unwrap();
-    assert_eq!(pool.quantity, dec!(11000));
-    assert_eq!(pool.cost_gbp, dec!(14000));
+    let (qty, cost) = final_pool(&report, "Z");
+    assert_eq!(qty, dec!(11000));
+    assert_eq!(cost, dec!(14000));
 }
 
 #[test]
@@ -208,9 +236,9 @@ fn same_day_rule_partial() {
     assert_eq!(disposal.gain_gbp, dec!(5000));
 
     // Pool should have remaining 1 BTC at £40,000
-    let pool = report.pools.get("BTC").unwrap();
-    assert_eq!(pool.quantity, dec!(1));
-    assert_eq!(pool.cost_gbp, dec!(40000));
+    let (qty, cost) = final_pool(&report, "BTC");
+    assert_eq!(qty, dec!(1));
+    assert_eq!(cost, dec!(40000));
 }
 
 #[test]
@@ -239,8 +267,8 @@ fn bed_and_breakfast_rule() {
     );
 
     // Pool should still have original 10 BTC
-    let pool = report.pools.get("BTC").unwrap();
-    assert_eq!(pool.quantity, dec!(10));
+    let (qty, _cost) = final_pool(&report, "BTC");
+    assert_eq!(qty, dec!(10));
 }
 
 #[test]
@@ -441,16 +469,16 @@ fn pool_snapshot_accuracy_after_disposal() {
     assert_eq!(report.disposals.len(), 2);
 
     // After first disposal: 10 - 3 = 7 BTC remaining
-    let d1 = &report.disposals[0];
-    assert_eq!(d1.pool_after.quantity, dec!(7));
+    let (qty, cost) = pool_state_after(&report, &report.disposals[0]);
+    assert_eq!(qty, dec!(7));
     // Cost: 100000 * (7/10) = 70000
-    assert_eq!(d1.pool_after.cost_gbp, dec!(70000));
+    assert_eq!(cost, dec!(70000));
 
     // After second disposal: 7 - 2 = 5 BTC remaining
-    let d2 = &report.disposals[1];
-    assert_eq!(d2.pool_after.quantity, dec!(5));
+    let (qty, cost) = pool_state_after(&report, &report.disposals[1]);
+    assert_eq!(qty, dec!(5));
     // Cost: 70000 * (5/7) = 50000
-    assert_eq!(d2.pool_after.cost_gbp, dec!(50000));
+    assert_eq!(cost, dec!(50000));
 }
 
 #[test]
@@ -611,16 +639,16 @@ fn multi_asset_pool_isolation() {
     ];
 
     let report = calculate_cgt(events).unwrap();
-    let btc_disposal = &report.disposals[0];
 
     // BTC pool after should show BTC state only
-    assert_eq!(btc_disposal.pool_after.quantity, dec!(5));
-    assert_eq!(btc_disposal.pool_after.cost_gbp, dec!(50000));
+    let (btc_qty, btc_cost) = pool_state_after(&report, &report.disposals[0]);
+    assert_eq!(btc_qty, dec!(5));
+    assert_eq!(btc_cost, dec!(50000));
 
     // ETH pool should be unaffected
-    let eth_pool = report.pools.get("ETH").unwrap();
-    assert_eq!(eth_pool.quantity, dec!(100));
-    assert_eq!(eth_pool.cost_gbp, dec!(50000));
+    let (eth_qty, eth_cost) = final_pool(&report, "ETH");
+    assert_eq!(eth_qty, dec!(100));
+    assert_eq!(eth_cost, dec!(50000));
 }
 
 #[test]
@@ -1127,9 +1155,9 @@ fn no_gain_no_loss_spouse_transfer() {
     assert_eq!(disposal.proceeds_gbp, dec!(2500));
 
     // Pool should retain the other 500 shares at £2500
-    let pool = report.pools.get("XYZ").unwrap();
-    assert_eq!(pool.quantity, dec!(500));
-    assert_eq!(pool.cost_gbp, dec!(2500));
+    let (qty, cost) = final_pool(&report, "XYZ");
+    assert_eq!(qty, dec!(500));
+    assert_eq!(cost, dec!(2500));
 }
 
 /// HMRC example: No gain no loss disposal followed by a normal sale.
@@ -1172,8 +1200,8 @@ fn no_gain_no_loss_then_normal_sale() {
     assert_eq!(sale.gain_gbp, dec!(1000));
 
     // Pool should be empty
-    let pool = report.pools.get("ABC").unwrap();
-    assert_eq!(pool.quantity, dec!(0));
+    let (qty, _cost) = final_pool(&report, "ABC");
+    assert_eq!(qty, dec!(0));
 }
 
 /// HMRC s58: No gain no loss with same-day matching.
