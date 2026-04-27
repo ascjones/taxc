@@ -20,6 +20,26 @@ fn final_pool(report: &CgtReport, asset: &str) -> (Decimal, Decimal) {
         .unwrap_or((Decimal::ZERO, Decimal::ZERO))
 }
 
+/// Sum of disposal proceeds, optionally filtered to one tax year.
+fn total_proceeds(report: &CgtReport, year: Option<TaxYear>) -> Decimal {
+    report
+        .disposals
+        .iter()
+        .filter(|d| !d.is_unclassified())
+        .filter(|d| year.is_none_or(|y| TaxYear::from_date(d.date) == y))
+        .map(|d| d.proceeds_gbp)
+        .sum()
+}
+
+/// Number of disposals (including unclassified), optionally filtered to one tax year.
+fn disposal_count(report: &CgtReport, year: Option<TaxYear>) -> usize {
+    report
+        .disposals
+        .iter()
+        .filter(|d| year.is_none_or(|y| TaxYear::from_date(d.date) == y))
+        .count()
+}
+
 /// Pool state immediately after a specific disposal. Tests using this helper
 /// must not have multiple disposals of the same asset on the same day.
 fn pool_state_after(report: &CgtReport, disposal: &DisposalRecord) -> (Decimal, Decimal) {
@@ -377,10 +397,10 @@ fn tax_year_boundaries() {
     assert_eq!(report.disposals.len(), 2);
 
     let d1 = &report.disposals[0];
-    assert_eq!(d1.tax_year, TaxYear(2024)); // 2023/24
+    assert_eq!(TaxYear::from_date(d1.date), TaxYear(2024)); // 2023/24
 
     let d2 = &report.disposals[1];
-    assert_eq!(d2.tax_year, TaxYear(2025)); // 2024/25
+    assert_eq!(TaxYear::from_date(d2.date), TaxYear(2025)); // 2024/25
 }
 
 #[test]
@@ -441,16 +461,16 @@ fn report_totals_by_year() {
     let report = calculate_cgt(events).unwrap();
 
     // 2023/24 totals
-    assert_eq!(report.total_proceeds(Some(TaxYear(2024))), dec!(15000));
-    assert_eq!(report.disposal_count(Some(TaxYear(2024))), 1);
+    assert_eq!(total_proceeds(&report, Some(TaxYear(2024))), dec!(15000));
+    assert_eq!(disposal_count(&report, Some(TaxYear(2024))), 1);
 
     // 2024/25 totals
-    assert_eq!(report.total_proceeds(Some(TaxYear(2025))), dec!(33000));
-    assert_eq!(report.disposal_count(Some(TaxYear(2025))), 2);
+    assert_eq!(total_proceeds(&report, Some(TaxYear(2025))), dec!(33000));
+    assert_eq!(disposal_count(&report, Some(TaxYear(2025))), 2);
 
     // All years
-    assert_eq!(report.total_proceeds(None), dec!(48000));
-    assert_eq!(report.disposal_count(None), 3);
+    assert_eq!(total_proceeds(&report, None), dec!(48000));
+    assert_eq!(disposal_count(&report, None), 3);
 }
 
 // Tests for new detailed reporting functionality

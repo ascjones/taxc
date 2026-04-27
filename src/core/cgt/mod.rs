@@ -171,8 +171,6 @@ pub struct DisposalRecord {
     pub id: usize,
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
-    #[allow(dead_code)]
-    pub tax_year: TaxYear,
     pub asset: String,
     pub quantity: Decimal,
     pub proceeds_gbp: Decimal,
@@ -197,69 +195,6 @@ impl DisposalRecord {
 pub struct CgtReport {
     pub disposals: Vec<DisposalRecord>,
     pub pool_history: PoolHistory,
-}
-
-impl CgtReport {
-    /// Total proceeds for a tax year (classified events only)
-    #[allow(dead_code)]
-    pub fn total_proceeds(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, true)
-            .map(|d| d.proceeds_gbp)
-            .sum()
-    }
-
-    /// Total proceeds including unclassified events
-    #[allow(dead_code)]
-    pub fn total_proceeds_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, false)
-            .map(|d| d.proceeds_gbp)
-            .sum()
-    }
-
-    /// Total allowable costs for a tax year (classified events only)
-    #[allow(dead_code)]
-    pub fn total_allowable_costs(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, true)
-            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-            .sum()
-    }
-
-    /// Total allowable costs including unclassified events
-    #[allow(dead_code)]
-    pub fn total_allowable_costs_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, false)
-            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-            .sum()
-    }
-
-    /// Total gain/loss for a tax year (classified events only)
-    #[allow(dead_code)]
-    pub fn total_gain(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, true).map(|d| d.gain_gbp).sum()
-    }
-
-    /// Total gain/loss including unclassified events
-    #[allow(dead_code)]
-    pub fn total_gain_with_unclassified(&self, year: Option<TaxYear>) -> Decimal {
-        self.filter_disposals(year, false).map(|d| d.gain_gbp).sum()
-    }
-
-    #[cfg(test)]
-    pub fn disposal_count(&self, year: Option<TaxYear>) -> usize {
-        self.filter_disposals(year, false).count()
-    }
-
-    #[allow(dead_code)]
-    fn filter_disposals(
-        &self,
-        year: Option<TaxYear>,
-        classified_only: bool,
-    ) -> impl Iterator<Item = &DisposalRecord> {
-        self.disposals
-            .iter()
-            .filter(move |d| year.is_none_or(|y| d.tax_year == y))
-            .filter(move |d| !classified_only || !d.is_unclassified())
-    }
 }
 
 /// Tracks acquisition quantities available for matching
@@ -384,7 +319,6 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
             }
             EventType::Disposal => {
                 let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
-                let tax_year = TaxYear::from_date(event.date());
 
                 let mut remaining_to_match = event.quantity;
                 let mut total_allowable_cost = Decimal::ZERO;
@@ -524,7 +458,6 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                     id: event.id,
                     datetime: event.datetime,
                     date: event.date(),
-                    tax_year,
                     asset: event.asset.clone(),
                     quantity: event.quantity,
                     proceeds_gbp: proceeds,
