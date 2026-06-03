@@ -1,12 +1,6 @@
 use super::*;
 use crate::core::events::builders::{acq, acq_with_fee, disp, disp_with_fee, event, staking};
-use crate::core::AssetClass;
-use chrono::DateTime;
 use rust_decimal_macros::dec;
-
-fn dt(date: &str) -> chrono::DateTime<chrono::FixedOffset> {
-    DateTime::parse_from_rfc3339(&format!("{date}T00:00:00+00:00")).unwrap()
-}
 
 /// Final pool state for an asset, derived from the last pool-history entry.
 fn final_pool(report: &CgtReport, asset: &str) -> (Decimal, Decimal) {
@@ -241,83 +235,6 @@ fn same_day_rule_partial() {
 }
 
 #[test]
-fn bed_and_breakfast_rule() {
-    // Sell, then buy back within 30 days
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(10), dec!(100000)), // Pool acquisition
-        disp("2024-06-15", "BTC", dec!(5), dec!(75000)),  // Disposal
-        acq("2024-06-20", "BTC", dec!(5), dec!(60000)),   // B&B acquisition
-    ];
-
-    let report = calculate_cgt(events).unwrap();
-
-    assert_eq!(report.disposals.len(), 1);
-    let disposal = &report.disposals[0];
-
-    // Should match with B&B acquisition at £60,000
-    assert_eq!(disposal.allowable_cost_gbp, dec!(60000));
-    assert_eq!(disposal.gain_gbp, dec!(15000));
-
-    // Should be pure B&B match
-    assert_eq!(disposal.matching_components.len(), 1);
-    assert_eq!(
-        disposal.matching_components[0].rule,
-        MatchingRule::BedAndBreakfast
-    );
-
-    // Pool should still have original 10 BTC
-    let (qty, _cost) = final_pool(&report, "BTC");
-    assert_eq!(qty, dec!(10));
-}
-
-#[test]
-fn bed_and_breakfast_partial() {
-    // Sell 5, buy back 3 within 30 days - should match 3 with B&B, 2 from pool
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
-        disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
-        acq("2024-06-20", "BTC", dec!(3), dec!(36000)),
-    ];
-
-    let report = calculate_cgt(events).unwrap();
-
-    assert_eq!(report.disposals.len(), 1);
-    let disposal = &report.disposals[0];
-
-    // 3 BTC from B&B at £36,000
-    // 2 BTC from pool at £20,000 (2/10 * £100,000)
-    // Total allowable cost: £56,000
-    assert_eq!(disposal.allowable_cost_gbp, dec!(56000));
-    assert_eq!(disposal.gain_gbp, dec!(19000));
-
-    // Should be mixed: B&B + Pool
-    assert_eq!(disposal.matching_components.len(), 2);
-}
-
-#[test]
-fn bed_and_breakfast_outside_30_days() {
-    // Buy back after 30 days - should use pool instead
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
-        disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
-        acq("2024-07-16", "BTC", dec!(5), dec!(60000)), // 31 days later
-    ];
-
-    let report = calculate_cgt(events).unwrap();
-
-    assert_eq!(report.disposals.len(), 1);
-    let disposal = &report.disposals[0];
-
-    // Should use pool cost: 5/10 * £100,000 = £50,000
-    assert_eq!(disposal.allowable_cost_gbp, dec!(50000));
-    assert_eq!(disposal.gain_gbp, dec!(25000));
-
-    // Should be pure pool match
-    assert_eq!(disposal.matching_components.len(), 1);
-    assert_eq!(disposal.matching_components[0].rule, MatchingRule::Pool);
-}
-
-#[test]
 fn same_day_takes_priority_over_bed_and_breakfast() {
     // Same-day rule should apply before B&B rule
     let events = vec![
@@ -363,26 +280,6 @@ fn multiple_assets_separate_pools() {
 }
 
 #[test]
-fn tax_year_boundaries() {
-    // April 5 is end of tax year, April 6 is start of next
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
-        disp("2024-04-05", "BTC", dec!(2), dec!(30000)), // 2023/24 tax year
-        disp("2024-04-06", "BTC", dec!(2), dec!(32000)), // 2024/25 tax year
-    ];
-
-    let report = calculate_cgt(events).unwrap();
-
-    assert_eq!(report.disposals.len(), 2);
-
-    let d1 = &report.disposals[0];
-    assert_eq!(TaxYear::from_date(d1.date), TaxYear(2024)); // 2023/24
-
-    let d2 = &report.disposals[1];
-    assert_eq!(TaxYear::from_date(d2.date), TaxYear(2025)); // 2024/25
-}
-
-#[test]
 fn disposal_with_fees() {
     let events = vec![
         acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
@@ -410,6 +307,37 @@ fn acquisition_fees_added_to_pool() {
     // Allowable cost should include the £500 fee
     assert_eq!(disposal.allowable_cost_gbp, dec!(100500));
     assert_eq!(disposal.gain_gbp, dec!(49500));
+}
+
+#[test]
+fn disposal_below_cost_produces_capital_loss() {
+    // Selling below allowable cost must yield a negative gain (capital loss).
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        disp("2024-06-15", "BTC", dec!(10), dec!(60000)),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+
+    let disposal = &report.disposals[0];
+    assert_eq!(disposal.allowable_cost_gbp, dec!(100000));
+    assert_eq!(disposal.proceeds_gbp, dec!(60000));
+    assert_eq!(disposal.gain_gbp, dec!(-40000));
+}
+
+#[test]
+fn disposal_with_fees_can_tip_gain_into_loss() {
+    // A marginal gain can become a loss once disposal fees are deducted.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        disp_with_fee("2024-06-15", "BTC", dec!(10), dec!(100050), dec!(100)),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+
+    let disposal = &report.disposals[0];
+    // proceeds - cost - fees = 100050 - 100000 - 100 = -50
+    assert_eq!(disposal.gain_gbp, dec!(-50));
 }
 
 #[test]
@@ -930,36 +858,11 @@ fn pool_history_multiple_assets() {
 #[test]
 fn id_propagates_to_disposal_record() {
     // Create events with explicit ids
-    let events = vec![
-        TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-test".to_string(),
-            account: String::new(),
-            datetime: dt("2024-01-01"),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(10),
-            value_gbp: dec!(100000),
-            fee_gbp: None,
-            description: None,
-        },
-        TaxableEvent {
-            id: 2,
-            source_transaction_id: "tx-test".to_string(),
-            account: String::new(),
-            datetime: dt("2024-06-15"),
-            event_type: EventType::Disposal,
-            tag: Tag::Trade,
-            asset: "BTC".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(5),
-            value_gbp: dec!(75000),
-            fee_gbp: None,
-            description: None,
-        },
-    ];
+    let mut acquisition = acq("2024-01-01", "BTC", dec!(10), dec!(100000));
+    acquisition.id = 1;
+    let mut disposal = disp("2024-06-15", "BTC", dec!(5), dec!(75000));
+    disposal.id = 2;
+    let events = vec![acquisition, disposal];
 
     let report = calculate_cgt(events).unwrap();
 
@@ -1231,22 +1134,19 @@ fn disposal_index_finds_ngnl_by_key_fallback() {
     let report = calculate_cgt(events).unwrap();
     assert_eq!(report.disposals.len(), 1);
 
-    // Build a lookup event with a different id so by_id won't match,
-    // forcing the key-based fallback path.
-    let lookup = TaxableEvent {
-        id: 9999,
-        source_transaction_id: "other".to_string(),
-        account: String::new(),
-        datetime: dt("2024-06-15"),
-        event_type: EventType::Disposal,
-        tag: Tag::NoGainNoLoss,
-        asset: "XYZ".to_string(),
-        asset_class: AssetClass::Crypto,
-        quantity: dec!(50),
-        value_gbp: dec!(800),
-        fee_gbp: None,
-        description: None,
-    };
+    // Lookup event with a different id so by_id won't match, forcing the
+    // key-based fallback. Its value_gbp (market value) deliberately differs
+    // from the disposal's proceeds (deemed cost) to prove the key ignores it.
+    let mut lookup = event(
+        EventType::Disposal,
+        Tag::NoGainNoLoss,
+        "2024-06-15",
+        "XYZ",
+        dec!(50),
+        dec!(800),
+        None,
+    );
+    lookup.id = 9999;
 
     let mut index = DisposalIndex::new(&report);
     let found = index.find(&lookup);
@@ -1255,6 +1155,40 @@ fn disposal_index_finds_ngnl_by_key_fallback() {
         "key-based fallback should find NGNL disposal"
     );
     assert_eq!(found.unwrap().gain_gbp, dec!(0));
+}
+
+// === CgtSummary: gain netting, AEA, and tax estimation ===
+
+#[test]
+fn cgt_summary_nets_losses_against_gains() {
+    // gains +1000, -400, +200 → gross 1200, losses 400, net 800
+    let summary = CgtSummary::calculate([dec!(1000), dec!(-400), dec!(200)], dec!(3000));
+    assert_eq!(summary.gross_gains, dec!(1200));
+    assert_eq!(summary.in_year_losses, dec!(400));
+    assert_eq!(summary.net_gain_before_aea, dec!(800));
+    // net (800) is below the AEA (3000) → nothing taxable
+    assert_eq!(summary.taxable_gain, dec!(0));
+    assert_eq!(summary.estimated_cgt(dec!(0.20)), dec!(0));
+}
+
+#[test]
+fn cgt_summary_subtracts_aea_then_applies_rate() {
+    let summary = CgtSummary::calculate([dec!(10000)], dec!(3000));
+    assert_eq!(summary.net_gain_before_aea, dec!(10000));
+    assert_eq!(summary.taxable_gain, dec!(7000)); // 10000 - 3000 AEA
+    assert_eq!(summary.estimated_cgt(dec!(0.20)), dec!(1400)); // 7000 * 20%
+    assert_eq!(summary.estimated_cgt(dec!(0.24)), dec!(1680)); // 7000 * 24%
+}
+
+#[test]
+fn cgt_summary_net_loss_clamps_taxable_and_tax_to_zero() {
+    // A net loss must never produce negative taxable gain or negative tax.
+    let summary = CgtSummary::calculate([dec!(1000), dec!(-5000)], dec!(3000));
+    assert_eq!(summary.gross_gains, dec!(1000));
+    assert_eq!(summary.in_year_losses, dec!(5000));
+    assert_eq!(summary.net_gain_before_aea, dec!(-4000));
+    assert_eq!(summary.taxable_gain, dec!(0));
+    assert_eq!(summary.estimated_cgt(dec!(0.24)), dec!(0));
 }
 
 // === Bug-probe tests: rounding drift, precision mismatch, B&B boundary ===
@@ -1326,18 +1260,90 @@ fn pool_remove_never_goes_negative_on_awkward_split() {
 }
 
 #[test]
-fn format_decimal_key_behavior() {
-    // Pins the exact string formatting of DisposalKey.quantity so the helper
-    // can be simplified without changing its contract.
-    assert_eq!(format_decimal_key(dec!(50), 8), "50");
-    assert_eq!(format_decimal_key(dec!(1.5), 8), "1.5");
-    assert_eq!(format_decimal_key(dec!(0.00000001), 8), "0.00000001");
-    assert_eq!(format_decimal_key(dec!(1.23400000), 8), "1.234");
-    // More precision than `dp` → round to `dp`, then trim zeros.
-    assert_eq!(format_decimal_key(dec!(1.234567891), 8), "1.23456789");
-    // Whole numbers must not keep a trailing decimal point.
-    assert_eq!(format_decimal_key(dec!(0), 8), "0");
-    assert_eq!(format_decimal_key(dec!(100), 8), "100");
+fn disposal_index_matches_quantity_ignoring_trailing_zeros() {
+    // Behavioural contract of DisposalKey: two quantities that are equal after
+    // normalization (1.5 vs 1.50) resolve to the same disposal via the
+    // key-based fallback, while a genuinely different quantity does not.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        disp("2024-06-15", "BTC", dec!(1.50), dec!(20000)),
+    ];
+    let report = calculate_cgt(events).unwrap();
+
+    // A different id forces the key fallback rather than the by-id lookup.
+    let mut equal_qty = disp("2024-06-15", "BTC", dec!(1.5), dec!(20000));
+    equal_qty.id = 999;
+    let mut different_qty = disp("2024-06-15", "BTC", dec!(1.6), dec!(20000));
+    different_qty.id = 999;
+
+    assert!(
+        DisposalIndex::new(&report).find(&equal_qty).is_some(),
+        "1.5 and 1.50 are the same quantity and must match"
+    );
+    assert!(
+        DisposalIndex::new(&report).find(&different_qty).is_none(),
+        "1.6 must not match a disposal of 1.50"
+    );
+}
+
+#[test]
+fn bnb_matches_across_tax_year_boundary() {
+    // The 30-day B&B window ignores tax-year boundaries: a disposal late in
+    // 2023/24 matches an acquisition early in 2024/25 within 30 days, and the
+    // year-end snapshots still split correctly at 5 April.
+    let events = vec![
+        acq("2023-06-01", "BTC", dec!(10), dec!(100000)),
+        disp("2024-03-20", "BTC", dec!(5), dec!(75000)), // 2023/24
+        acq("2024-04-10", "BTC", dec!(5), dec!(60000)),  // 2024/25, 21 days later
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    let disposal = &report.disposals[0];
+
+    assert_eq!(disposal.matching_components.len(), 1);
+    assert_eq!(
+        disposal.matching_components[0].rule,
+        MatchingRule::BedAndBreakfast,
+        "acquisition within 30 days must match via B&B even across the tax-year boundary"
+    );
+    assert_eq!(disposal.allowable_cost_gbp, dec!(60000));
+
+    // Snapshots split at the boundary; B&B acquisition is not added to the pool.
+    let snapshots = &report.pool_history.year_end_snapshots;
+    assert_eq!(snapshots.len(), 2);
+    assert_eq!(snapshots[0].tax_year, TaxYear(2024));
+    assert_eq!(snapshots[0].pools[0].quantity, dec!(10));
+    assert_eq!(snapshots[1].tax_year, TaxYear(2025));
+    assert_eq!(snapshots[1].pools[0].quantity, dec!(10));
+}
+
+#[test]
+fn insufficient_cost_basis_uses_residual_after_same_day_match() {
+    // When a same-day match partially covers a disposal, the InsufficientCostBasis
+    // warning must report the *post-matching* residual and the pool available to it,
+    // not the original disposal quantity.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(1), dec!(10000)), // pool: 1
+        acq("2024-06-15", "BTC", dec!(2), dec!(30000)), // same-day: 2
+        disp("2024-06-15", "BTC", dec!(5), dec!(75000)), // dispose 5
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    let disposal = &report.disposals[0];
+
+    // 2 covered same-day, 1 from pool, leaving a 3-unit shortfall over a 1-unit pool.
+    let warning = disposal
+        .warnings
+        .iter()
+        .find_map(|w| match w {
+            Warning::InsufficientCostBasis {
+                available,
+                required,
+            } => Some((*available, *required)),
+            _ => None,
+        })
+        .expect("expected InsufficientCostBasis warning");
+    assert_eq!(warning, (dec!(1), dec!(3)));
 }
 
 #[test]

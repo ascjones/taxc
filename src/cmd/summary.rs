@@ -3,7 +3,8 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::read_events;
 use crate::core::{
-    calculate_cgt, CgtReport, DisposalRecord, EventType, Tag, TaxBand, TaxYear, TaxableEvent,
+    calculate_cgt, CgtReport, CgtSummary, DisposalRecord, EventType, Tag, TaxBand, TaxYear,
+    TaxableEvent,
 };
 use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
@@ -142,9 +143,10 @@ impl SummaryCommand {
         let basic_rate = rate_year.cgt_basic_rate();
         let higher_rate = rate_year.cgt_higher_rate();
 
-        let taxable_gain = (total_gain - exempt_amount).max(Decimal::ZERO);
-        let tax_basic = (taxable_gain * basic_rate).round_dp(2);
-        let tax_higher = (taxable_gain * higher_rate).round_dp(2);
+        let summary = CgtSummary::calculate(disposals.iter().map(|d| d.gain_gbp), exempt_amount);
+        let taxable_gain = summary.taxable_gain;
+        let tax_basic = summary.estimated_cgt(basic_rate);
+        let tax_higher = summary.estimated_cgt(higher_rate);
 
         println!("CAPITAL GAINS");
         println!("  Disposals: {}", disposals.len());
@@ -216,20 +218,11 @@ impl SummaryCommand {
         let income_rate = rate_year.income_rate(band);
 
         let disposals = filtered_classified_disposals(cgt_report, filter);
-        let gross_gains: Decimal = disposals
-            .iter()
-            .filter(|d| d.gain_gbp > Decimal::ZERO)
-            .map(|d| d.gain_gbp)
-            .sum();
-        let in_year_losses: Decimal = disposals
-            .iter()
-            .filter(|d| d.gain_gbp < Decimal::ZERO)
-            .map(|d| d.gain_gbp.abs())
-            .sum();
-        let net_gain_before_aea = gross_gains - in_year_losses;
-        let aea = rate_year.cgt_exempt_amount();
-        let taxable_gain = (net_gain_before_aea - aea).max(Decimal::ZERO);
-        let estimated_cgt = (taxable_gain * cgt_rate).round_dp(2);
+        let summary = CgtSummary::calculate(
+            disposals.iter().map(|d| d.gain_gbp),
+            rate_year.cgt_exempt_amount(),
+        );
+        let estimated_cgt = summary.estimated_cgt(cgt_rate);
 
         let (income, dividend_income, interest_income) = income_totals(events);
         let estimated_income_tax = (income * income_rate).round_dp(2);
@@ -246,11 +239,11 @@ impl SummaryCommand {
             },
             tax_band: band_label(band).to_string(),
             disposal_count: disposals.len(),
-            gross_gains: decimal_to_f64(gross_gains),
-            in_year_losses: decimal_to_f64(in_year_losses),
-            net_gain_before_aea: decimal_to_f64(net_gain_before_aea),
-            aea: decimal_to_f64(aea),
-            taxable_gain: decimal_to_f64(taxable_gain),
+            gross_gains: decimal_to_f64(summary.gross_gains),
+            in_year_losses: decimal_to_f64(summary.in_year_losses),
+            net_gain_before_aea: decimal_to_f64(summary.net_gain_before_aea),
+            aea: decimal_to_f64(summary.aea),
+            taxable_gain: decimal_to_f64(summary.taxable_gain),
             cgt_rate_pct: decimal_pct(cgt_rate),
             estimated_cgt: decimal_to_f64(estimated_cgt),
             income: decimal_to_f64(income),
