@@ -37,6 +37,21 @@ The `schema/*.json` files are auto-generated via `cargo run -- schema` and shoul
 
 Always use TDD: write failing tests first, then implement to make them pass.
 
+### Where tests live
+
+The suite follows a pyramid — keep domain logic at the lowest layer that can exercise it:
+
+- **`src/core/` unit tests** — pure domain logic (CGT matching, tax-event conversion, tax-year/rate math). The bulk of coverage belongs here.
+- **`src/cmd/` in-process tests** — aggregation/filtering/report-shaping tested by calling functions like `build_report_data` directly (no process spawn). Prefer this tier over E2E for anything that isn't strictly CLI wiring.
+- **`tests/` integration tests** — CLI argument wiring, stdout/JSON formatting, and HTML/JS rendering, exercised through the compiled binary. Some figures are deliberately re-verified end-to-end (defense-in-depth for a tax tool); that redundancy is intentional.
+
+### Conventions
+
+- **Test module placement:** small modules keep an inline `#[cfg(test)] mod tests { ... }`; modules with a large test suite use a sibling `#[cfg(test)] mod tests;` in a `tests.rs` file.
+- **Shared fixtures:** build `TaxableEvent`s via `core::events::builders` (`acq`, `disp`, `staking`, `event`); override fields with struct-update syntax (`TaxableEvent { id: 2, ..disp(...) }`). Integration tests run the binary via `tests/common::run_taxc` (uses the prebuilt `CARGO_BIN_EXE_taxc`, not `cargo run`) — never spawn `cargo run` directly.
+- **Naming:** `feature_condition_outcome` (e.g. `bnb_matches_across_tax_year_boundary`).
+- **Decoupling:** assert observable behaviour through public APIs, not private helpers or exact internal formatting.
+
 Run tests and linting before committing:
 ```bash
 cargo test

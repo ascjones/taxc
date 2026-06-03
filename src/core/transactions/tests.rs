@@ -247,6 +247,82 @@ fn price_rejects_zero_fx_rate() {
 }
 
 #[test]
+fn price_rejects_quote_without_fx_rate() {
+    // A foreign-currency quote with no fx_rate cannot be converted to GBP.
+    let price = Price {
+        base: "BTC".to_string(),
+        rate: dec!(40000),
+        source: None,
+        quote: Some("USD".to_string()),
+        fx_rate: None,
+    };
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "quote without fx_rate must be rejected, got {err:?}"
+    );
+}
+
+#[test]
+fn price_rejects_fx_rate_without_quote() {
+    // An fx_rate with no quote currency is ambiguous and must be rejected.
+    let price = Price {
+        base: "BTC".to_string(),
+        rate: dec!(40000),
+        source: None,
+        quote: None,
+        fx_rate: Some(dec!(0.79)),
+    };
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "fx_rate without quote must be rejected, got {err:?}"
+    );
+}
+
+#[test]
+fn price_rejects_empty_quote() {
+    // A blank quote currency must be rejected even when fx_rate is present.
+    let price = fx_price("BTC", dec!(40000), "", dec!(0.79));
+    let err = price.to_gbp(dec!(1));
+    assert!(
+        matches!(err, Err(TransactionError::InvalidPrice(_))),
+        "empty quote must be rejected, got {err:?}"
+    );
+}
+
+#[test]
+fn parse_datetime_accepts_space_separated_without_timezone() {
+    // 'T' and space separators without a timezone both resolve to the same UTC instant.
+    let t = parse_datetime("2024-06-15T10:30:00").unwrap();
+    let space = parse_datetime("2024-06-15 10:30:00").unwrap();
+    assert_eq!(t, space);
+    assert_eq!(t.to_rfc3339(), "2024-06-15T10:30:00+00:00");
+}
+
+#[test]
+fn parse_datetime_accepts_fractional_seconds() {
+    let with_frac = parse_datetime("2024-06-15T10:30:00.123").unwrap();
+    let canonical = parse_datetime("2024-06-15T10:30:00.123+00:00").unwrap();
+    assert_eq!(with_frac, canonical);
+}
+
+#[test]
+fn parse_datetime_bare_date_defaults_to_utc_midnight() {
+    let bare = parse_datetime("2024-06-15").unwrap();
+    assert_eq!(bare.to_rfc3339(), "2024-06-15T00:00:00+00:00");
+}
+
+#[test]
+fn parse_datetime_rejects_unparseable_input() {
+    let err = parse_datetime("not-a-date");
+    assert!(
+        matches!(err, Err(TransactionError::InvalidDatetime(_))),
+        "unparseable datetime must error, got {err:?}"
+    );
+}
+
+#[test]
 fn trade_crypto_to_crypto_generates_two_events() {
     let tx = trade_tx("tx-1", ("BTC", dec!(0.01)), ("ETH", dec!(0.5))).with_price(fx_price(
         "ETH",

@@ -210,6 +210,73 @@ fn summary_separates_crypto_and_stock_cgt_totals() {
     assert_eq!(data.summary.fiat.gain, "0.00");
 }
 
+fn disposal_cgt(data: &ReportData) -> &CgtDetails {
+    data.events
+        .iter()
+        .find(|e| e.event_type == display_event_type(EventType::Disposal, Tag::Trade))
+        .and_then(|e| e.cgt.as_ref())
+        .expect("expected disposal with CGT details")
+}
+
+#[test]
+fn report_rule_label_is_pool_for_pure_pool_disposal() {
+    // A disposal matched entirely from the Section 104 pool is labelled "Pool".
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        TaxableEvent {
+            id: 2,
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(disposal_cgt(&data).rule, "Pool");
+}
+
+#[test]
+fn report_rule_label_is_mixed_for_multi_component_disposal() {
+    // Same-day plus pool matching yields more than one component → "Mixed".
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        TaxableEvent {
+            id: 2,
+            ..acq("2024-06-15", "BTC", dec!(2), dec!(30000))
+        },
+        TaxableEvent {
+            id: 3,
+            ..disp("2024-06-15", "BTC", dec!(5), dec!(75000))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(disposal_cgt(&data).rule, "Mixed");
+}
+
+#[test]
+fn report_summary_aggregates_unclassified_disposals_separately() {
+    // Unclassified disposals are excluded from classified totals but counted in
+    // the "with unclassified" conservative totals.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
+        TaxableEvent {
+            id: 2,
+            tag: Tag::Unclassified,
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(data.summary.unclassified_count, 1);
+    assert_eq!(data.summary.total_gain, "0.00"); // unclassified excluded
+    assert_eq!(data.summary.total_gain_with_unclassified, "15000.00"); // 25000 - 10000
+}
+
 #[test]
 fn no_gain_no_loss_report_value_uses_cost_basis_with_note() {
     let events = vec![

@@ -1,20 +1,12 @@
 //! E2E tests for report, pools, summary, and validate command functionality
 
-use std::process::Command;
+mod common;
+use common::run_taxc;
 
 /// Test that the report JSON output includes mixed matching rules
 #[test]
 fn report_mixed_rules() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["report", "tests/data/mixed_rules.json", "--json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -69,18 +61,13 @@ fn report_mixed_rules() {
 /// Test filtering by asset
 #[test]
 fn report_filter_by_asset() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--json",
-            "--asset",
-            "BTC",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--json",
+        "--asset",
+        "BTC",
+    ]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -106,10 +93,7 @@ fn report_filter_by_asset() {
 /// Test JSON input format using summary command
 #[test]
 fn json_input_format() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "summary", "tests/data/basic_json.json"])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["summary", "tests/data/basic_json.json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -129,16 +113,7 @@ fn json_input_format() {
 /// Test summary command with JSON output
 #[test]
 fn summary_json_output() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "summary",
-            "tests/data/mixed_rules.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["summary", "tests/data/mixed_rules.json", "--json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -190,18 +165,13 @@ fn summary_json_output() {
 
 #[test]
 fn report_json_summary_respects_event_kind_filter() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--json",
-            "--event-kind",
-            "acquisition",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--json",
+        "--event-kind",
+        "acquisition",
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -216,18 +186,13 @@ fn report_json_summary_respects_event_kind_filter() {
 
 #[test]
 fn report_json_summary_respects_from_to_filter() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--json",
-            "--from",
-            "2030-01-01",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--json",
+        "--from",
+        "2030-01-01",
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -243,18 +208,13 @@ fn report_json_summary_respects_from_to_filter() {
 
 #[test]
 fn report_json_summary_respects_asset_filter() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/two_assets.json",
-            "--json",
-            "--asset",
-            "BTC",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/two_assets.json",
+        "--json",
+        "--asset",
+        "BTC",
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -269,16 +229,7 @@ fn report_json_summary_respects_asset_filter() {
 /// Test no gain/no loss disposal produces zero gain and correct pool reduction
 #[test]
 fn report_no_gain_no_loss_spouse_transfer() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/ngnl_spouse.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["report", "tests/data/ngnl_spouse.json", "--json"]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -328,18 +279,13 @@ fn report_no_gain_no_loss_spouse_transfer() {
 /// Test report command with year filter
 #[test]
 fn report_filter_by_year() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--year",
-            "2025",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--year",
+        "2025",
+        "--json",
+    ]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -362,115 +308,59 @@ fn report_filter_by_year() {
     }
 }
 
+/// Run `report --json` on a fixture and assert the distinct disposal proceeds.
+fn assert_disposal_proceeds(fixture: &str, expected: &[&str]) {
+    let output = run_taxc(&["report", fixture, "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+    let events = json
+        .get("events")
+        .and_then(|v| v.as_array())
+        .expect("Missing events array");
+
+    let mut proceeds: Vec<String> = events
+        .iter()
+        .filter(|e| {
+            e.get("event_type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t.contains("Disposal"))
+        })
+        .filter_map(|e| {
+            e.get("cgt")
+                .and_then(|c| c.get("proceeds_gbp"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    proceeds.sort();
+    proceeds.dedup();
+
+    for want in expected {
+        assert!(
+            proceeds.contains(&want.to_string()),
+            "Expected disposal proceeds {want} not found. Got: {proceeds:?}"
+        );
+    }
+}
+
 /// Ensure multiple disposals on the same date/asset map to the correct CGT record
 #[test]
 fn report_multiple_disposals_same_day() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/duplicate_disposals.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Command failed: {:?}", output);
-
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("Invalid JSON report output");
-
-    let events = json
-        .get("events")
-        .and_then(|v| v.as_array())
-        .expect("Missing events array");
-
-    let mut proceeds = Vec::new();
-    for e in events {
-        let event_type = e.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
-        if event_type.contains("Disposal") {
-            let proceeds_gbp = e
-                .get("cgt")
-                .and_then(|c| c.get("proceeds_gbp"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if !proceeds_gbp.is_empty() {
-                proceeds.push(proceeds_gbp);
-            }
-        }
-    }
-
-    proceeds.sort();
-    proceeds.dedup();
-
-    assert!(
-        proceeds.contains(&"12000.00".to_string()),
-        "Expected proceeds for first disposal not found. Got: {:?}",
-        proceeds
-    );
-    assert!(
-        proceeds.contains(&"9000.00".to_string()),
-        "Expected proceeds for second disposal not found. Got: {:?}",
-        proceeds
+    assert_disposal_proceeds(
+        "tests/data/duplicate_disposals.json",
+        &["12000.00", "9000.00"],
     );
 }
 
-/// Ensure HTML report maps disposals correctly when descriptions are duplicated
+/// Ensure the report maps disposals correctly when descriptions are duplicated
 #[test]
 fn report_duplicate_descriptions() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/duplicate_descriptions.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Command failed: {:?}", output);
-
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("Invalid JSON report output");
-
-    let events = json
-        .get("events")
-        .and_then(|v| v.as_array())
-        .expect("Missing events array");
-
-    let mut proceeds = Vec::new();
-    for e in events {
-        let event_type = e.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
-        if event_type.contains("Disposal") {
-            let cgt = e.get("cgt");
-            let proceeds_gbp = cgt
-                .and_then(|c| c.get("proceeds_gbp"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if !proceeds_gbp.is_empty() {
-                proceeds.push(proceeds_gbp);
-            }
-        }
-    }
-
-    proceeds.sort();
-    proceeds.dedup();
-
-    assert!(
-        proceeds.contains(&"12000.00".to_string()),
-        "Expected proceeds for first disposal not found. Got: {:?}",
-        proceeds
-    );
-    assert!(
-        proceeds.contains(&"9000.00".to_string()),
-        "Expected proceeds for second disposal not found. Got: {:?}",
-        proceeds
+    assert_disposal_proceeds(
+        "tests/data/duplicate_descriptions.json",
+        &["12000.00", "9000.00"],
     );
 }
 
@@ -479,10 +369,7 @@ fn report_duplicate_descriptions() {
 /// Test pools command basic output
 #[test]
 fn pools_basic_output() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "pools", "tests/data/mixed_rules.json"])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -498,16 +385,7 @@ fn pools_basic_output() {
 /// Test pools command JSON output parses correctly
 #[test]
 fn pools_json_output() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "--json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -533,16 +411,7 @@ fn pools_json_output() {
 /// Test pools command with --daily flag
 #[test]
 fn pools_daily_output() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "--daily",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "--daily"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -558,17 +427,7 @@ fn pools_daily_output() {
 /// Test pools command with --daily --json
 #[test]
 fn pools_daily_json_output() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "--daily",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "--daily", "--json"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -597,17 +456,7 @@ fn pools_daily_json_output() {
 /// Test pools command with asset filter
 #[test]
 fn pools_filter_by_asset() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "-a",
-            "BTC",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "-a", "BTC"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -621,17 +470,7 @@ fn pools_filter_by_asset() {
 /// Test pools command with year filter
 #[test]
 fn pools_filter_by_year() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "-y",
-            "2025",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "-y", "2025"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -645,20 +484,15 @@ fn pools_filter_by_year() {
 /// Test pools command with combined filters
 #[test]
 fn pools_combined_filters() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "-y",
-            "2025",
-            "-a",
-            "BTC",
-            "--json",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "pools",
+        "tests/data/mixed_rules.json",
+        "-y",
+        "2025",
+        "-a",
+        "BTC",
+        "--json",
+    ]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -677,18 +511,13 @@ fn pools_combined_filters() {
 
 #[test]
 fn pools_non_daily_date_filter_behavior_is_explicit() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "pools",
-            "tests/data/mixed_rules.json",
-            "--json",
-            "--from",
-            "2030-01-01",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "pools",
+        "tests/data/mixed_rules.json",
+        "--json",
+        "--from",
+        "2030-01-01",
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -1,34 +1,23 @@
 //! E2E tests for the HTML report output
 
-use std::{fs, path::PathBuf, process::Command, time::SystemTime};
-
-fn unique_tmp_file(name: &str, ext: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("taxc-{name}-{nanos}.{ext}"))
-}
+mod common;
+use common::{run_taxc, unique_tmp_file};
+use std::fs;
 
 #[test]
 fn report_html_respects_from_to_and_event_kind() {
     let out = unique_tmp_file("report-filter", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-            "--from",
-            "2030-01-01",
-            "--event-kind",
-            "acquisition",
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+        "--from",
+        "2030-01-01",
+        "--event-kind",
+        "acquisition",
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let html = fs::read_to_string(&out).expect("failed reading generated HTML");
@@ -49,17 +38,12 @@ fn report_html_respects_from_to_and_event_kind() {
 fn report_html_embeds_ngnl_value_note() {
     let out = unique_tmp_file("report-ngnl-note", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/ngnl_spouse.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/ngnl_spouse.json",
+        "--output",
+        &out_str,
+    ]);
 
     assert!(output.status.success(), "Command failed: {:?}", output);
     let html = fs::read_to_string(&out).expect("failed reading generated HTML");
@@ -85,17 +69,12 @@ fn report_html_renders_in_browser() {
 
     let out = unique_tmp_file("report-html-browser", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(
@@ -214,17 +193,12 @@ fn report_html_transactions_tab_and_navigation() {
 
     let out = unique_tmp_file("report-html-tx-tab", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(
@@ -371,17 +345,12 @@ fn report_html_date_range_prepopulated() {
 
     let out = unique_tmp_file("report-html-dates", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(
@@ -493,19 +462,14 @@ fn report_html_single_year_prepopulated() {
 
     let out = unique_tmp_file("report-html-single-year", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--year",
-            "2025",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--year",
+        "2025",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(
@@ -559,17 +523,12 @@ fn report_html_tax_year_changes_date_range() {
 
     let out = unique_tmp_file("report-html-year-change", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(
@@ -710,17 +669,12 @@ fn report_html_expand_works_after_filter_toggle() {
 
     let out = unique_tmp_file("report-html-toggle", "html");
     let out_str = out.to_string_lossy().to_string();
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "report",
-            "tests/data/mixed_rules.json",
-            "--output",
-            &out_str,
-        ])
-        .output()
-        .expect("Failed to execute command");
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--output",
+        &out_str,
+    ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
     let browser = Browser::new(

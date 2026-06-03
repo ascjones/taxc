@@ -572,5 +572,8 @@ impl<'a> DisposalIndex<'a> {
     }
 }
 
+mod summary;
+pub use summary::CgtSummary;
+
 #[cfg(test)]
 mod tests;
