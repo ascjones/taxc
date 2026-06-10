@@ -29,6 +29,11 @@ Load the LSP tool at the start of each session with `select:LSP` via ToolSearch.
 - `src/core/` owns domain logic as pure functions — no file IO, no CLI types.
 - If a top-level entity has non-trivial logic, prefer its own module/file.
 
+## Knowledge Base
+
+- `docs/solutions/` — documented solutions to past problems (bugs, integration issues, patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in documented areas.
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts). Relevant when orienting to the codebase or discussing domain terms.
+
 ## Schemas
 
 The `schema/*.json` files are auto-generated via `cargo run -- schema` and should not be manually edited.
