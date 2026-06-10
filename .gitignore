@@ -1,2 +1,5 @@
 .idea
 target
+
+# Compound Engineering local config
+.compound-engineering/*.local.yaml

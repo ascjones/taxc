@@ -1,7 +1,4 @@
 {
-  "enabledPlugins": {
-    "claude-mem@thedotmack": true
-  },
   "permissions": {
     "allow": [
       "Bash(cargo build:*)",
@@ -21,5 +18,9 @@
       "Bash(./scripts/serve-report.sh:*)",
       "Skill(bump-version)"
     ]
+  },
+  "enabledPlugins": {
+    "claude-mem@thedotmack": true,
+    "compound-engineering@compound-engineering-plugin": true
   }
 }
