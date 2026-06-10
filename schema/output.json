@@ -13,6 +13,12 @@
     "summary": {
       "$ref": "#/$defs/Summary"
     },
+    "transactions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TransactionRow"
+      }
+    },
     "warnings": {
       "type": "array",
       "items": {
@@ -21,6 +27,7 @@
     }
   },
   "required": [
+    "transactions",
     "events",
     "warnings",
     "summary"
@@ -200,6 +207,15 @@
             "null"
           ]
         },
+        "matched_event_id": {
+          "description": "Event ID of the matched acquisition (for navigation)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
         "matched_event_type": {
           "description": "Details of the matched acquisition for display",
           "type": [
@@ -218,15 +234,6 @@
             "string",
             "null"
           ]
-        },
-        "matched_row_id": {
-          "description": "Row ID of the matched acquisition (for navigation)",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0
         },
         "matched_tax_year": {
           "type": [
@@ -396,6 +403,105 @@
           "type": "string",
           "const": "NoGainNoLoss"
         }
+      ]
+    },
+    "TransactionAmount": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "asset",
+        "quantity"
+      ]
+    },
+    "TransactionFee": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset",
+        "amount"
+      ]
+    },
+    "TransactionRow": {
+      "description": "A serialized input transaction for the transactions view",
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "amounts": {
+          "description": "Assets involved (e.g. for Trade: sold + bought; for Deposit/Withdrawal: single amount)",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TransactionAmount"
+          }
+        },
+        "datetime": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "event_ids": {
+          "description": "Event IDs generated from this transaction",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "fee": {
+          "description": "Fee if any",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransactionFee"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "tag": {
+          "$ref": "#/$defs/Tag"
+        },
+        "tax_year": {
+          "type": "string"
+        },
+        "transaction_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "datetime",
+        "tax_year",
+        "account",
+        "transaction_type",
+        "tag",
+        "description",
+        "amounts",
+        "event_ids"
       ]
     },
     "Warning": {

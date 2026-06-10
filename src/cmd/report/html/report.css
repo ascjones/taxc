@@ -126,17 +126,6 @@ body {
     letter-spacing: 0.08em;
 }
 
-.date-inputs {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.date-sep {
-    color: var(--text-muted);
-    font-size: 0.75rem;
-}
-
 input[type="date"],
 select,
 input[type="text"] {
@@ -161,62 +150,6 @@ input[type="text"]:focus {
 input[type="text"] { min-width: 160px; }
 select { cursor: pointer; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
-
-/* ---- Filter chips ---- */
-.chip-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-}
-
-.filter-chip {
-    position: relative;
-    cursor: pointer;
-}
-
-.filter-chip input[type="checkbox"] {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.filter-chip span {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.3125rem 0.625rem;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    font-weight: 500;
-    transition: all 0.15s ease;
-    user-select: none;
-    white-space: nowrap;
-}
-
-.filter-chip:hover span {
-    border-color: var(--text-muted);
-    color: var(--text-secondary);
-}
-
-.filter-chip input:checked + span {
-    background: var(--accent-bg);
-    border-color: var(--accent-border);
-    color: var(--accent);
-}
-
-.filter-chip.chip-gain input:checked + span {
-    background: var(--gain-bg);
-    border-color: var(--gain-border);
-    color: var(--gain);
-}
-
-.filter-chip.chip-loss input:checked + span {
-    background: var(--loss-bg);
-    border-color: var(--loss-border);
-    color: var(--loss);
-}
 
 /* ---- Date range picker ---- */
 .date-range-wrapper {
@@ -616,6 +549,132 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     font-family: var(--font-mono);
 }
 
+/* ---- Tax years view ---- */
+.taxyears-content {
+    padding: 1rem 1.5rem 0.5rem;
+}
+
+.tax-year-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.75rem;
+}
+
+.panel-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.panel-hint {
+    font-size: 0.6875rem;
+    color: var(--text-faint);
+}
+
+.tax-year-chart {
+    display: flex;
+    align-items: stretch;
+    gap: 0.375rem;
+}
+
+.ty-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    padding: 0.25rem 0.25rem 0.375rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s;
+    min-width: 0;
+}
+
+.ty-col:hover { background: var(--bg-hover); }
+
+.ty-col.selected { background: var(--bg-active); }
+
+.ty-value {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.ty-value.pos { color: var(--gain); }
+.ty-value.neg { color: var(--loss); }
+
+.ty-bar-area {
+    position: relative;
+    height: 64px;
+}
+
+.ty-baseline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--border);
+}
+
+.ty-bar {
+    position: absolute;
+    left: 15%;
+    right: 15%;
+    border-radius: 2px;
+    min-height: 2px;
+}
+
+.ty-bar.pos { background: linear-gradient(to top, rgba(63, 185, 80, 0.5), var(--gain)); }
+.ty-bar.neg { background: linear-gradient(to bottom, rgba(248, 81, 73, 0.5), var(--loss)); }
+
+.ty-col.selected .ty-bar.pos,
+.ty-col:hover .ty-bar.pos { box-shadow: 0 0 12px -2px rgba(63, 185, 80, 0.5); }
+.ty-col.selected .ty-bar.neg,
+.ty-col:hover .ty-bar.neg { box-shadow: 0 0 12px -2px rgba(248, 81, 73, 0.5); }
+
+.ty-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.ty-col.selected .ty-label { color: var(--accent); font-weight: 700; }
+
+#taxyears-table {
+    margin-top: 1.25rem;
+}
+
+#taxyears-table th:nth-child(n+2),
+#taxyears-table td:nth-child(n+2) {
+    text-align: right;
+}
+
+#taxyears-table td:nth-child(n+2) {
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+.ty-row { cursor: pointer; }
+
+.ty-row.selected {
+    background: var(--bg-active);
+}
+
+.ty-row.selected td:first-child {
+    color: var(--accent);
+    font-weight: 700;
+}
+
 /* ---- Warnings banner ---- */
 .warnings-banner {
     background: var(--warning-bg);
@@ -703,20 +762,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     animation: fadeInUp 0.4s ease 0.2s both;
 }
 
-.table-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-}
-
-.table-header h2 {
-    font-size: 0.9375rem;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
 .count {
     font-size: 0.8125rem;
     color: var(--text-muted);
@@ -724,7 +769,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     font-family: var(--font-mono);
 }
 
-.table-container { overflow-x: auto; }
+/* The container is the vertical scroller so sticky headers engage; a plain
+   overflow-x container would break position: sticky. */
+.table-container {
+    overflow: auto;
+    max-height: calc(100vh - 7rem);
+}
 
 /* Shared data table styles (events + transactions) */
 .data-table {
@@ -748,6 +798,36 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     z-index: 1;
 }
 
+.data-table th[data-sort] {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+}
+
+.data-table th[data-sort]::after {
+    content: ' \2195';
+    opacity: 0.35;
+}
+
+.data-table th[data-sort]:hover {
+    color: var(--text-secondary);
+}
+
+.data-table th.sorted-asc,
+.data-table th.sorted-desc {
+    color: var(--accent);
+}
+
+.data-table th.sorted-asc::after {
+    content: ' \2191';
+    opacity: 1;
+}
+
+.data-table th.sorted-desc::after {
+    content: ' \2193';
+    opacity: 1;
+}
+
 .data-table td {
     padding: 0.625rem 1rem;
     border-bottom: 1px solid var(--border-subtle);
@@ -755,6 +835,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     color: var(--text-secondary);
     vertical-align: middle;
 }
+
+.data-table td.date-cell { white-space: nowrap; }
 
 .data-table tbody tr { transition: background 0.1s; }
 .data-table tbody tr:hover:not(.expandable-row) { background: var(--bg-hover); }
@@ -854,8 +936,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     opacity: 0.85;
 }
 
-/* ---- Disposal rows ---- */
-.disposal-row { cursor: pointer; }
+/* ---- Expandable rows ---- */
+.data-table tbody tr[data-expandable] { cursor: pointer; }
 .disposal-row td:nth-child(9) { font-weight: 600; }
 
 .gain-value { color: var(--gain) !important; }
@@ -884,7 +966,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     transform: rotate(90deg);
 }
 
-.disposal-row:hover .expand-chevron {
+tr[data-expandable]:hover .expand-chevron {
     color: var(--accent);
     background: var(--accent-bg);
 }
@@ -908,21 +990,74 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     padding: 0.75rem 1.5rem 1rem;
 }
 
-.details-header {
+/* ---- Row detail card ---- */
+.row-card {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.625rem 2.5rem;
 }
 
-.expandable-title {
-    font-size: 0.75rem;
-    font-weight: 700;
+.card-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.card-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0.875rem 0 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.5rem;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
 }
+
+/* --border is invisible against the elevated card background */
+.card-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(139, 158, 194, 0.3);
+}
+
+.card-field-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.card-field-value {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.mono { font-family: var(--font-mono); }
+
+.card-link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 0.8125rem;
+    text-align: left;
+    transition: color 0.15s;
+}
+
+.card-link:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+
 
 /* ---- Detail subtable (shared by matching details + tx events) ---- */
 .detail-subtable {
@@ -949,6 +1084,14 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 }
 
 .detail-subtable tr:last-child td { border-bottom: none; }
+
+/* Compact variant: a lone row without title/header chrome */
+.detail-subtable-compact { width: auto; }
+
+.detail-subtable-compact td {
+    padding: 0.125rem 1.25rem 0.125rem 0;
+    border-bottom: none;
+}
 
 /* ---- Rule badges ---- */
 .rule-badge {
@@ -1093,6 +1236,10 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
 /* ---- Acquisition link ---- */
 .acquisition-link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
     color: var(--accent);
     text-decoration: none;
     font-weight: 500;
@@ -1104,6 +1251,29 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 .acquisition-link:hover {
     color: var(--text-primary);
     text-decoration: underline;
+}
+
+/* ---- Empty state ---- */
+.empty-row td {
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.empty-state-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.empty-state-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
 }
 
 /* ---- Animations ---- */
@@ -1127,5 +1297,5 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     .dashboard-body { padding: 1rem; }
     .metrics { grid-template-columns: 1fr; }
     .filter-section { flex-direction: column; align-items: stretch; }
-    .date-inputs { flex-direction: column; align-items: stretch; }
+    .tax-year-chart { overflow-x: auto; }
 }

@@ -181,8 +181,8 @@ pub struct MatchingComponentRow {
     pub cost_gbp: String,
     /// For Same-Day/B&B: the linked acquisition date
     pub matched_date: Option<String>,
-    /// Row ID of the matched acquisition (for navigation)
-    pub matched_row_id: Option<usize>,
+    /// Event ID of the matched acquisition (for navigation)
+    pub matched_event_id: Option<usize>,
     /// Details of the matched acquisition for display
     pub matched_event_type: Option<String>,
     pub matched_tax_year: Option<String>,
@@ -251,13 +251,13 @@ pub(super) fn build_report_data(
     // Filter events for reporting/output rows.
     let filtered_events: Vec<_> = filter.apply(events);
 
-    // Build index of acquisitions by (date, asset) -> row index for navigation
-    // Multiple acquisitions on the same day for the same asset share a row index (first one)
-    let mut acquisition_row_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
-    for (idx, e) in filtered_events.iter().enumerate() {
+    // Build index of acquisitions by (date, asset) -> event id for navigation
+    // Multiple acquisitions on the same day for the same asset share an id (first one)
+    let mut acquisition_event_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
+    for e in &filtered_events {
         if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
             let key = (e.date(), e.asset.clone());
-            acquisition_row_index.entry(key).or_insert(idx);
+            acquisition_event_index.entry(key).or_insert(e.id);
         }
     }
 
@@ -318,7 +318,7 @@ pub(super) fn build_report_data(
                         .map(|mc| {
                             // Look up acquisition details for Same-Day and B&B matches
                             let (
-                                matched_row_id,
+                                matched_event_id,
                                 matched_event_type,
                                 matched_tax_year,
                                 matched_asset,
@@ -327,10 +327,10 @@ pub(super) fn build_report_data(
                                 matched_description,
                             ) = if let Some(date) = mc.matched_date {
                                 let key = (date, d.asset.clone());
-                                let row_id = acquisition_row_index.get(&key).copied();
+                                let event_id = acquisition_event_index.get(&key).copied();
                                 if let Some(detail) = acquisition_details.get(&key) {
                                     (
-                                        row_id,
+                                        event_id,
                                         Some(detail.event_type.clone()),
                                         Some(detail.tax_year.clone()),
                                         Some(d.asset.clone()),
@@ -352,7 +352,7 @@ pub(super) fn build_report_data(
                                 matched_date: mc
                                     .matched_date
                                     .map(|d| d.format("%Y-%m-%d").to_string()),
-                                matched_row_id,
+                                matched_event_id,
                                 matched_event_type,
                                 matched_tax_year,
                                 matched_asset,

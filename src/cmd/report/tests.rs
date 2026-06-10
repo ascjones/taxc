@@ -69,9 +69,9 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
 
     for component in &disposal.matching_components {
         assert_eq!(
-            component.matched_row_id,
-            Some(0),
-            "expected same-day match to point to first acquisition row"
+            component.matched_event_id,
+            Some(1),
+            "expected same-day match to point to first acquisition event id"
         );
     }
 }
@@ -109,9 +109,9 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
 
     for component in &disposal.matching_components {
         assert_eq!(
-            component.matched_row_id,
-            Some(2),
-            "expected B&B match to point to first acquisition row for the matched date"
+            component.matched_event_id,
+            Some(3),
+            "expected B&B match to point to first acquisition event id for the matched date"
         );
     }
 }

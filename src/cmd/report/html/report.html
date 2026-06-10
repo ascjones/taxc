@@ -60,7 +60,7 @@ __CSS__
                     </div>
                     <div class="filter-group">
                         <span class="filter-label">Asset</span>
-                        <input type="text" id="asset-search" placeholder="Search…" oninput="applyFilters()">
+                        <input type="text" id="asset-search" placeholder="Search…" oninput="onAssetSearchInput()">
                     </div>
                 </div>
                 <div class="filter-section">
@@ -137,6 +137,7 @@ __CSS__
         <div class="tab-bar">
             <button class="tab-btn active" data-tab="transactions" onclick="switchTab('transactions')">Transactions <span class="count" id="transactions-count"></span></button>
             <button class="tab-btn" data-tab="events" onclick="switchTab('events')">Events <span class="count" id="events-count"></span></button>
+            <button class="tab-btn" data-tab="taxyears" onclick="switchTab('taxyears')">Tax Years</button>
         </div>
 
         <section class="table-section" id="transactions-section">
@@ -145,13 +146,12 @@ __CSS__
                     <thead>
                         <tr>
                             <th style="width:32px"></th>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th>Tag</th>
+                            <th data-sort="datetime">Date</th>
+                            <th data-sort="type">Type</th>
+                            <th data-sort="tag">Tag</th>
                             <th>Details</th>
                             <th>Fee</th>
-                            <th>Account</th>
-                            <th>Description</th>
+                            <th data-sort="account">Account</th>
                         </tr>
                     </thead>
                     <tbody id="transactions-body"></tbody>
@@ -166,18 +166,40 @@ __CSS__
                         <tr>
                             <th style="width:32px"></th>
                             <th style="width:32px"></th>
-                            <th>Date</th>
+                            <th data-sort="datetime">Date</th>
                             <th style="width:48px"></th>
-                            <th>Tag</th>
-                            <th>Qty</th>
-                            <th>Asset</th>
-                            <th>Value</th>
-                            <th>Gain/Loss</th>
-                            <th>Account</th>
-                            <th>Description</th>
+                            <th data-sort="tag">Tag</th>
+                            <th data-sort="quantity">Qty</th>
+                            <th data-sort="asset">Asset</th>
+                            <th data-sort="value">Value</th>
+                            <th data-sort="gain">Gain/Loss</th>
+                            <th data-sort="account">Account</th>
                         </tr>
                     </thead>
                     <tbody id="events-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="table-section" id="taxyears-section" style="display:none">
+            <div class="taxyears-content">
+                <div class="tax-year-panel-header">
+                    <span class="panel-label">Gain / Loss by Tax Year</span>
+                    <span class="panel-hint">click a year to filter</span>
+                </div>
+                <div class="tax-year-chart" id="tax-year-chart"></div>
+                <table class="data-table" id="taxyears-table">
+                    <thead>
+                        <tr>
+                            <th>Tax Year</th>
+                            <th>Disposals</th>
+                            <th>Proceeds</th>
+                            <th>Costs</th>
+                            <th>Gain/Loss</th>
+                            <th>Income</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taxyears-body"></tbody>
                 </table>
             </div>
         </section>
