@@ -44,6 +44,10 @@ pub enum TransactionError {
     InvalidPrice(String),
     #[error("invalid datetime: {0}")]
     InvalidDatetime(String),
+    #[error("quantity must be positive for {asset}: {id}")]
+    NonPositiveQuantity { id: String, asset: String },
+    #[error("fee amount cannot be negative: {id}")]
+    NegativeFeeAmount { id: String },
     #[error("undefined asset symbol: {symbol}")]
     UndefinedAsset { symbol: String },
     #[error("duplicate asset symbol: {symbol}")]

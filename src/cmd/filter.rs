@@ -149,9 +149,37 @@ impl EventFilter {
         events.iter().filter(|e| self.matches_event(e)).collect()
     }
 
-    /// Tax year used for rate lookups in stable summary JSON.
-    pub fn rate_year(&self) -> TaxYear {
-        self.from.map_or(TaxYear(2025), TaxYear::from_date)
+    /// Human-readable label for the active date range, e.g. "All Years",
+    /// "2024/25" (when the bounds exactly span a tax year), or an explicit
+    /// date range.
+    pub fn scope_label(&self) -> String {
+        let date_str = |d: NaiveDate| d.format("%Y-%m-%d").to_string();
+        match (self.from, self.to) {
+            (None, None) => "All Years".to_string(),
+            (Some(from), Some(to)) => {
+                let tax_year = TaxYear::from_date(from);
+                if from == tax_year.start_date() && to == tax_year.end_date() {
+                    tax_year.display()
+                } else {
+                    format!("{} to {}", date_str(from), date_str(to))
+                }
+            }
+            (Some(from), None) => format!("From {}", date_str(from)),
+            (None, Some(to)) => format!("Up to {}", date_str(to)),
+        }
+    }
+
+    /// Tax year used for AEA/rate lookups in the summary.
+    ///
+    /// Prefers the filter bounds (`--year` sets `from`), then the latest
+    /// filtered event, then today's date.
+    pub fn rate_year(&self, events: &[&TaxableEvent]) -> TaxYear {
+        let date = self
+            .from
+            .or(self.to)
+            .or_else(|| events.iter().map(|e| e.date()).max())
+            .unwrap_or_else(|| chrono::Local::now().date_naive());
+        TaxYear::from_date(date)
     }
 }
 
@@ -307,6 +335,45 @@ mod tests {
     fn invalid_date_format() {
         let err = parse_date("2024/06/01", "--from").unwrap_err().to_string();
         assert!(err.contains("YYYY-MM-DD"));
+    }
+
+    #[test]
+    fn rate_year_prefers_from_bound() {
+        let filter = EventFilter {
+            from: Some(NaiveDate::from_ymd_opt(2023, 4, 6).unwrap()),
+            to: Some(NaiveDate::from_ymd_opt(2025, 4, 5).unwrap()),
+            asset: None,
+            event_kind: None,
+        };
+        let event = make_event("2024-12-01", EventType::Disposal, "BTC");
+        assert_eq!(filter.rate_year(&[&event]), TaxYear(2024));
+    }
+
+    #[test]
+    fn rate_year_falls_back_to_to_bound() {
+        let filter = EventFilter {
+            from: None,
+            to: Some(NaiveDate::from_ymd_opt(2023, 1, 1).unwrap()),
+            asset: None,
+            event_kind: None,
+        };
+        assert_eq!(filter.rate_year(&[]), TaxYear(2023));
+    }
+
+    #[test]
+    fn rate_year_falls_back_to_latest_event() {
+        let filter = EventFilter {
+            from: None,
+            to: None,
+            asset: None,
+            event_kind: None,
+        };
+        let events = [
+            make_event("2023-06-01", EventType::Acquisition, "BTC"),
+            make_event("2024-12-01", EventType::Disposal, "BTC"),
+        ];
+        let refs: Vec<&TaxableEvent> = events.iter().collect();
+        assert_eq!(filter.rate_year(&refs), TaxYear(2025));
     }
 
     #[test]

@@ -17,7 +17,9 @@ fn serialize_quantity<S: Serializer>(qty: &Decimal, serializer: S) -> Result<S::
 }
 
 fn serialize_decimal_2dp<S: Serializer>(d: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&format!("{:.2}", d))
+    // `{:.2}` alone truncates Decimal values rather than rounding.
+    let rounded = d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
+    serializer.serialize_str(&format!("{:.2}", rounded))
 }
 
 /// Snapshot of a single pool at a point in time (for daily history)
@@ -309,155 +311,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
                 }
             }
             EventType::Disposal => {
-                let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
-
-                let mut remaining_to_match = event.quantity;
-                let mut total_allowable_cost = Decimal::ZERO;
-                let mut same_day_match: Option<(Decimal, Decimal)> = None;
-                let mut bnb_matches: Vec<(NaiveDate, Decimal, Decimal)> = Vec::new();
-                let mut pool_match: Option<(Decimal, Decimal)> = None;
-
-                // 1. Same-day rule: match with same-day acquisitions.
-                // See HMRC CG51560 for the ordering of identification rules.
-                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-                let key = (event.date(), event.asset.clone());
-                if let Some(tracker) = acquisitions.get_mut(&key) {
-                    if tracker.same_day_remaining > Decimal::ZERO {
-                        let match_qty = remaining_to_match.min(tracker.same_day_remaining);
-                        let cost = tracker.cost_for_qty(match_qty);
-                        total_allowable_cost += cost;
-                        same_day_match = Some((match_qty, cost));
-                        remaining_to_match -= match_qty;
-                        tracker.same_day_remaining -= match_qty;
-                        log::debug!(
-                            "Same-day match: {} {} at cost {}",
-                            match_qty,
-                            event.asset,
-                            cost
-                        );
-                    }
-                }
-
-                // 2. Bed & breakfast rule: match with acquisitions in next 30 days.
-                // See HMRC CG51560 for the 30-day rule and worked examples.
-                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-                if remaining_to_match > Decimal::ZERO {
-                    for days_ahead in 1..=30 {
-                        if remaining_to_match <= Decimal::ZERO {
-                            break;
-                        }
-                        let future_date = event.date() + Duration::days(days_ahead);
-                        let future_key = (future_date, event.asset.clone());
-                        if let Some(tracker) = acquisitions.get_mut(&future_key) {
-                            if tracker.bnb_remaining > Decimal::ZERO {
-                                let match_qty = remaining_to_match.min(tracker.bnb_remaining);
-                                let cost = tracker.cost_for_qty(match_qty);
-                                total_allowable_cost += cost;
-                                bnb_matches.push((future_date, match_qty, cost));
-                                remaining_to_match -= match_qty;
-                                tracker.bnb_remaining -= match_qty;
-                                log::debug!(
-                                    "B&B match: {} {} on {} at cost {}",
-                                    match_qty,
-                                    event.asset,
-                                    future_date,
-                                    cost
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // 3. Section 104 pool: match remaining from pool.
-                // See HMRC CG51560 for the final matching step.
-                // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-                // Track pool state before removal for insufficient pool warning
-                let pool_qty_before = pools
-                    .get(&event.asset)
-                    .map(|p| p.quantity)
-                    .unwrap_or(Decimal::ZERO);
-                let insufficient_pool =
-                    remaining_to_match > Decimal::ZERO && remaining_to_match > pool_qty_before;
-
-                if remaining_to_match > Decimal::ZERO {
-                    let pool = pools
-                        .entry(event.asset.clone())
-                        .or_insert_with(|| Pool::new(event.asset.clone()));
-                    let pool_cost = pool.remove(remaining_to_match);
-                    total_allowable_cost += pool_cost;
-                    pool_match = Some((remaining_to_match, pool_cost));
-                    log::debug!(
-                        "Pool match: {} {} at cost {}",
-                        remaining_to_match,
-                        event.asset,
-                        pool_cost
-                    );
-                }
-
-                // No gain/no loss: deemed proceeds = allowable cost + fees
-                let (proceeds, gain) = if event.tag == Tag::NoGainNoLoss {
-                    (total_allowable_cost + fees, Decimal::ZERO)
-                } else {
-                    (
-                        event.value_gbp,
-                        event.value_gbp - total_allowable_cost - fees,
-                    )
-                };
-
-                // Build matching components for detailed reporting
-                let mut matching_components = Vec::new();
-                if let Some((qty, cost)) = same_day_match {
-                    matching_components.push(MatchingComponent {
-                        rule: MatchingRule::SameDay,
-                        quantity: qty,
-                        cost,
-                        matched_date: Some(event.date()),
-                    });
-                }
-                for (date, qty, cost) in &bnb_matches {
-                    matching_components.push(MatchingComponent {
-                        rule: MatchingRule::BedAndBreakfast,
-                        quantity: *qty,
-                        cost: *cost,
-                        matched_date: Some(*date),
-                    });
-                }
-                if let Some((qty, cost)) = pool_match {
-                    matching_components.push(MatchingComponent {
-                        rule: MatchingRule::Pool,
-                        quantity: qty,
-                        cost,
-                        matched_date: None,
-                    });
-                }
-
-                // Build warnings
-                let mut warnings = Vec::new();
-                if event.tag == Tag::Unclassified {
-                    warnings.push(Warning::UnclassifiedEvent);
-                }
-                // Insufficient cost basis: pool didn't have enough to cover the disposal
-                // This includes the "no cost basis" case when available = 0
-                if insufficient_pool {
-                    warnings.push(Warning::InsufficientCostBasis {
-                        available: pool_qty_before,
-                        required: remaining_to_match,
-                    });
-                }
-
-                disposals.push(DisposalRecord {
-                    id: event.id,
-                    datetime: event.datetime,
-                    date: event.date(),
-                    asset: event.asset.clone(),
-                    quantity: event.quantity,
-                    proceeds_gbp: proceeds,
-                    allowable_cost_gbp: total_allowable_cost,
-                    fees_gbp: fees,
-                    gain_gbp: gain,
-                    matching_components,
-                    warnings,
-                });
+                disposals.push(process_disposal(event, &mut acquisitions, &mut pools));
             }
         }
 
@@ -485,6 +339,165 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
         disposals,
         pool_history,
     })
+}
+
+/// Apply the HMRC identification rules (same-day, then B&B, then Section 104
+/// pool) to a single disposal, consuming matched acquisition quantities and
+/// pool cost, and produce its disposal record.
+fn process_disposal(
+    event: &TaxableEvent,
+    acquisitions: &mut HashMap<AcqKey, AcquisitionTracker>,
+    pools: &mut HashMap<String, Pool>,
+) -> DisposalRecord {
+    let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
+
+    let mut remaining_to_match = event.quantity;
+    let mut total_allowable_cost = Decimal::ZERO;
+    let mut same_day_match: Option<(Decimal, Decimal)> = None;
+    let mut bnb_matches: Vec<(NaiveDate, Decimal, Decimal)> = Vec::new();
+    let mut pool_match: Option<(Decimal, Decimal)> = None;
+
+    // 1. Same-day rule: match with same-day acquisitions.
+    // See HMRC CG51560 for the ordering of identification rules.
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+    let key = (event.date(), event.asset.clone());
+    if let Some(tracker) = acquisitions.get_mut(&key) {
+        if tracker.same_day_remaining > Decimal::ZERO {
+            let match_qty = remaining_to_match.min(tracker.same_day_remaining);
+            let cost = tracker.cost_for_qty(match_qty);
+            total_allowable_cost += cost;
+            same_day_match = Some((match_qty, cost));
+            remaining_to_match -= match_qty;
+            tracker.same_day_remaining -= match_qty;
+            log::debug!(
+                "Same-day match: {} {} at cost {}",
+                match_qty,
+                event.asset,
+                cost
+            );
+        }
+    }
+
+    // 2. Bed & breakfast rule: match with acquisitions in next 30 days.
+    // See HMRC CG51560 for the 30-day rule and worked examples.
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+    if remaining_to_match > Decimal::ZERO {
+        for days_ahead in 1..=30 {
+            if remaining_to_match <= Decimal::ZERO {
+                break;
+            }
+            let future_date = event.date() + Duration::days(days_ahead);
+            let future_key = (future_date, event.asset.clone());
+            if let Some(tracker) = acquisitions.get_mut(&future_key) {
+                if tracker.bnb_remaining > Decimal::ZERO {
+                    let match_qty = remaining_to_match.min(tracker.bnb_remaining);
+                    let cost = tracker.cost_for_qty(match_qty);
+                    total_allowable_cost += cost;
+                    bnb_matches.push((future_date, match_qty, cost));
+                    remaining_to_match -= match_qty;
+                    tracker.bnb_remaining -= match_qty;
+                    log::debug!(
+                        "B&B match: {} {} on {} at cost {}",
+                        match_qty,
+                        event.asset,
+                        future_date,
+                        cost
+                    );
+                }
+            }
+        }
+    }
+
+    // 3. Section 104 pool: match remaining from pool.
+    // See HMRC CG51560 for the final matching step.
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
+    // Track pool state before removal for insufficient pool warning
+    let pool_qty_before = pools
+        .get(&event.asset)
+        .map(|p| p.quantity)
+        .unwrap_or(Decimal::ZERO);
+    let insufficient_pool =
+        remaining_to_match > Decimal::ZERO && remaining_to_match > pool_qty_before;
+
+    if remaining_to_match > Decimal::ZERO {
+        let pool = pools
+            .entry(event.asset.clone())
+            .or_insert_with(|| Pool::new(event.asset.clone()));
+        let pool_cost = pool.remove(remaining_to_match);
+        total_allowable_cost += pool_cost;
+        pool_match = Some((remaining_to_match, pool_cost));
+        log::debug!(
+            "Pool match: {} {} at cost {}",
+            remaining_to_match,
+            event.asset,
+            pool_cost
+        );
+    }
+
+    // No gain/no loss: deemed proceeds = allowable cost + fees
+    let (proceeds, gain) = if event.tag == Tag::NoGainNoLoss {
+        (total_allowable_cost + fees, Decimal::ZERO)
+    } else {
+        (
+            event.value_gbp,
+            event.value_gbp - total_allowable_cost - fees,
+        )
+    };
+
+    // Build matching components for detailed reporting
+    let mut matching_components = Vec::new();
+    if let Some((qty, cost)) = same_day_match {
+        matching_components.push(MatchingComponent {
+            rule: MatchingRule::SameDay,
+            quantity: qty,
+            cost,
+            matched_date: Some(event.date()),
+        });
+    }
+    for (date, qty, cost) in &bnb_matches {
+        matching_components.push(MatchingComponent {
+            rule: MatchingRule::BedAndBreakfast,
+            quantity: *qty,
+            cost: *cost,
+            matched_date: Some(*date),
+        });
+    }
+    if let Some((qty, cost)) = pool_match {
+        matching_components.push(MatchingComponent {
+            rule: MatchingRule::Pool,
+            quantity: qty,
+            cost,
+            matched_date: None,
+        });
+    }
+
+    // Build warnings
+    let mut warnings = Vec::new();
+    if event.tag == Tag::Unclassified {
+        warnings.push(Warning::UnclassifiedEvent);
+    }
+    // Insufficient cost basis: pool didn't have enough to cover the disposal
+    // This includes the "no cost basis" case when available = 0
+    if insufficient_pool {
+        warnings.push(Warning::InsufficientCostBasis {
+            available: pool_qty_before,
+            required: remaining_to_match,
+        });
+    }
+
+    DisposalRecord {
+        id: event.id,
+        datetime: event.datetime,
+        date: event.date(),
+        asset: event.asset.clone(),
+        quantity: event.quantity,
+        proceeds_gbp: proceeds,
+        allowable_cost_gbp: total_allowable_cost,
+        fees_gbp: fees,
+        gain_gbp: gain,
+        matching_components,
+        warnings,
+    }
 }
 
 fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapshot {
@@ -561,7 +574,13 @@ impl<'a> DisposalIndex<'a> {
 
     pub fn find(&mut self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
         if let Some(&idx) = self.by_id.get(&event.id) {
-            return self.report.disposals.get(idx);
+            let disposal = self.report.disposals.get(idx)?;
+            // Consume the matching key entry so a later key-based fallback
+            // cannot return this disposal a second time.
+            if let Some(queue) = self.by_key.get_mut(&DisposalKey::from_disposal(disposal)) {
+                queue.retain(|&i| i != idx);
+            }
+            return Some(disposal);
         }
 
         let key = DisposalKey::from_event(event);

@@ -37,12 +37,12 @@ impl TaxYear {
         }
     }
 
-    #[cfg(test)]
+    /// First day of the tax year (6 April).
     pub fn start_date(&self) -> NaiveDate {
         NaiveDate::from_ymd_opt(self.0 - 1, 4, 6).unwrap()
     }
 
-    #[cfg(test)]
+    /// Last day of the tax year (5 April).
     pub fn end_date(&self) -> NaiveDate {
         NaiveDate::from_ymd_opt(self.0, 4, 5).unwrap()
     }
@@ -59,32 +59,52 @@ impl TaxYear {
             2025.. => dec!(3000),
             // 2023/24: £6,000
             2024 => dec!(6000),
-            // 2022/23: £12,300
-            2023 => dec!(12300),
-            // Earlier years: £12,300 (approximate)
-            _ => dec!(12300),
+            // 2020/21 to 2022/23: £12,300
+            2021..=2023 => dec!(12300),
+            // 2019/20: £12,000
+            2020 => dec!(12000),
+            // 2018/19: £11,700
+            2019 => dec!(11700),
+            // 2017/18: £11,300
+            2018 => dec!(11300),
+            // 2015/16 and 2016/17: £11,100
+            2016..=2017 => dec!(11100),
+            // 2014/15: £11,000 (approximate for earlier years)
+            _ => dec!(11000),
         }
     }
 
-    /// Get CGT basic rate for this tax year
+    /// Get CGT basic rate for this tax year (non-residential-property assets,
+    /// e.g. crypto and shares).
+    ///
+    /// Rates changed mid-year on 30 October 2024 (10% -> 18%); for 2024/25
+    /// this returns the post-change rate, so gains realised before that date
+    /// are over-estimated.
     pub fn cgt_basic_rate(&self) -> Decimal {
         match self.0 {
-            // From April 2025: 18%
-            2026.. => dec!(0.18),
-            // 2024/25 and earlier: 10% for most assets, but crypto/property is 18%
-            // For crypto specifically, it's been 18% since 2016
+            // 2024/25 onwards: 18% (from 30 October 2024)
+            2025.. => dec!(0.18),
+            // 2016/17 to 2023/24: 10%
+            2017..=2024 => dec!(0.10),
+            // 2010/11 to 2015/16: 18% (approximate for earlier years)
             _ => dec!(0.18),
         }
     }
 
-    /// Get CGT higher rate for this tax year
+    /// Get CGT higher rate for this tax year (non-residential-property assets,
+    /// e.g. crypto and shares).
+    ///
+    /// Rates changed mid-year on 30 October 2024 (20% -> 24%); for 2024/25
+    /// this returns the post-change rate, so gains realised before that date
+    /// are over-estimated.
     pub fn cgt_higher_rate(&self) -> Decimal {
         match self.0 {
-            // From April 2025: 24%
-            2026.. => dec!(0.24),
-            // 2024/25 and earlier: 20% for most assets, but crypto/property is 24%
-            // For crypto specifically, it's been 20% (now 24%)
-            _ => dec!(0.20),
+            // 2024/25 onwards: 24% (from 30 October 2024)
+            2025.. => dec!(0.24),
+            // 2016/17 to 2023/24: 20%
+            2017..=2024 => dec!(0.20),
+            // 2010/11 to 2015/16: 28% (approximate for earlier years)
+            _ => dec!(0.28),
         }
     }
 
@@ -162,24 +182,46 @@ mod tests {
 
     #[test]
     fn cgt_exempt_amounts() {
-        assert_eq!(TaxYear(2025).cgt_exempt_amount(), dec!(3000));
         assert_eq!(TaxYear(2026).cgt_exempt_amount(), dec!(3000));
+        assert_eq!(TaxYear(2025).cgt_exempt_amount(), dec!(3000));
         assert_eq!(TaxYear(2024).cgt_exempt_amount(), dec!(6000));
         assert_eq!(TaxYear(2023).cgt_exempt_amount(), dec!(12300));
+        assert_eq!(TaxYear(2021).cgt_exempt_amount(), dec!(12300));
+        assert_eq!(TaxYear(2020).cgt_exempt_amount(), dec!(12000));
+        assert_eq!(TaxYear(2019).cgt_exempt_amount(), dec!(11700));
+        assert_eq!(TaxYear(2018).cgt_exempt_amount(), dec!(11300));
+        assert_eq!(TaxYear(2017).cgt_exempt_amount(), dec!(11100));
+        assert_eq!(TaxYear(2016).cgt_exempt_amount(), dec!(11100));
+        assert_eq!(TaxYear(2015).cgt_exempt_amount(), dec!(11000));
     }
 
     #[test]
-    fn cgt_rates_2025_26_onwards() {
-        let ty = TaxYear(2026);
-        assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
-        assert_eq!(ty.cgt_higher_rate(), dec!(0.24));
+    fn cgt_rates_2024_25_onwards() {
+        // 18%/24% apply from 30 October 2024; the tool uses them for the
+        // whole of 2024/25.
+        for year in [2025, 2026, 2027] {
+            let ty = TaxYear(year);
+            assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
+            assert_eq!(ty.cgt_higher_rate(), dec!(0.24));
+        }
     }
 
     #[test]
-    fn cgt_rates_2024_25() {
-        let ty = TaxYear(2025);
-        assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
-        assert_eq!(ty.cgt_higher_rate(), dec!(0.20));
+    fn cgt_rates_2016_17_to_2023_24() {
+        for year in [2017, 2020, 2024] {
+            let ty = TaxYear(year);
+            assert_eq!(ty.cgt_basic_rate(), dec!(0.10));
+            assert_eq!(ty.cgt_higher_rate(), dec!(0.20));
+        }
+    }
+
+    #[test]
+    fn cgt_rates_2010_11_to_2015_16() {
+        for year in [2011, 2016] {
+            let ty = TaxYear(year);
+            assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
+            assert_eq!(ty.cgt_higher_rate(), dec!(0.28));
+        }
     }
 
     #[test]

@@ -1,10 +1,10 @@
 //! Summary command - aggregated totals and tax calculations.
 
 use super::filter::{EventFilter, FilterArgs};
+use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
 use crate::core::{
-    calculate_cgt, CgtReport, CgtSummary, DisposalRecord, EventType, Tag, TaxBand, TaxYear,
-    TaxableEvent,
+    calculate_cgt, CgtReport, CgtSummary, DisposalRecord, EventType, Tag, TaxBand, TaxableEvent,
 };
 use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
@@ -113,7 +113,7 @@ impl SummaryCommand {
         filter: &EventFilter,
         band: TaxBand,
     ) {
-        let scope = summary_scope_label(filter);
+        let scope = filter.scope_label();
         let band_str = band_label(band);
 
         println!();
@@ -129,7 +129,7 @@ impl SummaryCommand {
         }
         println!();
 
-        let rate_year = filter.rate_year();
+        let rate_year = filter.rate_year(events);
 
         let disposals = filtered_classified_disposals(cgt_report, filter);
         let total_proceeds: Decimal = disposals.iter().map(|d| d.proceeds_gbp).sum();
@@ -210,7 +210,7 @@ impl SummaryCommand {
         filter: &EventFilter,
         band: TaxBand,
     ) -> anyhow::Result<()> {
-        let rate_year = filter.rate_year();
+        let rate_year = filter.rate_year(events);
         let cgt_rate = match band {
             TaxBand::Basic => rate_year.cgt_basic_rate(),
             TaxBand::Higher | TaxBand::Additional => rate_year.cgt_higher_rate(),
@@ -292,30 +292,6 @@ fn income_totals(events: &[&TaxableEvent]) -> (Decimal, Decimal, Decimal) {
     (income, dividend, interest)
 }
 
-fn summary_scope_label(filter: &EventFilter) -> String {
-    match (filter.from, filter.to) {
-        (None, None) => "All Years".to_string(),
-        (Some(from), Some(to)) => {
-            let tax_year = TaxYear::from_date(from);
-            if from == tax_year_start(tax_year) && to == tax_year_end(tax_year) {
-                tax_year.display()
-            } else {
-                format!("{} to {}", date_str(from), date_str(to))
-            }
-        }
-        (Some(from), None) => format!("From {}", date_str(from)),
-        (None, Some(to)) => format!("Up to {}", date_str(to)),
-    }
-}
-
-fn tax_year_start(year: TaxYear) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year.0 - 1, 4, 6).unwrap()
-}
-
-fn tax_year_end(year: TaxYear) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year.0, 4, 5).unwrap()
-}
-
 fn band_label(band: TaxBand) -> &'static str {
     match band {
         TaxBand::Basic => "basic",
@@ -325,7 +301,10 @@ fn band_label(band: TaxBand) -> &'static str {
 }
 
 fn decimal_to_f64(d: Decimal) -> f64 {
-    format!("{:.2}", d).parse::<f64>().unwrap_or(0.0)
+    use rust_decimal::prelude::ToPrimitive;
+    d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+        .to_f64()
+        .unwrap_or(0.0)
 }
 
 fn decimal_pct(rate: Decimal) -> u8 {
@@ -336,16 +315,4 @@ fn decimal_pct(rate: Decimal) -> u8 {
 
 fn date_str(date: NaiveDate) -> String {
     date.format("%Y-%m-%d").to_string()
-}
-
-fn format_gbp(amount: Decimal) -> String {
-    format!("£{:.2}", amount)
-}
-
-fn format_gbp_signed(amount: Decimal) -> String {
-    if amount < Decimal::ZERO {
-        format!("-£{:.2}", amount.abs())
-    } else {
-        format!("£{:.2}", amount)
-    }
 }

@@ -335,7 +335,7 @@ pub(super) fn build_report_data(
                                         Some(detail.tax_year.clone()),
                                         Some(d.asset.clone()),
                                         Some(detail.quantity.to_string()),
-                                        Some(format!("{:.2}", detail.value_gbp)),
+                                        Some(gbp_2dp(detail.value_gbp)),
                                         Some(detail.description.clone()),
                                     )
                                 } else {
@@ -348,7 +348,7 @@ pub(super) fn build_report_data(
                             MatchingComponentRow {
                                 rule: format_matching_rule(&mc.rule),
                                 quantity: mc.quantity.to_string(),
-                                cost_gbp: format!("{:.2}", mc.cost),
+                                cost_gbp: gbp_2dp(mc.cost),
                                 matched_date: mc
                                     .matched_date
                                     .map(|d| d.format("%Y-%m-%d").to_string()),
@@ -368,9 +368,9 @@ pub(super) fn build_report_data(
                         d.warnings.iter().map(format_event_warning).collect();
 
                     CgtDetails {
-                        proceeds_gbp: format!("{:.2}", d.proceeds_gbp),
-                        cost_gbp: format!("{:.2}", d.allowable_cost_gbp),
-                        gain_gbp: format!("{:.2}", d.gain_gbp),
+                        proceeds_gbp: gbp_2dp(d.proceeds_gbp),
+                        cost_gbp: gbp_2dp(d.allowable_cost_gbp),
+                        gain_gbp: gbp_2dp(d.gain_gbp),
                         rule,
                         matching_components,
                         warnings,
@@ -380,20 +380,17 @@ pub(super) fn build_report_data(
                 None
             };
 
-            let fees_gbp = e
-                .fee_gbp
-                .map(|fee| format!("{:.2}", fee))
-                .unwrap_or_default();
+            let fees_gbp = e.fee_gbp.map(gbp_2dp).unwrap_or_default();
 
             let (value_gbp, value_gbp_note) = if e.tag == Tag::NoGainNoLoss {
                 (
                     cgt.as_ref()
                         .map(|details| details.cost_gbp.clone())
-                        .unwrap_or_else(|| format!("{:.2}", e.value_gbp)),
+                        .unwrap_or_else(|| gbp_2dp(e.value_gbp)),
                     Some(NGNL_VALUE_NOTE.to_string()),
                 )
             } else {
-                (format!("{:.2}", e.value_gbp), None)
+                (gbp_2dp(e.value_gbp), None)
             };
 
             Ok(EventRow {
@@ -610,18 +607,18 @@ pub(super) fn build_report_data(
         events: event_rows,
         warnings,
         summary: Summary {
-            total_proceeds: format!("{:.2}", total_proceeds),
-            total_costs: format!("{:.2}", total_costs),
-            total_gain: format!("{:.2}", total_gain),
-            total_proceeds_with_unclassified: format!("{:.2}", total_proceeds_with_unclassified),
-            total_costs_with_unclassified: format!("{:.2}", total_costs_with_unclassified),
-            total_gain_with_unclassified: format!("{:.2}", total_gain_with_unclassified),
+            total_proceeds: gbp_2dp(total_proceeds),
+            total_costs: gbp_2dp(total_costs),
+            total_gain: gbp_2dp(total_gain),
+            total_proceeds_with_unclassified: gbp_2dp(total_proceeds_with_unclassified),
+            total_costs_with_unclassified: gbp_2dp(total_costs_with_unclassified),
+            total_gain_with_unclassified: gbp_2dp(total_gain_with_unclassified),
             crypto,
             stocks,
             fiat,
-            total_income: format!("{:.2}", total_income),
-            total_dividend_income: format!("{:.2}", total_dividend_income),
-            total_interest_income: format!("{:.2}", total_interest_income),
+            total_income: gbp_2dp(total_income),
+            total_dividend_income: gbp_2dp(total_dividend_income),
+            total_interest_income: gbp_2dp(total_interest_income),
             event_count: filtered_events.len(),
             disposal_count,
             income_count,
@@ -655,10 +652,19 @@ fn sum_disposals_by_class(
             },
         );
     AssetClassTotals {
-        proceeds: format!("{:.2}", proceeds),
-        costs: format!("{:.2}", costs),
-        gain: format!("{:.2}", gain),
+        proceeds: gbp_2dp(proceeds),
+        costs: gbp_2dp(costs),
+        gain: gbp_2dp(gain),
     }
+}
+
+/// Render a GBP amount as a plain 2dp string, rounding half away from zero.
+/// `{:.2}` alone truncates `Decimal` values rather than rounding.
+fn gbp_2dp(d: Decimal) -> String {
+    format!(
+        "{:.2}",
+        d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+    )
 }
 
 fn format_event_type(event_type: EventType, tag: Tag) -> String {

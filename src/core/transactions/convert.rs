@@ -26,12 +26,9 @@ impl Transaction {
             ..
         } = self;
 
-        let mut event_index = 1usize;
-        let mut next_event_id = || {
-            let event_id = event_index;
-            event_index += 1;
-            event_id
-        };
+        // Event ids are assigned globally by `transactions_to_events` after
+        // all transactions are converted and sorted.
+        const UNASSIGNED_ID: usize = 0;
 
         match details {
             TransactionType::Trade { sold, bought } => {
@@ -86,7 +83,7 @@ impl Transaction {
 
                 if has_disposal {
                     events.push(TaxableEvent {
-                        id: next_event_id(),
+                        id: UNASSIGNED_ID,
                         source_transaction_id: id.clone(),
                         account: account.clone(),
                         event_type: EventType::Disposal,
@@ -104,7 +101,7 @@ impl Transaction {
                 if has_acquisition {
                     let acquisition_fee = if !has_disposal { fee_gbp } else { None };
                     events.push(TaxableEvent {
-                        id: next_event_id(),
+                        id: UNASSIGNED_ID,
                         source_transaction_id: id.clone(),
                         account: account.clone(),
                         event_type: EventType::Acquisition,
@@ -185,7 +182,7 @@ impl Transaction {
                     };
 
                     return Ok(vec![TaxableEvent {
-                        id: next_event_id(),
+                        id: UNASSIGNED_ID,
                         source_transaction_id: id.clone(),
                         account: account.clone(),
                         event_type: EventType::Acquisition,
@@ -236,7 +233,7 @@ impl Transaction {
                     amount.asset
                 );
                 Ok(vec![TaxableEvent {
-                    id: next_event_id(),
+                    id: UNASSIGNED_ID,
                     source_transaction_id: id.clone(),
                     account: account.clone(),
                     event_type: EventType::Acquisition,
@@ -292,7 +289,7 @@ impl Transaction {
                     };
 
                     return Ok(vec![TaxableEvent {
-                        id: next_event_id(),
+                        id: UNASSIGNED_ID,
                         source_transaction_id: id.clone(),
                         account: account.clone(),
                         event_type: EventType::Disposal,
@@ -343,7 +340,7 @@ impl Transaction {
                     amount.asset
                 );
                 Ok(vec![TaxableEvent {
-                    id: next_event_id(),
+                    id: UNASSIGNED_ID,
                     source_transaction_id: id.clone(),
                     account: account.clone(),
                     event_type: EventType::Disposal,

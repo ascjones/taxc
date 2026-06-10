@@ -1,4 +1,5 @@
 pub mod filter;
+pub mod format;
 pub mod pools;
 pub mod report;
 pub mod schema;

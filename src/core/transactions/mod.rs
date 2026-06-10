@@ -41,7 +41,7 @@ pub struct ConversionOptions {
 }
 
 use normalize::{normalize_assets, normalize_transactions};
-use validate::{validate_assets, validate_links};
+use validate::{validate_amounts, validate_assets, validate_links};
 
 /// Read transactions from JSON
 pub fn read_transactions_json<R: Read>(
@@ -63,6 +63,7 @@ pub fn transactions_to_events(
     registry: &AssetRegistry,
     options: ConversionOptions,
 ) -> Result<Vec<TaxableEvent>, TransactionError> {
+    validate_amounts(transactions)?;
     validate_links(transactions)?;
 
     let mut events = Vec::new();

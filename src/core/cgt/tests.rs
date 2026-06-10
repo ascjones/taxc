@@ -1157,6 +1157,37 @@ fn disposal_index_finds_ngnl_by_key_fallback() {
     assert_eq!(found.unwrap().gain_gbp, dec!(0));
 }
 
+#[test]
+fn disposal_index_id_hit_consumes_key_fallback_entry() {
+    // Two disposals share the same (datetime, asset, quantity) key.
+    let events = vec![
+        acq("2024-01-01", "XYZ", dec!(100), dec!(1000)),
+        TaxableEvent {
+            id: 2,
+            ..disp("2024-06-15", "XYZ", dec!(10), dec!(200))
+        },
+        TaxableEvent {
+            id: 3,
+            ..disp("2024-06-15", "XYZ", dec!(10), dec!(500))
+        },
+    ];
+
+    let report = calculate_cgt(events.clone()).unwrap();
+    assert_eq!(report.disposals.len(), 2);
+
+    let mut index = DisposalIndex::new(&report);
+
+    // First lookup hits by id and must also consume the key-queue entry.
+    let by_id = index.find(&events[2]).expect("found by id");
+    assert_eq!(by_id.id, 3);
+
+    // A key-based fallback lookup must not return the same disposal again.
+    let mut lookup = disp("2024-06-15", "XYZ", dec!(10), dec!(200));
+    lookup.id = 9999;
+    let by_key = index.find(&lookup).expect("found by key fallback");
+    assert_eq!(by_key.id, 2, "id hit must not be returned again via key");
+}
+
 // === CgtSummary: gain netting, AEA, and tax estimation ===
 
 #[test]

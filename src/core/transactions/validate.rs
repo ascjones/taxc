@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use rust_decimal::Decimal;
+
 use super::error::TransactionError;
 use super::normalize::{is_gbp, normalize_currency};
 use super::valuation::Valuation;
-use super::{Asset, AssetRegistry, Transaction, TransactionType};
+use super::{Amount, Asset, AssetRegistry, Transaction, TransactionType};
 use crate::core::events::{AssetClass, Tag};
 use crate::core::price::Price;
 
@@ -87,6 +89,40 @@ fn validate_symbol(registry: &AssetRegistry, symbol: &str) -> Result<(), Transac
     Err(TransactionError::UndefinedAsset {
         symbol: symbol.to_string(),
     })
+}
+
+/// Reject zero/negative quantities and negative fee amounts.
+pub(super) fn validate_amounts(transactions: &[Transaction]) -> Result<(), TransactionError> {
+    fn check_positive(id: &str, amount: &Amount) -> Result<(), TransactionError> {
+        if amount.quantity <= Decimal::ZERO {
+            return Err(TransactionError::NonPositiveQuantity {
+                id: id.to_string(),
+                asset: amount.asset.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    for tx in transactions {
+        match &tx.details {
+            TransactionType::Trade { sold, bought } => {
+                check_positive(&tx.id, sold)?;
+                check_positive(&tx.id, bought)?;
+            }
+            TransactionType::Deposit { amount, .. }
+            | TransactionType::Withdrawal { amount, .. } => {
+                check_positive(&tx.id, amount)?;
+            }
+        }
+
+        if let Some(fee) = &tx.fee {
+            if fee.amount < Decimal::ZERO {
+                return Err(TransactionError::NegativeFeeAmount { id: tx.id.clone() });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub(super) fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> {

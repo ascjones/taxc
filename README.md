@@ -45,6 +45,8 @@ JSON with top-level `assets` and `transactions` fields. Run `taxc schema input` 
 
 Three transaction types: **Trade** (asset swap via `sold`/`bought`), **Deposit** (asset received), **Withdrawal** (asset sent). Transactions can be tagged for tax classification (income types, gifts, transfers, no gain/no loss).
 
+All quantities must be positive and fee amounts non-negative; transactions violating this are rejected with an error.
+
 ### Example
 
 ```json
@@ -95,8 +97,21 @@ CGT calculations implement the HMRC share matching rules in order:
 
 ## Tax Years Supported
 
-- CGT annual exempt amounts and rates for 2024/25 onwards
-- Income tax rates for basic, higher, and additional rate taxpayers
+CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypto and shares):
+
+| Tax years           | Annual exempt amount | Basic rate | Higher rate |
+| ------------------- | -------------------- | ---------- | ----------- |
+| 2024/25 onwards     | £3,000               | 18%        | 24%         |
+| 2023/24             | £6,000               | 10%        | 20%         |
+| 2016/17 – 2022/23   | £11,100 – £12,300    | 10%        | 20%         |
+| 2010/11 – 2015/16   | £11,000 – £11,100    | 18%        | 28%         |
+
+> **Note:** CGT rates changed mid-year on 30 October 2024 (10%/20% → 18%/24%).
+> Estimates for 2024/25 use the post-change rates throughout, so gains realised
+> before that date are over-estimated. Exempt amounts and rates for 2014/15 and
+> earlier are approximate.
+
+Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% rates for basic, higher, and additional rate taxpayers.
 
 ## Development
 

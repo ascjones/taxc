@@ -1,11 +1,11 @@
 //! Pools command - pool balances over time
 
 use super::filter::{EventFilter, FilterArgs};
+use super::format::{format_gbp, format_quantity};
 use super::read_events;
 use crate::core::{
-    calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, TaxYear, YearEndSnapshot,
+    calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, YearEndSnapshot,
 };
-use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -93,7 +93,7 @@ impl PoolsCommand {
     }
 
     fn print_year_end(&self, snapshots: &[YearEndSnapshotView], filter: &EventFilter) {
-        let scope = pool_scope_label(filter);
+        let scope = filter.scope_label();
         if snapshots.is_empty() {
             println!("No pool balances found matching filters ({})", scope);
             return;
@@ -229,10 +229,7 @@ fn filter_year_end_snapshots(
 ) -> Vec<YearEndSnapshotView> {
     snapshots
         .iter()
-        .filter(|snapshot| {
-            let snapshot_date = NaiveDate::from_ymd_opt(snapshot.tax_year.0, 4, 5).unwrap();
-            filter.matches_date(snapshot_date)
-        })
+        .filter(|snapshot| filter.matches_date(snapshot.tax_year.end_date()))
         .map(|snapshot| YearEndSnapshotView {
             tax_year: snapshot.tax_year.display(),
             pools: snapshot
@@ -251,38 +248,10 @@ fn filter_year_end_snapshots(
         .collect()
 }
 
-fn pool_scope_label(filter: &EventFilter) -> String {
-    match (filter.from, filter.to) {
-        (None, None) => "All Years".to_string(),
-        (Some(from), Some(to)) => {
-            let tax_year = TaxYear::from_date(from);
-            let start = NaiveDate::from_ymd_opt(tax_year.0 - 1, 4, 6).unwrap();
-            let end = NaiveDate::from_ymd_opt(tax_year.0, 4, 5).unwrap();
-            if from == start && to == end {
-                tax_year.display()
-            } else {
-                format!("{} to {}", from.format("%Y-%m-%d"), to.format("%Y-%m-%d"))
-            }
-        }
-        (Some(from), None) => format!("From {}", from.format("%Y-%m-%d")),
-        (None, Some(to)) => format!("Up to {}", to.format("%Y-%m-%d")),
-    }
-}
-
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
     if quantity.is_zero() {
         Decimal::ZERO
     } else {
         (cost_gbp / quantity).round_dp(2)
     }
-}
-
-fn format_gbp(amount: Decimal) -> String {
-    format!("£{:.2}", amount)
-}
-
-fn format_quantity(qty: Decimal) -> String {
-    let s = format!("{:.8}", qty);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
 }

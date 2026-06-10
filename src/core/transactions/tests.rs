@@ -1617,3 +1617,83 @@ fn serde_round_trip_valuation_none() {
     let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
     assert_eq!(round_tripped.valuation, None);
 }
+
+#[test]
+fn trade_with_zero_sold_quantity_errors() {
+    let tx = trade_tx("bad-qty", ("BTC", dec!(0)), ("GBP", dec!(1000)));
+    let err = convert_all(&[tx]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::NonPositiveQuantity {
+            id: "bad-qty".to_string(),
+            asset: "BTC".to_string(),
+        }
+    );
+}
+
+#[test]
+fn trade_with_negative_bought_quantity_errors() {
+    let tx = trade_tx("bad-qty", ("GBP", dec!(1000)), ("BTC", dec!(-0.5)));
+    let err = convert_all(&[tx]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::NonPositiveQuantity {
+            id: "bad-qty".to_string(),
+            asset: "BTC".to_string(),
+        }
+    );
+}
+
+#[test]
+fn deposit_with_zero_quantity_errors() {
+    let tx = deposit_tx("bad-qty", "ETH", dec!(0));
+    let err = convert_all(&[tx]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::NonPositiveQuantity {
+            id: "bad-qty".to_string(),
+            asset: "ETH".to_string(),
+        }
+    );
+}
+
+#[test]
+fn withdrawal_with_negative_quantity_errors() {
+    let tx = withdrawal_tx("bad-qty", "ETH", dec!(-1));
+    let err = convert_all(&[tx]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::NonPositiveQuantity {
+            id: "bad-qty".to_string(),
+            asset: "ETH".to_string(),
+        }
+    );
+}
+
+#[test]
+fn negative_fee_amount_errors() {
+    let tx = trade_tx("bad-fee", ("GBP", dec!(1000)), ("BTC", dec!(0.05))).with_fee(Fee {
+        asset: "GBP".to_string(),
+        amount: dec!(-5),
+        price: None,
+    });
+    let err = convert_all(&[tx]).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::NegativeFeeAmount {
+            id: "bad-fee".to_string(),
+        }
+    );
+}
+
+#[test]
+fn zero_fee_amount_is_allowed() {
+    let tx = trade_tx("zero-fee", ("GBP", dec!(1000)), ("BTC", dec!(0.05))).with_fee(Fee {
+        asset: "GBP".to_string(),
+        amount: dec!(0),
+        price: None,
+    });
+    let events = convert_all(&[tx]).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].fee_gbp, Some(dec!(0)));
+}
