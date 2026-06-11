@@ -531,3 +531,42 @@ fn pools_non_daily_date_filter_behavior_is_explicit() {
         "expected empty snapshots for future range"
     );
 }
+
+/// Defense-in-depth: the grouped warnings JSON shape, exercised end-to-end
+/// through the compiled binary. Disposal-level cgt objects must not carry a
+/// warnings key (removed in favour of event-level and top-level warnings).
+#[test]
+fn report_json_warnings_grouped_with_no_cgt_warnings_key() {
+    let output = run_taxc(&[
+        "report",
+        "tests/data/insufficient_cost_basis.json",
+        "--json",
+    ]);
+
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
+
+    let warnings = json["warnings"].as_array().expect("Missing warnings array");
+    assert_eq!(warnings.len(), 1, "expected one grouped warning record");
+    assert_eq!(
+        warnings[0]["warning"]["type"], "InsufficientCostBasis",
+        "warning must be a type-tagged object"
+    );
+    assert_eq!(warnings[0]["related_event_ids"][0], 1);
+    assert_eq!(warnings[0]["source_transaction_ids"][0], "tx-001");
+
+    let events = json["events"].as_array().expect("Missing events array");
+    let disposal = events
+        .iter()
+        .find(|e| e["event_type"] == "Disposal")
+        .expect("expected a disposal event");
+    assert!(
+        disposal["cgt"].get("warnings").is_none(),
+        "cgt objects must not contain a warnings key"
+    );
+    assert!(
+        disposal["warnings"].is_array(),
+        "event-level structured warnings must be present"
+    );
+}

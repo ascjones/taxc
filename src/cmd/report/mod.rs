@@ -170,8 +170,6 @@ pub struct CgtDetails {
     pub gain_gbp: String,
     pub rule: String,
     pub matching_components: Vec<MatchingComponentRow>,
-    /// Warnings for this disposal (e.g., "Unclassified", "NoCostBasis", "InsufficientPool")
-    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -363,17 +361,12 @@ pub(super) fn build_report_data(
                         })
                         .collect();
 
-                    // Convert warnings to display strings
-                    let warnings: Vec<String> =
-                        d.warnings.iter().map(format_event_warning).collect();
-
                     CgtDetails {
                         proceeds_gbp: gbp_2dp(d.proceeds_gbp),
                         cost_gbp: gbp_2dp(d.allowable_cost_gbp),
                         gain_gbp: gbp_2dp(d.gain_gbp),
                         rule,
                         matching_components,
-                        warnings,
                     }
                 })
             } else {
@@ -418,21 +411,7 @@ pub(super) fn build_report_data(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let warnings: Vec<WarningRecord> = event_rows
-        .iter()
-        .flat_map(|event| {
-            event.warnings.iter().map(move |warning| {
-                let source_transaction_ids = vec![event.source_transaction_id.clone()];
-                let related_event_ids = vec![event.id];
-
-                WarningRecord {
-                    warning: warning.clone(),
-                    source_transaction_ids,
-                    related_event_ids,
-                }
-            })
-        })
-        .collect();
+    let warnings = group_warnings(&event_rows);
 
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events
@@ -680,6 +659,39 @@ fn format_asset_class(ac: &AssetClass) -> String {
     .to_string()
 }
 
+/// Group event warnings into one record per distinct warning value, ordered
+/// by first affected event with the warning value as tie-breaker (one event
+/// can carry both an Unclassified and an InsufficientCostBasis warning).
+/// Transaction and event ids are unique per warning value upstream, so the
+/// accumulated id lists need no dedup.
+fn group_warnings(event_rows: &[EventRow]) -> Vec<WarningRecord> {
+    let mut groups: HashMap<&Warning, (Vec<String>, Vec<usize>)> = HashMap::new();
+    for event in event_rows {
+        for warning in &event.warnings {
+            let entry = groups.entry(warning).or_default();
+            entry.0.push(event.source_transaction_id.clone());
+            entry.1.push(event.id);
+        }
+    }
+    let mut warnings: Vec<WarningRecord> = groups
+        .into_iter()
+        .map(
+            |(warning, (source_transaction_ids, related_event_ids))| WarningRecord {
+                warning: warning.clone(),
+                source_transaction_ids,
+                related_event_ids,
+            },
+        )
+        .collect();
+    warnings.sort_by_key(|w| {
+        (
+            w.related_event_ids.first().copied(),
+            format!("{:?}", w.warning),
+        )
+    });
+    warnings
+}
+
 fn format_matching_rule(rule: &MatchingRule) -> String {
     match rule {
         MatchingRule::SameDay => "Same-Day",
@@ -687,22 +699,6 @@ fn format_matching_rule(rule: &MatchingRule) -> String {
         MatchingRule::Pool => "Pool",
     }
     .to_string()
-}
-
-fn format_event_warning(warning: &Warning) -> String {
-    match warning {
-        Warning::UnclassifiedEvent => "Unclassified".to_string(),
-        Warning::InsufficientCostBasis {
-            available,
-            required,
-        } => {
-            if available.is_zero() {
-                "NoCostBasis".to_string()
-            } else {
-                format!("InsufficientCostBasis({}/{})", available, required)
-            }
-        }
-    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,16 @@
+{
+  "assets": [
+    { "symbol": "BTC", "asset_class": "Crypto" }
+  ],
+  "transactions": [
+    {
+      "id": "tx-001",
+      "datetime": "2024-06-15T09:00:00+00:00",
+      "account": "kraken",
+      "description": "Sell without cost basis",
+      "type": "Trade",
+      "sold": { "asset": "BTC", "quantity": 1 },
+      "bought": { "asset": "GBP", "quantity": 25000 }
+    }
+  ]
+}

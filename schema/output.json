@@ -73,13 +73,6 @@
         },
         "rule": {
           "type": "string"
-        },
-        "warnings": {
-          "description": "Warnings for this disposal (e.g., \"Unclassified\", \"NoCostBasis\", \"InsufficientPool\")",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       },
       "required": [
@@ -87,8 +80,7 @@
         "cost_gbp",
         "gain_gbp",
         "rule",
-        "matching_components",
-        "warnings"
+        "matching_components"
       ]
     },
     "EventRow": {
