@@ -185,6 +185,63 @@ fn warning_records_grouped_by_value_and_ordered_by_first_event() {
 }
 
 #[test]
+fn warning_records_distinct_insufficient_cost_basis_values_stay_separate() {
+    let events = vec![
+        TaxableEvent {
+            id: 1,
+            source_transaction_id: "tx-1".to_string(),
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+        },
+        TaxableEvent {
+            id: 2,
+            source_transaction_id: "tx-2".to_string(),
+            ..disp("2024-07-01", "BTC", dec!(2), dec!(50000))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(
+        data.warnings.len(),
+        2,
+        "warnings with different field values must not merge"
+    );
+    assert!(data
+        .warnings
+        .iter()
+        .all(|w| matches!(w.warning, Warning::InsufficientCostBasis { .. })));
+    assert_eq!(data.warnings[0].related_event_ids, vec![1]);
+    assert_eq!(data.warnings[1].related_event_ids, vec![2]);
+}
+
+#[test]
+fn warning_records_same_first_event_tie_breaks_deterministically() {
+    // One unclassified disposal with no pool carries both warning values, so
+    // both grouped records share first related event id 1 and ordering falls
+    // to the warning-value tie-breaker.
+    let events = vec![TaxableEvent {
+        id: 1,
+        source_transaction_id: "tx-1".to_string(),
+        tag: Tag::Unclassified,
+        ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+    }];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(data.warnings.len(), 2);
+    assert!(matches!(
+        data.warnings[0].warning,
+        Warning::InsufficientCostBasis { .. }
+    ));
+    assert!(matches!(
+        data.warnings[1].warning,
+        Warning::UnclassifiedEvent
+    ));
+}
+
+#[test]
 fn summary_includes_dividend_and_interest_totals() {
     let events = vec![
         TaxableEvent {

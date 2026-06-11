@@ -411,29 +411,7 @@ pub(super) fn build_report_data(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let mut warning_map: HashMap<Warning, (Vec<String>, Vec<usize>)> = HashMap::new();
-    for event in &event_rows {
-        for warning in &event.warnings {
-            let entry = warning_map.entry(warning.clone()).or_default();
-            if !entry.0.contains(&event.source_transaction_id) {
-                entry.0.push(event.source_transaction_id.clone());
-            }
-            if !entry.1.contains(&event.id) {
-                entry.1.push(event.id);
-            }
-        }
-    }
-    let mut warnings: Vec<WarningRecord> = warning_map
-        .into_iter()
-        .map(
-            |(warning, (source_transaction_ids, related_event_ids))| WarningRecord {
-                warning,
-                source_transaction_ids,
-                related_event_ids,
-            },
-        )
-        .collect();
-    warnings.sort_by_key(|w| w.related_event_ids.first().copied());
+    let warnings = group_warnings(&event_rows);
 
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events
@@ -679,6 +657,39 @@ fn format_asset_class(ac: &AssetClass) -> String {
         AssetClass::Fiat => "Fiat",
     }
     .to_string()
+}
+
+/// Group event warnings into one record per distinct warning value, ordered
+/// by first affected event with the warning value as tie-breaker (one event
+/// can carry both an Unclassified and an InsufficientCostBasis warning).
+/// Transaction and event ids are unique per warning value upstream, so the
+/// accumulated id lists need no dedup.
+fn group_warnings(event_rows: &[EventRow]) -> Vec<WarningRecord> {
+    let mut groups: HashMap<&Warning, (Vec<String>, Vec<usize>)> = HashMap::new();
+    for event in event_rows {
+        for warning in &event.warnings {
+            let entry = groups.entry(warning).or_default();
+            entry.0.push(event.source_transaction_id.clone());
+            entry.1.push(event.id);
+        }
+    }
+    let mut warnings: Vec<WarningRecord> = groups
+        .into_iter()
+        .map(
+            |(warning, (source_transaction_ids, related_event_ids))| WarningRecord {
+                warning: warning.clone(),
+                source_transaction_ids,
+                related_event_ids,
+            },
+        )
+        .collect();
+    warnings.sort_by_key(|w| {
+        (
+            w.related_event_ids.first().copied(),
+            format!("{:?}", w.warning),
+        )
+    });
+    warnings
 }
 
 fn format_matching_rule(rule: &MatchingRule) -> String {
