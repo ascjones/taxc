@@ -423,7 +423,7 @@ pub(super) fn build_report_data(
             }
         }
     }
-    let warnings: Vec<WarningRecord> = warning_map
+    let mut warnings: Vec<WarningRecord> = warning_map
         .into_iter()
         .map(
             |(warning, (source_transaction_ids, related_event_ids))| WarningRecord {
@@ -433,6 +433,7 @@ pub(super) fn build_report_data(
             },
         )
         .collect();
+    warnings.sort_by_key(|w| w.related_event_ids.first().copied());
 
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events

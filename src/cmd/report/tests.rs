@@ -136,6 +136,55 @@ fn warning_records_link_source_transaction_and_event_ids() {
 }
 
 #[test]
+fn warning_records_grouped_by_value_and_ordered_by_first_event() {
+    let events = vec![
+        TaxableEvent {
+            id: 1,
+            source_transaction_id: "tx-1".to_string(),
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
+        },
+        TaxableEvent {
+            id: 2,
+            source_transaction_id: "tx-2".to_string(),
+            ..acq("2024-05-01", "ETH", dec!(2), dec!(2000))
+        },
+        TaxableEvent {
+            id: 3,
+            source_transaction_id: "tx-3".to_string(),
+            tag: Tag::Unclassified,
+            ..disp("2024-06-02", "ETH", dec!(1), dec!(1500))
+        },
+        TaxableEvent {
+            id: 4,
+            source_transaction_id: "tx-4".to_string(),
+            tag: Tag::Unclassified,
+            ..disp("2024-06-03", "ETH", dec!(1), dec!(1500))
+        },
+    ];
+
+    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
+
+    assert_eq!(
+        data.warnings.len(),
+        2,
+        "equal warnings should share a record"
+    );
+    assert!(matches!(
+        data.warnings[0].warning,
+        Warning::InsufficientCostBasis { .. }
+    ));
+    assert!(matches!(
+        data.warnings[1].warning,
+        Warning::UnclassifiedEvent
+    ));
+
+    let unclassified = &data.warnings[1];
+    assert_eq!(unclassified.source_transaction_ids, vec!["tx-3", "tx-4"]);
+    assert_eq!(unclassified.related_event_ids, vec![3, 4]);
+}
+
+#[test]
 fn summary_includes_dividend_and_interest_totals() {
     let events = vec![
         TaxableEvent {
