@@ -6,12 +6,20 @@ on:
   pull_request:
     branches: [ master ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   fmt:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v5
     - name: Check formatting
@@ -19,16 +27,30 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
     - uses: actions/checkout@v5
+    - uses: Swatinem/rust-cache@v2
     - name: Clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --locked -- -D warnings
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v5
-    - name: Build
-      run: cargo build --verbose
+    - uses: Swatinem/rust-cache@v2
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --locked --verbose
+
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v5
+    - uses: Swatinem/rust-cache@v2
+    - name: Check schemas are up to date
+      run: |
+        cargo run --locked -- schema input > schema/input.json
+        cargo run --locked -- schema output > schema/output.json
+        git diff --exit-code schema/
