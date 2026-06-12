@@ -4,6 +4,7 @@
    ============================================ */
 
 :root {
+    color-scheme: dark;
     --bg-base: #080b12;
     --bg-surface: #0d1117;
     --bg-elevated: #151b28;
@@ -54,34 +55,54 @@
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
+html { scrollbar-color: var(--border) var(--bg-base); }
+
 body {
     font-family: var(--font-body);
     background: var(--bg-base);
     color: var(--text-primary);
     line-height: 1.5;
     min-height: 100vh;
+    font-variant-numeric: tabular-nums;
     background-image:
         radial-gradient(ellipse at 15% 50%, rgba(88, 166, 255, 0.015) 0%, transparent 50%),
         radial-gradient(ellipse at 85% 20%, rgba(188, 140, 255, 0.01) 0%, transparent 50%);
 }
 
+button { font-family: var(--font-body); }
+
+:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+
 /* ---- Topbar ---- */
+/* Sticky so filters and context stay reachable while scrolling long tables. */
 .topbar {
-    background: var(--bg-surface);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
-    padding: 1.25rem 2rem;
+    padding: 0.75rem 2rem;
 }
 
 .topbar-inner {
     max-width: 1600px;
     margin: 0 auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
 }
 
 .brand {
     display: flex;
     align-items: baseline;
     gap: 0.75rem;
-    margin-bottom: 1.25rem;
+    margin-right: auto;
 }
 
 .brand h1 {
@@ -90,6 +111,17 @@ body {
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.02em;
+}
+
+.brand h1::after {
+    content: '_';
+    color: var(--accent);
+    animation: cursorPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes cursorPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.15; }
 }
 
 .brand .subtitle {
@@ -101,29 +133,9 @@ body {
 /* ---- Filters ---- */
 .filter-bar {
     display: flex;
-    flex-direction: column;
-    gap: 0.875rem;
-}
-
-.filter-section {
-    display: flex;
+    align-items: center;
     flex-wrap: wrap;
-    gap: 1.25rem;
-    align-items: flex-end;
-}
-
-.filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-}
-
-.filter-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    gap: 0.5rem;
 }
 
 input[type="date"],
@@ -147,9 +159,8 @@ input[type="text"]:focus {
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
 }
 
-input[type="text"] { min-width: 160px; }
+input[type="text"] { min-width: 180px; }
 select { cursor: pointer; }
-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
 /* ---- Date range picker ---- */
 .date-range-wrapper {
@@ -344,13 +355,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
 
 /* ---- Filter dropdown buttons ---- */
-.filter-dropdown-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
-
 .filter-dd {
     position: relative;
 }
@@ -440,7 +444,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     padding: 0.375rem 0.875rem;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     color: var(--text-secondary);
     cursor: pointer;
     font-family: var(--font-body);
@@ -628,12 +632,25 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     position: absolute;
     left: 15%;
     right: 15%;
-    border-radius: 2px;
     min-height: 2px;
+    animation: barGrow 0.4s ease both;
 }
 
-.ty-bar.pos { background: linear-gradient(to top, rgba(63, 185, 80, 0.5), var(--gain)); }
-.ty-bar.neg { background: linear-gradient(to bottom, rgba(248, 81, 73, 0.5), var(--loss)); }
+.ty-bar.pos {
+    background: linear-gradient(to top, rgba(63, 185, 80, 0.5), var(--gain));
+    border-radius: 3px 3px 1px 1px;
+    transform-origin: bottom;
+}
+.ty-bar.neg {
+    background: linear-gradient(to bottom, rgba(248, 81, 73, 0.5), var(--loss));
+    border-radius: 1px 1px 3px 3px;
+    transform-origin: top;
+}
+
+@keyframes barGrow {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+}
 
 .ty-col.selected .ty-bar.pos,
 .ty-col:hover .ty-bar.pos { box-shadow: 0 0 12px -2px rgba(63, 185, 80, 0.5); }
@@ -770,7 +787,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 }
 
 /* The container is the vertical scroller so sticky headers engage; a plain
-   overflow-x container would break position: sticky. */
+   overflow-x container would break position: sticky. The offset leaves room
+   for the sticky topbar above a fully scrolled table. */
 .table-container {
     overflow: auto;
     max-height: calc(100vh - 7rem);
@@ -836,7 +854,15 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
     vertical-align: middle;
 }
 
-.data-table td.date-cell { white-space: nowrap; }
+.data-table td.date-cell {
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Zero amounts recede so meaningful figures stand out */
+.data-table td.dim-zero { color: var(--text-faint); }
 
 .data-table tbody tr { transition: background 0.1s; }
 .data-table tbody tr:hover:not(.expandable-row) { background: var(--bg-hover); }
@@ -1287,15 +1313,25 @@ tr[data-expandable]:hover .expand-chevron {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
     .metrics { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
-    .topbar { padding: 1rem; }
+    .topbar { padding: 0.75rem 1rem; }
     .dashboard-body { padding: 1rem; }
     .metrics { grid-template-columns: 1fr; }
-    .filter-section { flex-direction: column; align-items: stretch; }
+    .filter-bar { width: 100%; }
+    .filter-bar input[type="text"] { flex: 1; min-width: 120px; }
     .tax-year-chart { overflow-x: auto; }
 }

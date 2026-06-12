@@ -19,86 +19,74 @@ __CSS__
                 <span class="subtitle">UK Capital Gains Tax Report</span>
             </div>
             <div class="filter-bar">
-                <div class="filter-section">
-                    <div class="filter-group">
-                        <span class="filter-label">Date Range</span>
-                        <div class="date-range-wrapper">
-                            <button class="date-range-trigger" id="date-range-trigger" onclick="toggleDatePanel()">
-                                <span class="date-range-icon">&#x25f7;</span>
-                                <span class="date-range-label" id="date-range-label">All Data</span>
-                                <span class="date-range-caret">&#x25BE;</span>
-                            </button>
-                            <div class="date-panel" id="date-panel">
-                                <div class="date-panel-presets">
-                                    <button class="date-preset date-preset-all" data-preset="all">All data</button>
-                                    <div class="date-panel-divider"></div>
-                                    <div class="date-panel-section-label">Presets</div>
-                                    <button class="date-preset" data-preset="last-7d">Last 7 days</button>
-                                    <button class="date-preset" data-preset="last-30d">Last 30 days</button>
-                                    <button class="date-preset" data-preset="last-90d">Last 90 days</button>
-                                    <button class="date-preset" data-preset="mtd">Month to date</button>
-                                    <button class="date-preset" data-preset="last-month">Last month</button>
-                                    <button class="date-preset" data-preset="ytd">Year to date</button>
-                                    <button class="date-preset" data-preset="last-year">Last year</button>
-                                    <div class="date-panel-section-label">Tax Years</div>
-                                    <div class="date-preset-tax-years" id="date-preset-tax-years"></div>
-                                </div>
-                                <div class="date-panel-custom">
-                                    <div class="date-panel-section-label">Custom Range</div>
-                                    <div class="date-panel-field">
-                                        <label class="date-panel-field-label" for="date-from">From</label>
-                                        <input type="date" id="date-from" onchange="onCustomDateChange()">
-                                    </div>
-                                    <div class="date-panel-field">
-                                        <label class="date-panel-field-label" for="date-to">To</label>
-                                        <input type="date" id="date-to" onchange="onCustomDateChange()">
-                                    </div>
-                                </div>
+                <div class="date-range-wrapper">
+                    <button class="date-range-trigger" id="date-range-trigger" onclick="toggleDatePanel()">
+                        <span class="date-range-icon">&#x25f7;</span>
+                        <span class="date-range-label" id="date-range-label">All Data</span>
+                        <span class="date-range-caret">&#x25BE;</span>
+                    </button>
+                    <div class="date-panel" id="date-panel">
+                        <div class="date-panel-presets">
+                            <button class="date-preset date-preset-all" data-preset="all">All data</button>
+                            <div class="date-panel-divider"></div>
+                            <div class="date-panel-section-label">Presets</div>
+                            <button class="date-preset" data-preset="last-7d">Last 7 days</button>
+                            <button class="date-preset" data-preset="last-30d">Last 30 days</button>
+                            <button class="date-preset" data-preset="last-90d">Last 90 days</button>
+                            <button class="date-preset" data-preset="mtd">Month to date</button>
+                            <button class="date-preset" data-preset="last-month">Last month</button>
+                            <button class="date-preset" data-preset="ytd">Year to date</button>
+                            <button class="date-preset" data-preset="last-year">Last year</button>
+                            <div class="date-panel-section-label">Tax Years</div>
+                            <div class="date-preset-tax-years" id="date-preset-tax-years"></div>
+                        </div>
+                        <div class="date-panel-custom">
+                            <div class="date-panel-section-label">Custom Range</div>
+                            <div class="date-panel-field">
+                                <label class="date-panel-field-label" for="date-from">From</label>
+                                <input type="date" id="date-from" onchange="onCustomDateChange()">
+                            </div>
+                            <div class="date-panel-field">
+                                <label class="date-panel-field-label" for="date-to">To</label>
+                                <input type="date" id="date-to" onchange="onCustomDateChange()">
                             </div>
                         </div>
-                        <input type="hidden" id="tax-year" value="">
-                    </div>
-                    <div class="filter-group">
-                        <span class="filter-label">Asset</span>
-                        <input type="text" id="asset-search" placeholder="Search…" oninput="onAssetSearchInput()">
                     </div>
                 </div>
-                <div class="filter-section">
-                    <div class="filter-dropdown-bar">
-                        <div class="filter-dd" id="dd-type">
-                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-type')">Type <span class="filter-dd-caret">&#x25BE;</span></button>
-                            <div class="filter-dd-panel">
-                                <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
-                                <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
-                            </div>
-                        </div>
-                        <div class="filter-dd" id="dd-tag">
-                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-tag')">Tag <span class="filter-dd-caret">&#x25BE;</span></button>
-                            <div class="filter-dd-panel">
-                                <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
-                                <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> Staking</label>
-                                <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
-                                <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> Other</label>
-                                <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
-                                <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> Airdrop Inc</label>
-                                <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
-                                <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
-                                <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
-                                <label><input type="checkbox" id="tag-nogainnoloss" checked onchange="applyFilters()"> NGNL</label>
-                                <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
-                            </div>
-                        </div>
-                        <div class="filter-dd" id="dd-class">
-                            <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-class')">Class <span class="filter-dd-caret">&#x25BE;</span></button>
-                            <div class="filter-dd-panel">
-                                <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
-                                <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
-                                <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
-                            </div>
-                        </div>
-                        <button class="reset-btn" onclick="resetFilters()">Reset</button>
+                <input type="hidden" id="tax-year" value="">
+                <input type="text" id="asset-search" placeholder="Filter assets&hellip;" aria-label="Filter by asset" oninput="onAssetSearchInput()">
+                <div class="filter-dd" id="dd-type">
+                    <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-type')">Type <span class="filter-dd-caret">&#x25BE;</span></button>
+                    <div class="filter-dd-panel">
+                        <label><input type="checkbox" id="type-acquisition" checked onchange="applyFilters()"> Acquisition</label>
+                        <label><input type="checkbox" id="type-disposal" checked onchange="applyFilters()"> Disposal</label>
                     </div>
                 </div>
+                <div class="filter-dd" id="dd-tag">
+                    <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-tag')">Tag <span class="filter-dd-caret">&#x25BE;</span></button>
+                    <div class="filter-dd-panel">
+                        <label><input type="checkbox" id="tag-trade" checked onchange="applyFilters()"> Trade</label>
+                        <label><input type="checkbox" id="tag-stakingreward" checked onchange="applyFilters()"> Staking</label>
+                        <label><input type="checkbox" id="tag-salary" checked onchange="applyFilters()"> Salary</label>
+                        <label><input type="checkbox" id="tag-otherincome" checked onchange="applyFilters()"> Other</label>
+                        <label><input type="checkbox" id="tag-airdrop" checked onchange="applyFilters()"> Airdrop</label>
+                        <label><input type="checkbox" id="tag-airdropincome" checked onchange="applyFilters()"> Airdrop Inc</label>
+                        <label><input type="checkbox" id="tag-dividend" checked onchange="applyFilters()"> Dividend</label>
+                        <label><input type="checkbox" id="tag-interest" checked onchange="applyFilters()"> Interest</label>
+                        <label><input type="checkbox" id="tag-gift" checked onchange="applyFilters()"> Gift</label>
+                        <label><input type="checkbox" id="tag-nogainnoloss" checked onchange="applyFilters()"> NGNL</label>
+                        <label><input type="checkbox" id="tag-unclassified" checked onchange="applyFilters()"> Unclassified</label>
+                    </div>
+                </div>
+                <div class="filter-dd" id="dd-class">
+                    <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-class')">Class <span class="filter-dd-caret">&#x25BE;</span></button>
+                    <div class="filter-dd-panel">
+                        <label><input type="checkbox" id="class-crypto" checked onchange="applyFilters()"> Crypto</label>
+                        <label><input type="checkbox" id="class-stock" checked onchange="applyFilters()"> Stock</label>
+                        <label><input type="checkbox" id="class-fiat" checked onchange="applyFilters()"> Fiat</label>
+                    </div>
+                </div>
+                <button class="reset-btn" onclick="resetFilters()">Reset</button>
             </div>
         </div>
     </header>

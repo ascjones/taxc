@@ -26,6 +26,7 @@ const sortState = {
 // dominant cost when rendering tens of thousands of rows.
 const GBP_FORMAT = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
 const QTY_FORMAT = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 8 });
+const COUNT_FORMAT = new Intl.NumberFormat('en-GB');
 const DATETIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
     year: 'numeric',
     month: 'short',
@@ -38,6 +39,10 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 's
 function formatCurrency(value) {
     const num = parseFloat(value) || 0;
     return GBP_FORMAT.format(num);
+}
+
+function formatCount(value) {
+    return COUNT_FORMAT.format(value);
 }
 
 function formatCompactGbp(value) {
@@ -207,7 +212,7 @@ function switchTab(tab) {
     if (tab === 'transactions' && transactionsStale && lastFilters) {
         const filtered = filterTransactions(DATA.transactions || [], lastFilters);
         renderTransactionsTable(filtered);
-        document.getElementById('transactions-count').textContent = `(${filtered.length})`;
+        document.getElementById('transactions-count').textContent = `(${formatCount(filtered.length)})`;
         transactionsStale = false;
     }
 }
@@ -825,8 +830,8 @@ function applyFilters() {
 
     initialized = true;
 
-    document.getElementById('events-count').textContent = `(${filteredEvents.length})`;
-    document.getElementById('transactions-count').textContent = `(${filteredTransactions.length})`;
+    document.getElementById('events-count').textContent = `(${formatCount(filteredEvents.length)})`;
+    document.getElementById('transactions-count').textContent = `(${formatCount(filteredTransactions.length)})`;
     updateFilterDdStates();
 }
 
@@ -971,7 +976,7 @@ function updateSummary(events) {
 
     // Counts
     document.getElementById('summary-counts').textContent =
-        `${events.length} events · ${summary.disposalCount} disposals · ${summary.incomeCount} income`;
+        `${formatCount(events.length)} events · ${formatCount(summary.disposalCount)} disposals · ${formatCount(summary.incomeCount)} income`;
 
     // Warnings banner
     const warningsBanner = document.getElementById('warnings-banner');
@@ -986,19 +991,18 @@ function updateSummary(events) {
         warningsBanner.style.display = 'none';
     }
 
-    // Show "inc. unclassified" sub-values only if there are unclassified events
-    if (summary.unclassifiedCount > 0) {
-        document.getElementById('summary-proceeds-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalProceedsWithUnclassified)}`;
-        document.getElementById('summary-costs-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalCostsWithUnclassified)}`;
-        document.getElementById('summary-gain-inc').textContent =
-            `inc. unclassified: ${formatCurrency(summary.totalGainWithUnclassified)}`;
-    } else {
-        document.getElementById('summary-proceeds-inc').textContent = '';
-        document.getElementById('summary-costs-inc').textContent = '';
-        document.getElementById('summary-gain-inc').textContent = '';
-    }
+    // Show "inc. unclassified" sub-values only when unclassified events exist
+    // AND actually move the figure; an identical repeat is just noise.
+    const incLine = (withUnclassified, base) =>
+        summary.unclassifiedCount > 0 && Math.abs(withUnclassified - base) >= 0.005
+            ? `inc. unclassified: ${formatCurrency(withUnclassified)}`
+            : '';
+    document.getElementById('summary-proceeds-inc').textContent =
+        incLine(summary.totalProceedsWithUnclassified, summary.totalProceeds);
+    document.getElementById('summary-costs-inc').textContent =
+        incLine(summary.totalCostsWithUnclassified, summary.totalCosts);
+    document.getElementById('summary-gain-inc').textContent =
+        incLine(summary.totalGainWithUnclassified, summary.totalGain);
 }
 
 /* ---- Tax year chart ---- */
@@ -1058,15 +1062,16 @@ function renderTaxYearChart() {
 
     tbody.innerHTML = years.map(y => {
         const b = byYear.get(y);
-        const gainCls = b.gain < 0 ? 'loss-value' : 'gain-value';
+        const gainCls = b.disposals === 0 ? 'dim-zero' : b.gain < 0 ? 'loss-value' : 'gain-value';
         const sel = y === selected ? ' selected' : '';
+        const dim = (v) => v ? '' : ' class="dim-zero"';
         return `<tr class="ty-row${sel}" data-year="${escapeHtml(y)}">`
             + `<td>${escapeHtml(y)}</td>`
-            + `<td>${b.disposals}</td>`
-            + `<td>${formatCurrency(b.proceeds)}</td>`
-            + `<td>${formatCurrency(b.costs)}</td>`
+            + `<td${dim(b.disposals)}>${formatCount(b.disposals)}</td>`
+            + `<td${dim(b.proceeds)}>${formatCurrency(b.proceeds)}</td>`
+            + `<td${dim(b.costs)}>${formatCurrency(b.costs)}</td>`
             + `<td class="${gainCls}">${formatCurrency(b.gain)}</td>`
-            + `<td>${formatCurrency(b.income)}</td>`
+            + `<td${dim(b.income)}>${formatCurrency(b.income)}</td>`
             + `</tr>`;
     }).join('');
 }
