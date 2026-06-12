@@ -442,9 +442,8 @@ function filterTransactions(transactions, filters) {
         if (filters.dateTo && tx.datetime > filters.dateTo + 'T23:59:59') return false;
         if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
 
-        if (filters.assetSearch) {
-            const matchesAsset = tx.amounts.some(a => a.asset.toLowerCase().includes(filters.assetSearch));
-            if (!matchesAsset) return false;
+        if (filters.assets.size > 0 && !tx.amounts.some(a => filters.assets.has(a.asset))) {
+            return false;
         }
 
         const tag = (tx.tag || '').toLowerCase();
@@ -789,10 +788,166 @@ function collectCheckboxes(ddId, prefix) {
     return result;
 }
 
-let searchDebounce = null;
-function onAssetSearchInput() {
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(applyFilters, 150);
+/* ---- Asset filter (multi-select with autocomplete pills) ----
+   Typing only narrows the suggestion list; the (potentially expensive)
+   re-filter runs when an asset is added or removed. */
+
+// Assets with taxable events (Rust-computed summary.assets) plus assets that
+// appear in transaction amounts: GBP has no events of its own but its trades
+// are filterable on the transactions tab. Fee-only assets stay out — neither
+// table's filter matches them.
+const KNOWN_ASSETS = (() => {
+    const assets = new Set(DATA.summary.assets || []);
+    (DATA.transactions || []).forEach(tx => {
+        (tx.amounts || []).forEach(a => assets.add(a.asset));
+    });
+    return [...assets].sort();
+})();
+
+const selectedAssets = new Set();
+let suggestionIndex = -1;
+
+const MAX_SUGGESTIONS = 50;
+
+function assetSuggestionsFor(query) {
+    const q = query.trim().toLowerCase();
+    const candidates = KNOWN_ASSETS.filter(a => !selectedAssets.has(a));
+    if (!q) return candidates.slice(0, MAX_SUGGESTIONS);
+    const starts = [];
+    const contains = [];
+    candidates.forEach(a => {
+        const lower = a.toLowerCase();
+        if (lower.startsWith(q)) starts.push(a);
+        else if (lower.includes(q)) contains.push(a);
+    });
+    return starts.concat(contains).slice(0, MAX_SUGGESTIONS);
+}
+
+function renderAssetSuggestions() {
+    const input = document.getElementById('asset-search');
+    const panel = document.getElementById('asset-suggestions');
+    const matches = assetSuggestionsFor(input.value);
+    if (matches.length === 0) {
+        closeAssetSuggestions();
+        return;
+    }
+    suggestionIndex = Math.min(Math.max(suggestionIndex, 0), matches.length - 1);
+    panel.innerHTML = matches.map((a, i) =>
+        `<button type="button" class="asset-suggestion${i === suggestionIndex ? ' active' : ''}"`
+        + ` data-asset="${escapeHtml(a)}">${escapeHtml(a)}</button>`
+    ).join('');
+    panel.classList.add('open');
+}
+
+function closeAssetSuggestions() {
+    const panel = document.getElementById('asset-suggestions');
+    panel.classList.remove('open');
+    panel.innerHTML = '';
+    suggestionIndex = -1;
+}
+
+function renderAssetPills() {
+    const container = document.getElementById('asset-filter');
+    const input = document.getElementById('asset-search');
+    container.querySelectorAll('.asset-pill').forEach(p => p.remove());
+    selectedAssets.forEach(asset => {
+        const pill = document.createElement('span');
+        pill.className = 'asset-pill';
+        const label = document.createElement('span');
+        label.textContent = asset;
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'asset-pill-x';
+        x.dataset.asset = asset;
+        x.setAttribute('aria-label', `Remove ${asset} filter`);
+        x.textContent = '×';
+        pill.append(label, x);
+        container.insertBefore(pill, input);
+    });
+    input.placeholder = selectedAssets.size ? '' : 'Filter assets…';
+}
+
+function addAssetFilter(asset) {
+    if (!asset || selectedAssets.has(asset)) return;
+    selectedAssets.add(asset);
+    document.getElementById('asset-search').value = '';
+    renderAssetPills();
+    closeAssetSuggestions();
+    applyFiltersDeferred();
+}
+
+function removeAssetFilter(asset) {
+    if (!selectedAssets.delete(asset)) return;
+    renderAssetPills();
+    applyFiltersDeferred();
+}
+
+// Show the spinner and yield to the browser before running the synchronous
+// filter + render work; two rAFs guarantee the spinner paints first.
+function applyFiltersDeferred() {
+    const spinner = document.getElementById('filter-spinner');
+    spinner.classList.add('visible');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        try {
+            applyFilters();
+        } finally {
+            spinner.classList.remove('visible');
+        }
+    }));
+}
+
+function initAssetFilter() {
+    const container = document.getElementById('asset-filter');
+    const input = document.getElementById('asset-search');
+    const panel = document.getElementById('asset-suggestions');
+
+    container.addEventListener('click', e => {
+        const x = e.target.closest('.asset-pill-x');
+        if (x) {
+            removeAssetFilter(x.dataset.asset);
+            return;
+        }
+        if (e.target === container) input.focus();
+    });
+
+    input.addEventListener('input', () => {
+        suggestionIndex = 0;
+        renderAssetSuggestions();
+    });
+    input.addEventListener('focus', renderAssetSuggestions);
+    // Keep focus in the input while clicking a suggestion so blur never
+    // closes the panel before the click lands.
+    panel.addEventListener('mousedown', e => e.preventDefault());
+    panel.addEventListener('click', e => {
+        const item = e.target.closest('.asset-suggestion');
+        if (item) addAssetFilter(item.dataset.asset);
+    });
+    input.addEventListener('blur', closeAssetSuggestions);
+
+    input.addEventListener('keydown', e => {
+        const open = panel.classList.contains('open');
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!open) {
+                renderAssetSuggestions();
+                return;
+            }
+            const count = panel.querySelectorAll('.asset-suggestion').length;
+            if (count === 0) return;
+            suggestionIndex = (suggestionIndex + (e.key === 'ArrowDown' ? 1 : -1) + count) % count;
+            renderAssetSuggestions();
+            const active = panel.querySelector('.asset-suggestion.active');
+            if (active) active.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const active = panel.querySelector('.asset-suggestion.active');
+            if (open && active) addAssetFilter(active.dataset.asset);
+        } else if (e.key === 'Escape') {
+            closeAssetSuggestions();
+        } else if (e.key === 'Backspace' && input.value === '' && selectedAssets.size > 0) {
+            removeAssetFilter([...selectedAssets].pop());
+        }
+    });
 }
 
 function applyFilters() {
@@ -800,7 +955,7 @@ function applyFilters() {
         dateFrom: document.getElementById('date-from').value,
         dateTo: document.getElementById('date-to').value,
         taxYear: document.getElementById('tax-year').value,
-        assetSearch: document.getElementById('asset-search').value.toLowerCase(),
+        assets: selectedAssets,
         types: collectCheckboxes('dd-type', 'type-'),
         tags: collectCheckboxes('dd-tag', 'tag-'),
         classes: collectCheckboxes('dd-class', 'class-'),
@@ -840,7 +995,7 @@ function filterEvents(events, filters) {
         if (filters.dateFrom && e.datetime < filters.dateFrom) return false;
         if (filters.dateTo && e.datetime > filters.dateTo + 'T23:59:59') return false;
         if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
-        if (filters.assetSearch && !e.asset.toLowerCase().includes(filters.assetSearch)) return false;
+        if (filters.assets.size > 0 && !filters.assets.has(e.asset)) return false;
 
         const eventKind = (e.event_kind || '').toLowerCase();
         if (eventKind === 'acquisition' && !filters.types.acquisition) return false;
@@ -1095,7 +1250,10 @@ function resetFilters() {
     } else {
         selectPreset('all', true);
     }
+    selectedAssets.clear();
     document.getElementById('asset-search').value = '';
+    renderAssetPills();
+    closeAssetSuggestions();
     document.querySelectorAll('.filter-dd-panel input[type="checkbox"]').forEach(cb => { cb.checked = true; });
     applyFilters();
 }
@@ -1105,6 +1263,7 @@ function init() {
     initInfiniteScroll();
     initSorting();
     initTaxYearChart();
+    initAssetFilter();
     populateFilters();
 }
 

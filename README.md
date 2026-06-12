@@ -27,7 +27,7 @@ Aggregated CGT and income calculations. Use `-y 2025` for a tax year, or `--from
 
 ### `taxc report` - Tax Report
 
-Self-contained HTML report opened in your browser, with summary cards, interactive filtering, sortable columns, color-coded tags/rules, and a Tax Years view with a per-year gain/loss chart and breakdown table. Rows expand to a detail card with description, fees, warnings, and disposal matching details. Use `-o file.html` to save instead, or `--json` for structured data.
+Self-contained HTML report opened in your browser, with summary cards, interactive filtering (including a multi-asset autocomplete filter with removable pills), sortable columns, color-coded tags/rules, and a Tax Years view with a per-year gain/loss chart and breakdown table. Rows expand to a detail card with description, fees, warnings, and disposal matching details. Use `-o file.html` to save instead, or `--json` for structured data.
 
 ### `taxc pools` - Pool Balances
 

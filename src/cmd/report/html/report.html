@@ -54,7 +54,11 @@ __CSS__
                     </div>
                 </div>
                 <input type="hidden" id="tax-year" value="">
-                <input type="text" id="asset-search" placeholder="Filter assets&hellip;" aria-label="Filter by asset" oninput="onAssetSearchInput()">
+                <div class="asset-filter" id="asset-filter">
+                    <input type="text" id="asset-search" placeholder="Filter assets&hellip;" aria-label="Filter by asset" autocomplete="off">
+                    <div class="asset-suggestions" id="asset-suggestions"></div>
+                </div>
+                <span class="filter-spinner" id="filter-spinner" aria-hidden="true"></span>
                 <div class="filter-dd" id="dd-type">
                     <button class="filter-dd-trigger" onclick="toggleFilterDd('dd-type')">Type <span class="filter-dd-caret">&#x25BE;</span></button>
                     <div class="filter-dd-panel">

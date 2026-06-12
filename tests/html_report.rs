@@ -736,3 +736,140 @@ fn report_html_expand_works_after_filter_toggle() {
 
     let _ = fs::remove_file(out);
 }
+
+/// Poll until the transactions table shows the expected number of rows.
+/// Asset filter changes re-render asynchronously (a spinner frame is painted
+/// first), so tests must wait rather than assert immediately.
+fn wait_for_tx_row_count(tab: &headless_chrome::Tab, expected: u64) {
+    for _ in 0..50 {
+        let count = tab
+            .evaluate(
+                "document.querySelectorAll('#transactions-body .tx-row').length",
+                false,
+            )
+            .ok()
+            .and_then(|r| r.value.as_ref().and_then(|v| v.as_u64()));
+        if count == Some(expected) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("timed out waiting for {expected} transaction rows");
+}
+
+/// Asset filter: typing shows autocomplete suggestions without re-filtering,
+/// selecting a suggestion adds a pill that filters the tables, and removing
+/// the pill via its close button restores all rows.
+#[test]
+fn report_html_asset_filter_autocomplete_pills() {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::time::Duration;
+
+    let out = unique_tmp_file("report-html-asset-filter", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = run_taxc(&["report", "tests/data/two_assets.json", "--output", &out_str]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build launch options"),
+    )
+    .expect("Failed to launch browser");
+
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    wait_for_tx_row_count(&tab, 4);
+
+    // Type "bt" into the asset search: suggestions should appear, but the
+    // table must NOT re-filter on typing alone.
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var input = document.getElementById('asset-search');
+                var readSuggestions = function() {
+                    return Array.from(
+                        document.querySelectorAll('#asset-suggestions .asset-suggestion')
+                    ).map(function(el) { return el.dataset.asset; }).join(',');
+                };
+                input.focus();
+                input.dispatchEvent(new Event('focus', { bubbles: true }));
+                // Suggestions cover assets with taxable events plus assets in
+                // transaction amounts (GBP has no events but its trades are
+                // filterable on the transactions tab).
+                var all = readSuggestions();
+                if (all !== 'BTC,ETH,GBP')
+                    return 'expected suggestions [BTC,ETH,GBP] on focus, got [' + all + ']';
+                input.value = 'bt';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                var suggestions = readSuggestions();
+                if (suggestions !== 'BTC')
+                    return 'expected suggestions [BTC], got [' + suggestions + ']';
+                var rows = document.querySelectorAll('#transactions-body .tx-row').length;
+                if (rows !== 4)
+                    return 'typing alone should not filter; expected 4 rows, got ' + rows;
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to type into asset search");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Autocomplete suggestions failed: {}", msg);
+
+    // Select the BTC suggestion: a pill appears and tables filter to BTC.
+    tab.evaluate(
+        "document.querySelector('#asset-suggestions .asset-suggestion').click()",
+        false,
+    )
+    .expect("Failed to click suggestion");
+    wait_for_tx_row_count(&tab, 2);
+
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var pills = document.querySelectorAll('#asset-filter .asset-pill');
+                if (pills.length !== 1) return 'expected 1 pill, got ' + pills.length;
+                if (pills[0].textContent.indexOf('BTC') === -1)
+                    return 'pill should show BTC, got: ' + pills[0].textContent;
+                if (!pills[0].querySelector('.asset-pill-x'))
+                    return 'pill has no remove button';
+                if (document.getElementById('asset-search').value !== '')
+                    return 'input should be cleared after selecting a suggestion';
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to check pill");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Asset pill check failed: {}", msg);
+
+    // Remove the pill via its close button: all rows are restored.
+    tab.evaluate(
+        "document.querySelector('#asset-filter .asset-pill-x').click()",
+        false,
+    )
+    .expect("Failed to remove pill");
+    wait_for_tx_row_count(&tab, 4);
+
+    let _ = fs::remove_file(out);
+}
