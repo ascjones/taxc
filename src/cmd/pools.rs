@@ -11,8 +11,8 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use std::path::PathBuf;
 use tabled::{
+    builder::Builder,
     settings::{object::Rows, Alignment, Modify, Style},
-    Table, Tabled,
 };
 
 #[derive(Args, Debug)]
@@ -105,24 +105,25 @@ impl PoolsCommand {
 
         for snapshot in snapshots {
             println!("Tax Year {}", snapshot.tax_year);
-            let rows: Vec<YearEndRow> = snapshot
-                .pools
-                .iter()
-                .map(|p| YearEndRow {
-                    asset: p.asset.clone(),
-                    quantity: format_quantity(p.quantity),
-                    cost_gbp: format_gbp(p.cost_gbp),
-                    cost_basis: format_gbp(cost_basis(p.quantity, p.cost_gbp)),
-                })
-                .collect();
-
-            if rows.is_empty() {
+            if snapshot.pools.is_empty() {
                 println!("  (no pools)");
                 println!();
                 continue;
             }
 
-            let table = Table::new(rows)
+            let mut builder = Builder::with_capacity(snapshot.pools.len() + 1, 4);
+            builder.push_record(["Asset", "Quantity", "Cost (GBP)", "Cost Basis"]);
+            for pool in &snapshot.pools {
+                builder.push_record([
+                    pool.asset.clone(),
+                    format_quantity(pool.quantity),
+                    format_gbp(pool.cost_gbp),
+                    format_gbp(cost_basis(pool.quantity, pool.cost_gbp)),
+                ]);
+            }
+
+            let table = builder
+                .build()
                 .with(Style::rounded())
                 .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
                 .to_string();
@@ -137,23 +138,32 @@ impl PoolsCommand {
             return;
         }
 
-        let rows: Vec<DailyRow> = entries
-            .iter()
-            .map(|e| DailyRow {
-                date: e.date.format("%Y-%m-%d").to_string(),
-                asset: e.asset.clone(),
-                event: display_event_type(e.event_type, e.tag).to_string(),
-                quantity: format_quantity(e.quantity),
-                cost_gbp: format_gbp(e.cost_gbp),
-                cost_basis: format_gbp(cost_basis(e.quantity, e.cost_gbp)),
-            })
-            .collect();
-
         println!();
         println!("POOL HISTORY");
         println!();
 
-        let table = Table::new(rows)
+        let mut builder = Builder::with_capacity(entries.len() + 1, 6);
+        builder.push_record([
+            "Date",
+            "Asset",
+            "Event",
+            "Quantity",
+            "Cost (GBP)",
+            "Cost Basis",
+        ]);
+        for entry in entries {
+            builder.push_record([
+                entry.date.format("%Y-%m-%d").to_string(),
+                entry.asset.clone(),
+                display_event_type(entry.event_type, entry.tag).to_string(),
+                format_quantity(entry.quantity),
+                format_gbp(entry.cost_gbp),
+                format_gbp(cost_basis(entry.quantity, entry.cost_gbp)),
+            ]);
+        }
+
+        let table = builder
+            .build()
             .with(Style::rounded())
             .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
             .to_string();
@@ -177,34 +187,6 @@ impl PoolsCommand {
         println!("{}", serde_json::to_string_pretty(&output)?);
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Tabled)]
-struct YearEndRow {
-    #[tabled(rename = "Asset")]
-    asset: String,
-    #[tabled(rename = "Quantity")]
-    quantity: String,
-    #[tabled(rename = "Cost (GBP)")]
-    cost_gbp: String,
-    #[tabled(rename = "Cost Basis")]
-    cost_basis: String,
-}
-
-#[derive(Debug, Clone, Tabled)]
-struct DailyRow {
-    #[tabled(rename = "Date")]
-    date: String,
-    #[tabled(rename = "Asset")]
-    asset: String,
-    #[tabled(rename = "Event")]
-    event: String,
-    #[tabled(rename = "Quantity")]
-    quantity: String,
-    #[tabled(rename = "Cost (GBP)")]
-    cost_gbp: String,
-    #[tabled(rename = "Cost Basis")]
-    cost_basis: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
