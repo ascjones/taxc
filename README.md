@@ -25,7 +25,7 @@ taxc schema input
 
 Aggregated CGT and income calculations. Use `-y 2025` for a tax year, or `--from`/`--to` for a date range. Add `--json` for machine-readable output, `-t higher` for different tax bands.
 
-Salary income is included in the income tax estimate by default (correct for salary received gross, e.g. paid in crypto). Pass `--salary-paye` to assert salary was already taxed at source: it is still reported on its own line (and as `salary_income` in JSON) but excluded from the estimate.
+Salary is assumed to be PAYE-settled (already taxed at source) by default: it is reported on its own line (and as `salary_income` in JSON) but excluded from the income tax estimate. Pass `--salary-gross` if salary was received gross with no tax deducted (e.g. paid in crypto) to include it in the estimate.
 
 ### `taxc report` - Tax Report
 

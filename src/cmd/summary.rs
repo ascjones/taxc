@@ -31,10 +31,11 @@ pub struct SummaryCommand {
     #[arg(long)]
     json: bool,
 
-    /// Salary was already taxed at source (PAYE): report it separately and
-    /// exclude it from the estimated income tax.
+    /// Salary was received gross (no tax deducted at source): include it in
+    /// the estimated income tax. By default salary is assumed PAYE-settled,
+    /// so it is reported separately but not taxed again.
     #[arg(long)]
-    salary_paye: bool,
+    salary_gross: bool,
 
     /// Don't include unlinked deposits/withdrawals in calculations.
     #[arg(long)]
@@ -179,7 +180,8 @@ impl SummaryCommand {
 
         let income_rate = rate_year.income_rate(band);
         let totals = income_totals(events);
-        let income = totals.taxable_income(self.salary_paye);
+        let salary_paye = !self.salary_gross;
+        let income = totals.taxable_income(salary_paye);
         let income_tax = (income * income_rate).round_dp(2);
 
         println!("INCOME");
@@ -193,7 +195,7 @@ impl SummaryCommand {
         } else {
             println!("  Income: £0.00");
         }
-        if self.salary_paye {
+        if salary_paye {
             println!(
                 "  Salary (PAYE): {} (tax deducted at source)",
                 format_gbp(totals.salary)
@@ -239,7 +241,8 @@ impl SummaryCommand {
         let estimated_cgt = summary.estimated_cgt(cgt_rate);
 
         let totals = income_totals(events);
-        let income = totals.taxable_income(self.salary_paye);
+        let salary_paye = !self.salary_gross;
+        let income = totals.taxable_income(salary_paye);
         let estimated_income_tax = (income * income_rate).round_dp(2);
         let estimated_total_tax = estimated_cgt + estimated_income_tax;
 
@@ -263,7 +266,7 @@ impl SummaryCommand {
             estimated_cgt: decimal_to_f64(estimated_cgt),
             income: decimal_to_f64(income),
             salary_income: decimal_to_f64(totals.salary),
-            salary_paye: self.salary_paye,
+            salary_paye,
             dividend_income: decimal_to_f64(totals.dividend),
             interest_income: decimal_to_f64(totals.interest),
             income_rate_pct: decimal_pct(income_rate),
