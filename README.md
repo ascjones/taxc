@@ -25,6 +25,8 @@ taxc schema input
 
 Aggregated CGT and income calculations. Use `-y 2025` for a tax year, or `--from`/`--to` for a date range. Add `--json` for machine-readable output, `-t higher` for different tax bands.
 
+Salary income is included in the income tax estimate by default (correct for salary received gross, e.g. paid in crypto). Pass `--salary-paye` to assert salary was already taxed at source: it is still reported on its own line (and as `salary_income` in JSON) but excluded from the estimate.
+
 ### `taxc report` - Tax Report
 
 Self-contained HTML report opened in your browser, with summary cards, interactive filtering (including a multi-asset autocomplete filter with removable pills), sortable columns, color-coded tags/rules, and a Tax Years view with a per-year gain/loss chart and breakdown table. Rows expand to a detail card with description, fees, warnings, and disposal matching details. Use `-o file.html` to save instead, or `--json` for structured data.
@@ -43,7 +45,9 @@ All filtering commands share: `-y`/`--from`/`--to` (date), `-a` (asset), `--even
 
 JSON with top-level `assets` and `transactions` fields. Run `taxc schema input` for the full schema.
 
-Three transaction types: **Trade** (asset swap via `sold`/`bought`), **Deposit** (asset received), **Withdrawal** (asset sent). Transactions can be tagged for tax classification (income types, gifts, transfers, no gain/no loss).
+Three transaction types: **Trade** (asset swap via `sold`/`bought`), **Deposit** (asset received), **Withdrawal** (asset sent). Transactions can be tagged for tax classification (income types, cashback, gifts, transfers, no gain/no loss).
+
+Income tags (`Salary`, `OtherIncome`, `Dividend`, `Interest`, `StakingReward`, `AirdropIncome`) count toward the income tax estimate. `Cashback` is an ordinary acquisition at market value but is **not** income — HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97). GBP-denominated deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no valuation (the amount is the value); other assets require one to establish the market value.
 
 All quantities must be positive and fee amounts non-negative; transactions violating this are rejected with an error.
 

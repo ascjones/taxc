@@ -39,7 +39,7 @@ A transfer (typically between spouses) that is a Disposal for matching purposes 
 ## Classification & Status
 
 ### Tag
-The classification a user assigns to a Transaction (e.g. Trade, Staking Reward, Gift, Dividend, Interest, No Gain No Loss) that determines how its events are treated — whether they count as income, qualify for CGT, or transfer basis.
+The classification a user assigns to a Transaction (e.g. Trade, Staking Reward, Gift, Dividend, Interest, Cashback, No Gain No Loss) that determines how its events are treated — whether they count as income, qualify for CGT, or transfer basis. Cashback is an ordinary acquisition at market value but is not income: HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97).
 
 ### Unclassified
 The status of a Transaction (and its derived events) that has no Tag. Unclassified disposals are excluded from headline CGT totals and reported separately as conservative "including unclassified" figures, and each carries a warning so the user knows classification work remains.

@@ -26,6 +26,10 @@ pub enum Tag {
     Dividend,
     Interest,
     Gift,
+    /// Cashback/reward on personal spending - not taxable income for an
+    /// ordinary retail customer (HMRC Statement of Practice 4/97); an
+    /// ordinary acquisition establishing market-value cost basis
+    Cashback,
     /// No gain/no loss transfer (e.g. spouse/civil partner under s58 TCGA 1992)
     NoGainNoLoss,
 }
@@ -55,6 +59,7 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
         (EventType::Acquisition, Tag::Dividend) => "Dividend",
         (EventType::Acquisition, Tag::Interest) => "Interest",
         (EventType::Acquisition, Tag::Gift) => "GiftIn",
+        (EventType::Acquisition, Tag::Cashback) => "Cashback",
         (EventType::Disposal, Tag::Gift) => "GiftOut",
         (EventType::Disposal, Tag::NoGainNoLoss) => "NoGainNoLoss",
         (EventType::Acquisition, Tag::Unclassified) => "UnclassifiedIn",
@@ -321,6 +326,10 @@ mod tests {
             display_event_type(EventType::Disposal, Tag::NoGainNoLoss),
             "NoGainNoLoss"
         );
+        assert_eq!(
+            display_event_type(EventType::Acquisition, Tag::Cashback),
+            "Cashback"
+        );
     }
 
     #[test]
@@ -334,6 +343,7 @@ mod tests {
         assert!(!Tag::Trade.is_income());
         assert!(!Tag::Gift.is_income());
         assert!(!Tag::Airdrop.is_income());
+        assert!(!Tag::Cashback.is_income());
         assert!(!Tag::Unclassified.is_income());
     }
 }

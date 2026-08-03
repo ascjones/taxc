@@ -1,0 +1,32 @@
+{
+  "assets": [],
+  "transactions": [
+    {
+      "id": "tx-salary",
+      "datetime": "2024-06-30T09:00:00+00:00",
+      "account": "bank",
+      "description": "Monthly salary",
+      "type": "Deposit",
+      "amount": { "asset": "GBP", "quantity": 1000 },
+      "tag": "Salary"
+    },
+    {
+      "id": "tx-dividend",
+      "datetime": "2024-07-01T09:00:00+00:00",
+      "account": "bank",
+      "description": "Share dividend",
+      "type": "Deposit",
+      "amount": { "asset": "GBP", "quantity": 200 },
+      "tag": "Dividend"
+    },
+    {
+      "id": "tx-cashback",
+      "datetime": "2024-07-02T09:00:00+00:00",
+      "account": "bank",
+      "description": "Card cashback",
+      "type": "Deposit",
+      "amount": { "asset": "GBP", "quantity": 50 },
+      "tag": "Cashback"
+    }
+  ]
+}

@@ -156,6 +156,11 @@
           "const": "Unclassified"
         },
         {
+          "description": "Cashback/reward on personal spending - not taxable income for an\nordinary retail customer (HMRC Statement of Practice 4/97); an\nordinary acquisition establishing market-value cost basis",
+          "type": "string",
+          "const": "Cashback"
+        },
+        {
           "description": "No gain/no loss transfer (e.g. spouse/civil partner under s58 TCGA 1992)",
           "type": "string",
           "const": "NoGainNoLoss"

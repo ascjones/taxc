@@ -129,7 +129,14 @@ impl Transaction {
                     }
 
                     let value_gbp = match tag {
-                        Tag::Dividend | Tag::Interest if is_gbp(&amount.asset) => {
+                        // A GBP amount is its own valuation.
+                        Tag::Salary
+                        | Tag::OtherIncome
+                        | Tag::Dividend
+                        | Tag::Interest
+                        | Tag::Cashback
+                            if is_gbp(&amount.asset) =>
+                        {
                             if valuation.is_some() {
                                 return Err(TransactionError::GbpIncomeValuationNotAllowed {
                                     id: id.clone(),
@@ -144,7 +151,8 @@ impl Transaction {
                         | Tag::AirdropIncome
                         | Tag::Dividend
                         | Tag::Interest
-                        | Tag::Gift => valuation_to_gbp_required(
+                        | Tag::Gift
+                        | Tag::Cashback => valuation_to_gbp_required(
                             id,
                             *tag,
                             "deposit",
@@ -399,6 +407,7 @@ fn tag_name(tag: Tag) -> &'static str {
         Tag::Dividend => "Dividend",
         Tag::Interest => "Interest",
         Tag::Gift => "Gift",
+        Tag::Cashback => "Cashback",
         Tag::NoGainNoLoss => "NoGainNoLoss",
     }
 }

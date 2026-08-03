@@ -1044,7 +1044,8 @@ select { cursor: pointer; }
     border: 1px solid var(--income-border);
 }
 
-.tag-airdrop {
+.tag-airdrop,
+.tag-cashback {
     background: rgba(56, 189, 248, 0.08);
     color: #38bdf8;
     border: 1px solid rgba(56, 189, 248, 0.25);
