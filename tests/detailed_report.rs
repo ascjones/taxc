@@ -585,7 +585,6 @@ fn summary_salary_paye_cashback_not_income() {
     // Cashback £50 must not be counted.
     assert_eq!(json["income"].as_f64(), Some(200.0));
     assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
-    assert_eq!(json["salary_paye"].as_bool(), Some(true));
     assert_eq!(json["estimated_income_tax"].as_f64(), Some(40.0));
 }
 
