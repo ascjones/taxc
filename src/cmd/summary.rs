@@ -71,6 +71,7 @@ struct SummaryJson {
     cgt_rate_pct: u8,
     estimated_cgt: f64,
     income: f64,
+    salary_income: f64,
     dividend_income: f64,
     interest_income: f64,
     income_rate_pct: u8,
@@ -171,7 +172,8 @@ impl SummaryCommand {
         println!();
 
         let income_rate = rate_year.income_rate(band);
-        let (income, dividend_income, interest_income) = income_totals(events);
+        let totals = income_totals(events);
+        let income = totals.taxable_income();
         let income_tax = (income * income_rate).round_dp(2);
 
         println!("INCOME");
@@ -185,8 +187,12 @@ impl SummaryCommand {
         } else {
             println!("  Income: £0.00");
         }
-        println!("  Dividend: {}", format_gbp(dividend_income));
-        println!("  Interest: {}", format_gbp(interest_income));
+        println!(
+            "  Salary (PAYE): {} (tax deducted at source)",
+            format_gbp(totals.salary)
+        );
+        println!("  Dividend: {}", format_gbp(totals.dividend));
+        println!("  Interest: {}", format_gbp(totals.interest));
         println!();
 
         let cgt_tax = match band {
@@ -224,7 +230,8 @@ impl SummaryCommand {
         );
         let estimated_cgt = summary.estimated_cgt(cgt_rate);
 
-        let (income, dividend_income, interest_income) = income_totals(events);
+        let totals = income_totals(events);
+        let income = totals.taxable_income();
         let estimated_income_tax = (income * income_rate).round_dp(2);
         let estimated_total_tax = estimated_cgt + estimated_income_tax;
 
@@ -247,8 +254,9 @@ impl SummaryCommand {
             cgt_rate_pct: decimal_pct(cgt_rate),
             estimated_cgt: decimal_to_f64(estimated_cgt),
             income: decimal_to_f64(income),
-            dividend_income: decimal_to_f64(dividend_income),
-            interest_income: decimal_to_f64(interest_income),
+            salary_income: decimal_to_f64(totals.salary),
+            dividend_income: decimal_to_f64(totals.dividend),
+            interest_income: decimal_to_f64(totals.interest),
             income_rate_pct: decimal_pct(income_rate),
             estimated_income_tax: decimal_to_f64(estimated_income_tax),
             estimated_total_tax: decimal_to_f64(estimated_total_tax),
@@ -272,24 +280,41 @@ fn filtered_classified_disposals<'a>(
         .collect()
 }
 
-fn income_totals(events: &[&TaxableEvent]) -> (Decimal, Decimal, Decimal) {
-    let mut income = Decimal::ZERO;
-    let mut dividend = Decimal::ZERO;
-    let mut interest = Decimal::ZERO;
+#[derive(Debug, Default)]
+struct IncomeTotals {
+    /// All income including salary.
+    income: Decimal,
+    salary: Decimal,
+    dividend: Decimal,
+    interest: Decimal,
+}
+
+impl IncomeTotals {
+    /// Income subject to the flat-band estimate. Salary is always excluded:
+    /// it is PAYE-settled at source, so estimating tax on it again would
+    /// double-count.
+    fn taxable_income(&self) -> Decimal {
+        self.income - self.salary
+    }
+}
+
+fn income_totals(events: &[&TaxableEvent]) -> IncomeTotals {
+    let mut totals = IncomeTotals::default();
 
     for event in events {
         if event.event_type != EventType::Acquisition || !event.tag.is_income() {
             continue;
         }
-        income += event.value_gbp;
+        totals.income += event.value_gbp;
         match event.tag {
-            Tag::Dividend => dividend += event.value_gbp,
-            Tag::Interest => interest += event.value_gbp,
+            Tag::Salary => totals.salary += event.value_gbp,
+            Tag::Dividend => totals.dividend += event.value_gbp,
+            Tag::Interest => totals.interest += event.value_gbp,
             _ => {}
         }
     }
 
-    (income, dividend, interest)
+    totals
 }
 
 fn band_label(band: TaxBand) -> &'static str {

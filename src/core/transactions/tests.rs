@@ -893,6 +893,7 @@ fn invalid_tags_on_withdrawal_error() {
         (Tag::Salary, "Salary"),
         (Tag::OtherIncome, "OtherIncome"),
         (Tag::AirdropIncome, "AirdropIncome"),
+        (Tag::Cashback, "Cashback"),
     ];
 
     for (tag, tag_name) in cases {
@@ -922,6 +923,7 @@ fn invalid_tags_on_trade_error() {
         (Tag::AirdropIncome, "AirdropIncome"),
         (Tag::Airdrop, "Airdrop"),
         (Tag::Gift, "Gift"),
+        (Tag::Cashback, "Cashback"),
     ];
 
     for (tag, tag_name) in cases {
@@ -1189,6 +1191,7 @@ fn salary_other_dividend_and_interest_deposits_are_supported() {
         ("d2", Tag::OtherIncome),
         ("d3", Tag::Dividend),
         ("d4", Tag::Interest),
+        ("d5", Tag::Cashback),
     ];
 
     for (id, tag) in cases {
@@ -1198,6 +1201,41 @@ fn salary_other_dividend_and_interest_deposits_are_supported() {
         let events = convert_one(&tx).unwrap();
         assert_eq!(events[0].tag, tag);
     }
+}
+
+#[test]
+fn cashback_crypto_deposit_acquires_at_market_value() {
+    let tx = deposit_tx("d-cb", "ETH", dec!(2))
+        .with_tag(Tag::Cashback)
+        .with_price(gbp_price("ETH", dec!(1000)));
+
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Acquisition);
+    assert_eq!(events[0].tag, Tag::Cashback);
+    assert_eq!(events[0].value_gbp, dec!(2000));
+}
+
+#[test]
+fn cashback_crypto_deposit_requires_price() {
+    let tx = deposit_tx("d-cb", "ETH", dec!(2)).with_tag(Tag::Cashback);
+    let err = convert_one(&tx).unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::MissingTaggedValuation {
+            id: "d-cb".to_string(),
+            tag: "Cashback".to_string(),
+            tx_type: "deposit".to_string(),
+        }
+    );
+}
+
+#[test]
+fn cashback_tag_round_trips_as_string() {
+    let json = serde_json::to_string(&Tag::Cashback).unwrap();
+    assert_eq!(json, "\"Cashback\"");
+    let tag: Tag = serde_json::from_str("\"Cashback\"").unwrap();
+    assert_eq!(tag, Tag::Cashback);
 }
 
 #[test]
@@ -1219,21 +1257,34 @@ fn dividend_and_interest_deposits_require_price() {
 }
 
 #[test]
-fn gbp_dividend_and_interest_deposits_no_price_needed() {
-    let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+fn gbp_denominated_income_and_cashback_deposits_no_price_needed() {
+    let cases = [
+        (Tag::Dividend, "Dividend"),
+        (Tag::Interest, "Interest"),
+        (Tag::Salary, "Salary"),
+        (Tag::OtherIncome, "OtherIncome"),
+        (Tag::Cashback, "Cashback"),
+    ];
 
     for (tag, _tag_name) in cases {
         let tx = deposit_tx("d1", "GBP", dec!(500)).with_tag(tag);
         let events = convert_one(&tx).unwrap();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].tag, tag);
         assert_eq!(events[0].value_gbp, dec!(500));
         assert_eq!(events[0].asset_class, AssetClass::Fiat);
     }
 }
 
 #[test]
-fn gbp_dividend_and_interest_deposits_reject_price() {
-    let cases = [(Tag::Dividend, "Dividend"), (Tag::Interest, "Interest")];
+fn gbp_denominated_income_and_cashback_deposits_reject_price() {
+    let cases = [
+        (Tag::Dividend, "Dividend"),
+        (Tag::Interest, "Interest"),
+        (Tag::Salary, "Salary"),
+        (Tag::OtherIncome, "OtherIncome"),
+        (Tag::Cashback, "Cashback"),
+    ];
 
     for (tag, tag_name) in cases {
         let tx = deposit_tx("d1", "GBP", dec!(500))

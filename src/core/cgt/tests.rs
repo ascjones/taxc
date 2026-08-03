@@ -1398,3 +1398,32 @@ fn bnb_matches_exactly_30_days_after_disposal() {
     );
     assert_eq!(disposal.allowable_cost_gbp, dec!(60000));
 }
+
+#[test]
+fn cashback_acquisition_establishes_cost_basis() {
+    // Cashback is an ordinary acquisition: it pools at market value and that
+    // cost basis is allowable on a later disposal.
+    let events = vec![
+        event(
+            EventType::Acquisition,
+            Tag::Cashback,
+            "2024-01-10",
+            "ETH",
+            dec!(2),
+            dec!(1000),
+            None,
+        ),
+        disp("2024-06-01", "ETH", dec!(2), dec!(1500)),
+    ];
+
+    let report = calculate_cgt(events).unwrap();
+    assert_eq!(report.disposals.len(), 1);
+
+    let disposal = &report.disposals[0];
+    assert_eq!(disposal.allowable_cost_gbp, dec!(1000));
+    assert_eq!(disposal.gain_gbp, dec!(500));
+
+    let (qty, cost) = final_pool(&report, "ETH");
+    assert_eq!(qty, Decimal::ZERO);
+    assert_eq!(cost, Decimal::ZERO);
+}

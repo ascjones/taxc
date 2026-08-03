@@ -141,7 +141,6 @@
           "enum": [
             "Trade",
             "StakingReward",
-            "Salary",
             "OtherIncome",
             "Airdrop",
             "AirdropIncome",
@@ -154,6 +153,16 @@
           "description": "Unclassified event - needs review",
           "type": "string",
           "const": "Unclassified"
+        },
+        {
+          "description": "Employment income, assumed PAYE-settled at source: UK employers must\noperate PAYE on salary paid in readily convertible assets (CRYPTO42050),\nso it is reported but excluded from the income tax estimate",
+          "type": "string",
+          "const": "Salary"
+        },
+        {
+          "description": "Cashback/reward on personal spending - not taxable income for an\nordinary retail customer (HMRC Statement of Practice 4/97); an\nordinary acquisition establishing market-value cost basis",
+          "type": "string",
+          "const": "Cashback"
         },
         {
           "description": "No gain/no loss transfer (e.g. spouse/civil partner under s58 TCGA 1992)",

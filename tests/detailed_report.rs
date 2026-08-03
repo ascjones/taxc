@@ -570,3 +570,51 @@ fn report_json_warnings_grouped_with_no_cgt_warnings_key() {
         "event-level structured warnings must be present"
     );
 }
+
+/// Salary is always PAYE-settled; cashback never counts as income
+#[test]
+fn summary_salary_paye_cashback_not_income() {
+    let output = run_taxc(&["summary", "tests/data/salary_cashback.json", "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON summary output");
+
+    // Only the £200 dividend is in the estimate; salary stays visible and
+    // Cashback £50 must not be counted.
+    assert_eq!(json["income"].as_f64(), Some(200.0));
+    assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
+    assert_eq!(json["estimated_income_tax"].as_f64(), Some(40.0));
+}
+
+/// Default text output shows PAYE salary as its own auditable line
+#[test]
+fn summary_default_text_output_shows_paye_salary_line() {
+    let output = run_taxc(&["summary", "tests/data/salary_cashback.json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    assert!(
+        stdout.contains("Salary (PAYE): £1000.00"),
+        "Expected PAYE salary line, got:\n{}",
+        stdout
+    );
+}
+
+/// Cashback events appear in the report with their own tag
+#[test]
+fn report_cashback_event_tagged() {
+    let output = run_taxc(&["report", "tests/data/salary_cashback.json", "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Invalid JSON report output");
+    let events = json["events"].as_array().expect("Missing events array");
+    let cashback = events
+        .iter()
+        .find(|e| e["tag"] == "Cashback")
+        .expect("Missing Cashback event");
+    assert_eq!(cashback["event_kind"], "acquisition");
+}
