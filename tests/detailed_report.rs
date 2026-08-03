@@ -571,9 +571,9 @@ fn report_json_warnings_grouped_with_no_cgt_warnings_key() {
     );
 }
 
-/// Salary is assumed PAYE-settled by default; cashback never counts as income
+/// Salary is always PAYE-settled; cashback never counts as income
 #[test]
-fn summary_salary_paye_by_default_cashback_not_income() {
+fn summary_salary_paye_cashback_not_income() {
     let output = run_taxc(&["summary", "tests/data/salary_cashback.json", "--json"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "Command failed: {:?}", output);
@@ -587,28 +587,6 @@ fn summary_salary_paye_by_default_cashback_not_income() {
     assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
     assert_eq!(json["salary_paye"].as_bool(), Some(true));
     assert_eq!(json["estimated_income_tax"].as_f64(), Some(40.0));
-}
-
-/// --salary-gross includes salary in the income tax estimate
-#[test]
-fn summary_salary_gross_includes_salary_in_estimate() {
-    let output = run_taxc(&[
-        "summary",
-        "tests/data/salary_cashback.json",
-        "--salary-gross",
-        "--json",
-    ]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Command failed: {:?}", output);
-
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("Invalid JSON summary output");
-
-    // Salary £1000 + Dividend £200 both taxed in the estimate.
-    assert_eq!(json["income"].as_f64(), Some(1200.0));
-    assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
-    assert_eq!(json["salary_paye"].as_bool(), Some(false));
-    assert_eq!(json["estimated_income_tax"].as_f64(), Some(240.0));
 }
 
 /// Default text output shows PAYE salary as its own auditable line

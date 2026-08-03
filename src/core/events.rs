@@ -19,6 +19,9 @@ pub enum Tag {
     Unclassified,
     Trade,
     StakingReward,
+    /// Employment income, assumed PAYE-settled at source: UK employers must
+    /// operate PAYE on salary paid in readily convertible assets (CRYPTO42050),
+    /// so it is reported but excluded from the income tax estimate
     Salary,
     OtherIncome,
     Airdrop,
