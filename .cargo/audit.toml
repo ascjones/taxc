@@ -1,0 +1,27 @@
+# cargo-audit configuration.
+#
+# cargo-audit scans Cargo.lock, which records optional dependencies even when
+# their feature is never enabled. Entries here are advisories that the scan
+# reports but that taxc cannot actually reach. Each one must state why, and
+# what would let us drop it again.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0235 -- rkyv 0.7.46, out-of-bounds read via forged pointer
+    # metadata in checked archive access.
+    #
+    # Not reachable from taxc:
+    #   * rkyv is an *optional* dependency of rust_decimal. Cargo.toml enables
+    #     only features = ["serde"], so rkyv is never compiled -- confirmed by
+    #     `cargo tree -i rkyv -e all --target all` reporting "nothing to print".
+    #   * The advisory requires deserialising untrusted archives through
+    #     rkyv::access or rkyv::from_bytes. taxc reads CSV and JSON only and
+    #     never calls into rkyv.
+    #
+    # No upgrade path exists today: the fix landed in rkyv 0.8.17, and
+    # rust_decimal 1.42.1 still depends on the unsupported 0.7 series.
+    #
+    # Remove this entry once rust_decimal depends on rkyv >= 0.8.17, and
+    # re-check with `cargo audit`.
+    "RUSTSEC-2026-0235",
+]
