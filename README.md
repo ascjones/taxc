@@ -1,8 +1,6 @@
 # taxc
 
-UK Tax Calculator for Capital Gains and Income.
-
-Calculates UK taxes from JSON transaction input, implementing HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
+UK tax calculator for capital gains and income. Reads JSON transactions and applies the HMRC share identification rules for CGT (same-day, bed & breakfast, section 104 pool).
 
 ## Installation
 
@@ -10,46 +8,46 @@ Calculates UK taxes from JSON transaction input, implementing HMRC share identif
 cargo install --git https://github.com/ascjones/taxc
 ```
 
-## Commands
-
-All commands accept an optional positional `FILE` (JSON). If omitted or set to `-`, input is read from stdin.
+## Usage
 
 ```
-taxc summary transactions.json -y 2025
-taxc report transactions.json
-taxc pools transactions.json --daily
-taxc schema input
+taxc summary transactions.json -y 2025   # aggregated tax calculations
+taxc report transactions.json            # interactive HTML report
+taxc pools transactions.json --daily     # section 104 pool history
+taxc schema input                        # input format reference
 ```
 
-### `taxc summary` - Tax Calculations
+All commands take an optional positional `FILE` (JSON); if omitted or `-`, input is read from stdin. Filtering commands share `-y`/`--from`/`--to` (date), `-a` (asset), `--event-kind` (disposal/acquisition), and `--exclude-unlinked`.
 
-Aggregated CGT and income calculations. Use `-y 2025` for a tax year, or `--from`/`--to` for a date range. Add `--json` for machine-readable output, `-t higher` for different tax bands.
+### `taxc summary`
 
-Salary is treated as PAYE-settled (already taxed at source): it is reported on its own line (and as `salary_income` in JSON) but excluded from the income tax estimate, since UK employers must operate PAYE even on salary paid in crypto (readily convertible assets). For the rare case of employment income received gross (non-RCA tokens, or an overseas employer with no UK presence), tag it `OtherIncome` to include it in the estimate.
+Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`; add `--json` for machine-readable output, `-t higher` for a different tax band.
 
-### `taxc report` - Tax Report
+Salary is treated as PAYE-settled (already taxed at source): it is reported on its own line (`salary_income` in JSON) but excluded from the income tax estimate, since UK employers must operate PAYE even on salary paid in crypto. For the rare case of employment income received gross (non-RCA tokens, or an overseas employer with no UK presence), tag it `OtherIncome` instead.
 
-Self-contained HTML report opened in your browser, with summary cards, interactive filtering (including a multi-asset autocomplete filter with removable pills), sortable columns, color-coded tags/rules, and a Tax Years view with a per-year gain/loss chart and breakdown table. Rows expand to a detail card with description, fees, warnings, and disposal matching details. Use `-o file.html` to save instead, or `--json` for structured data.
+### `taxc report`
 
-### `taxc pools` - Pool Balances
+Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data.
 
-Section 104 pool balances over time. Year-end snapshots by default, or `--daily` for daily history.
+### `taxc pools`
 
-### `taxc schema` - Format Reference
+Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history.
 
-Print JSON schemas for input (`taxc schema input`, default) or output (`taxc schema output`) formats. Schemas are also checked into `schema/` for version tracking.
+### `taxc schema`
 
-All filtering commands share: `-y`/`--from`/`--to` (date), `-a` (asset), `--event-kind` (disposal/acquisition), `--exclude-unlinked`.
+Print the JSON schema for the input (default) or output (`taxc schema output`) format. Schemas are also checked into `schema/`.
 
 ## Input Format
 
-JSON with top-level `assets` and `transactions` fields. Run `taxc schema input` for the full schema.
+JSON with top-level `assets` and `transactions` fields — run `taxc schema input` for the full schema. Three transaction types:
 
-Three transaction types: **Trade** (asset swap via `sold`/`bought`), **Deposit** (asset received), **Withdrawal** (asset sent). Transactions can be tagged for tax classification (income types, cashback, gifts, transfers, no gain/no loss).
+- **Trade** — asset swap (`sold`/`bought`)
+- **Deposit** — asset received (`amount`)
+- **Withdrawal** — asset sent (`amount`)
 
-Income tags (`Salary`, `OtherIncome`, `Dividend`, `Interest`, `StakingReward`, `AirdropIncome`) count toward the income tax estimate. `Cashback` is an ordinary acquisition at market value but is **not** income — HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97). GBP-denominated deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no valuation (the amount is the value); other assets require one to establish the market value.
+An optional `tag` classifies a transaction for tax. Income tags (`Salary`, `OtherIncome`, `Dividend`, `Interest`, `StakingReward`, `AirdropIncome`) count toward the income tax estimate; other tags cover cashback, gifts, transfers, and no gain/no loss. `Cashback` is an ordinary acquisition at market value but **not** income — HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97).
 
-All quantities must be positive and fee amounts non-negative; transactions violating this are rejected with an error.
+GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no `valuation` (the amount is the value); other assets require one to establish market value. Quantities must be positive and fees non-negative; violations are rejected with an error.
 
 ### Example
 
@@ -93,22 +91,22 @@ All quantities must be positive and fee amounts non-negative; transactions viola
 
 ## HMRC Share Identification Rules
 
-CGT calculations implement the HMRC share matching rules in order:
+Disposals are matched against acquisitions in order:
 
-1. **Same-Day Rule** - Match disposals with acquisitions on the same day
-2. **Bed & Breakfast Rule** - Match with acquisitions within 30 days after disposal
-3. **Section 104 Pool** - Match remaining shares from the pooled cost basis
+1. **Same-Day Rule** — acquisitions on the same day
+2. **Bed & Breakfast Rule** — acquisitions within 30 days after the disposal
+3. **Section 104 Pool** — remaining shares from the pooled cost basis
 
 ## Tax Years Supported
 
 CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypto and shares):
 
-| Tax years           | Annual exempt amount | Basic rate | Higher rate |
-| ------------------- | -------------------- | ---------- | ----------- |
-| 2024/25 onwards     | £3,000               | 18%        | 24%         |
-| 2023/24             | £6,000               | 10%        | 20%         |
-| 2016/17 – 2022/23   | £11,100 – £12,300    | 10%        | 20%         |
-| 2010/11 – 2015/16   | £11,000 – £11,100    | 18%        | 28%         |
+| Tax years         | Annual exempt amount | Basic rate | Higher rate |
+| ----------------- | -------------------- | ---------- | ----------- |
+| 2024/25 onwards   | £3,000               | 18%        | 24%         |
+| 2023/24           | £6,000               | 10%        | 20%         |
+| 2016/17 – 2022/23 | £11,100 – £12,300    | 10%        | 20%         |
+| 2010/11 – 2015/16 | £11,000 – £11,100    | 18%        | 28%         |
 
 > **Note:** CGT rates changed mid-year on 30 October 2024 (10%/20% → 18%/24%).
 > Estimates for 2024/25 use the post-change rates throughout, so gains realised
@@ -125,11 +123,11 @@ Enable pre-commit hooks (runs fmt, clippy, and tests):
 git config core.hooksPath .githooks
 ```
 
-## Project Structure
+Project structure:
 
-- `src/main.rs` - CLI entry point
-- `src/cmd/` - CLI command implementations
-- `src/core/` - Domain logic and tax calculations (flat public surface via re-exports)
+- `src/main.rs` — CLI entry point
+- `src/cmd/` — CLI command implementations
+- `src/core/` — domain logic and tax calculations (flat public surface via re-exports)
 
 ## License
 

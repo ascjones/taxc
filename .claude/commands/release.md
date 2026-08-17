@@ -12,7 +12,7 @@ Analyze commits since the last version tag, determine the appropriate semver bum
 **Minor bump (0.X.0)** - Interface/user-facing changes:
 - New or changed CLI commands, subcommands, or aliases
 - New, changed, or removed command-line options/flags
-- Changes to input formats (CSV/JSON schema)
+- Changes to the input format (JSON schema)
 - Changes to output formats or structure
 - Any breaking change
 

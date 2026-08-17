@@ -15,7 +15,7 @@ ignore = [
     #     only features = ["serde"], so rkyv is never compiled -- confirmed by
     #     `cargo tree -i rkyv -e all --target all` reporting "nothing to print".
     #   * The advisory requires deserialising untrusted archives through
-    #     rkyv::access or rkyv::from_bytes. taxc reads CSV and JSON only and
+    #     rkyv::access or rkyv::from_bytes. taxc reads JSON only and
     #     never calls into rkyv.
     #
     # No upgrade path exists today: the fix landed in rkyv 0.8.17, and
