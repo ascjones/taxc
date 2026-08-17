@@ -1,5 +1,9 @@
 name: Security audit
 
+# rustsec/audit-check fails the job on push, pull_request and
+# workflow_dispatch, but only files an issue (still reporting success) on
+# schedule. The pull_request trigger is what actually gates a dependency
+# change before it reaches master.
 on:
   schedule:
     - cron: '0 7 * * 1'
@@ -8,6 +12,12 @@ on:
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/audit.toml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/audit.toml'
   workflow_dispatch:
 
 permissions:
