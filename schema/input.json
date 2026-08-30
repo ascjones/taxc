@@ -62,7 +62,6 @@
       ]
     },
     "DecimalJson": {
-      "description": "Schema shape for decimal fields: written as a numeric string, accepted as\neither a JSON number or a numeric string.",
       "anyOf": [
         {
           "type": "number",

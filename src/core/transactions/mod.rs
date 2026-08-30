@@ -35,8 +35,6 @@ pub struct Asset {
 
 pub type AssetRegistry = HashMap<String, Asset>;
 
-/// Schema shape for decimal fields: written as a numeric string, accepted as
-/// either a JSON number or a numeric string.
 #[derive(JsonSchema)]
 #[schemars(untagged)]
 pub(crate) enum DecimalJson {
@@ -62,8 +60,6 @@ pub fn read_transactions_json<R: Read>(
     Ok(prepare(input)?)
 }
 
-/// Normalise symbols, validate the asset registry, and sort transactions by
-/// time — everything that must happen to a parsed document before conversion.
 pub fn prepare(input: Transactions) -> Result<(Vec<Transaction>, AssetRegistry), TransactionError> {
     let mut assets = input.assets;
     let mut transactions = input.transactions;
@@ -74,10 +70,6 @@ pub fn prepare(input: Transactions) -> Result<(Vec<Transaction>, AssetRegistry),
     Ok((transactions, registry))
 }
 
-/// Validate a parsed document and convert it to taxable events.
-///
-/// Every rejection the CLI would report for this document surfaces here as a
-/// typed [`TransactionError`].
 pub fn document_to_events(
     input: Transactions,
     options: ConversionOptions,

@@ -1,9 +1,3 @@
-//! Aggregated tax position for one rate year: CGT after AEA and income by
-//! tag, with tax estimated at a chosen band.
-//!
-//! This is the single source of the numbers printed by `taxc summary` and
-//! returned by the library API, so both agree by construction.
-
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 
@@ -57,12 +51,6 @@ pub struct TaxSummary {
     pub estimated_total_tax: Decimal,
 }
 
-/// Summarise already-selected events and classified disposals using the
-/// AEA and rates of `rate_year` at `band`.
-///
-/// Callers choose the selection (a tax year, a date range, an asset); this
-/// function only does the arithmetic. `disposals` should exclude unclassified
-/// disposals, as the CLI does.
 pub fn summarize(
     events: &[&TaxableEvent],
     disposals: &[&DisposalRecord],

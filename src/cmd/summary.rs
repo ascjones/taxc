@@ -232,7 +232,6 @@ impl SummaryCommand {
     }
 }
 
-/// Disposals in scope for the summary: classified only, matching the filter.
 pub(crate) fn filtered_classified_disposals<'a>(
     cgt_report: &'a CgtReport,
     filter: &EventFilter,

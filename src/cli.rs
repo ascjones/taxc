@@ -1,5 +1,3 @@
-//! Command-line entry point. Not part of the stable library surface.
-
 use crate::cmd::pools::PoolsCommand;
 use crate::cmd::report::ReportCommand;
 use crate::cmd::schema::SchemaCommand;
@@ -40,7 +38,6 @@ impl Command {
     }
 }
 
-/// Parse process arguments and run the selected command.
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     cli.command.exec()
