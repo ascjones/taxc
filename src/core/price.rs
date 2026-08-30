@@ -1,3 +1,4 @@
+use super::transactions::DecimalJson;
 use super::TransactionError;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
@@ -12,17 +13,17 @@ pub struct Price {
     /// The asset this price refers to (e.g., "BTC", "ETH")
     pub base: String,
     /// Foreign currency quote (e.g., "USD") - requires fx_rate
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote: Option<String>,
     /// Price per unit (in GBP, or in quote currency if FX fields present)
-    #[schemars(with = "f64")]
+    #[schemars(with = "DecimalJson")]
     pub rate: Decimal,
     /// FX rate to convert quote currency to GBP - requires quote
-    #[serde(default)]
-    #[schemars(with = "Option<f64>")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<DecimalJson>")]
     pub fx_rate: Option<Decimal>,
     /// Optional source of price data
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 

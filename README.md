@@ -117,6 +117,50 @@ CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypt
 
 Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% rates for basic, higher, and additional rate taxpayers.
 
+## Library
+
+`taxc` is also a Rust library, so a producer can build its input document with
+compile-time checking and run the same calculations the CLI does. Depend on it
+by git tag:
+
+```toml
+[dependencies]
+taxc = { git = "https://github.com/ascjones/taxc", tag = "<latest release tag>" }
+```
+
+The stable public surface is:
+
+- `taxc::input` — the input document root `Transactions` and its field types
+  (`Asset`, `Transaction`, `TransactionType`, `Amount`, `Fee`, `Valuation`,
+  `Price`, `Tag`, `AssetClass`) plus `TransactionError`, the typed rejection
+  returned by validation.
+- `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`,
+  `TaxableEvent`, `Warning`, `TaxYear`, `TaxBand`, …).
+- `taxc::validate(&doc, &options)` — check a document the way the CLI would
+  with the same options, returning the first `TransactionError` (wrapped in
+  `taxc::Error`).
+- `taxc::calculate(doc, &CalculationOptions)` — run CGT matching and the
+  per-year summary (CGT after AEA, income by tag, warnings) and return
+  `TaxResults` as plain values, with no formatting.
+- `taxc::input_schema()` — the input JSON Schema, identical to `taxc schema input`.
+
+Serialization contract for `taxc::input` types: optional fields are omitted
+when absent (never `null`), the default `Unclassified` tag is omitted, decimal
+quantities are written as numeric strings (`"0.5"`, exact through any JSON
+parser; bare numbers are still accepted on input), and UTC datetimes are
+written with a `Z` suffix. Everything outside these paths is internal and may change without
+notice.
+
+```rust
+let doc: taxc::input::Transactions = serde_json::from_str(json)?;
+let options = taxc::CalculationOptions::default();
+taxc::validate(&doc, &options)?;
+let results = taxc::calculate(doc, &options)?;
+for year in &results.years {
+    println!("{}: {}", year.summary.tax_year.display(), year.summary.estimated_total_tax);
+}
+```
+
 ## Development
 
 Enable pre-commit hooks (runs fmt, clippy, and tests):
@@ -127,7 +171,9 @@ git config core.hooksPath .githooks
 
 ## Project Structure
 
-- `src/main.rs` - CLI entry point
+- `src/main.rs` - CLI binary entry point (calls `taxc::cli::run`)
+- `src/lib.rs` - Library surface (`taxc::input`, `taxc::results`, `validate`, `calculate`)
+- `src/cli.rs` - Clap command wiring
 - `src/cmd/` - CLI command implementations
 - `src/core/` - Domain logic and tax calculations (flat public surface via re-exports)
 

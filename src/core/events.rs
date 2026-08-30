@@ -12,7 +12,20 @@ pub enum EventType {
 }
 
 /// Classification tag for a taxable event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
 pub enum Tag {
     /// Unclassified event - needs review
     #[default]
