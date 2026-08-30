@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use super::cgt::{CgtSummary, DisposalRecord};
 use super::events::{EventType, Tag, TaxableEvent};
 use super::uk::{TaxBand, TaxYear};
+use super::warnings::Warning;
 
 /// Capital-gains position for a set of classified disposals.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +114,24 @@ pub fn summarize(
     }
 }
 
+/// Warnings attached to one event: an unclassified tag, plus whatever CGT
+/// matching recorded on its disposal (deduplicated).
+pub fn event_warnings(event: &TaxableEvent, disposal: Option<&DisposalRecord>) -> Vec<Warning> {
+    let mut warnings = if event.tag == Tag::Unclassified {
+        vec![Warning::UnclassifiedEvent]
+    } else {
+        Vec::new()
+    };
+    if let Some(d) = disposal {
+        for warning in &d.warnings {
+            if !warnings.contains(warning) {
+                warnings.push(warning.clone());
+            }
+        }
+    }
+    warnings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +169,29 @@ mod tests {
         assert_eq!(s.income.rate, dec!(0.20));
         assert_eq!(s.income.estimated_income_tax, dec!(50.00));
         assert_eq!(s.estimated_total_tax, dec!(50.00));
+    }
+
+    #[test]
+    fn event_warnings_dedups_unclassified_seed_against_disposal_warnings() {
+        let mut d = disp("2024-09-01", "BTC", dec!(1), dec!(20000));
+        d.tag = Tag::Unclassified;
+        let report = calculate_cgt(vec![d.clone()]);
+        let record = &report.disposals[0];
+        assert!(record.warnings.contains(&Warning::UnclassifiedEvent));
+
+        let warnings = event_warnings(&d, Some(record));
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| **w == Warning::UnclassifiedEvent)
+                .count(),
+            1
+        );
+        assert!(
+            warnings.len() >= 2,
+            "insufficient-basis warning also carried: {warnings:?}"
+        );
+        assert!(event_warnings(&d, None).contains(&Warning::UnclassifiedEvent));
     }
 
     #[test]

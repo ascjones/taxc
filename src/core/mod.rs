@@ -12,7 +12,7 @@ pub use cgt::{
     PoolState, YearEndSnapshot,
 };
 pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
-pub use summary::summarize;
+pub use summary::{event_warnings, summarize};
 #[allow(unused_imports)]
 pub use transactions::{
     document_to_events, read_transactions_json, transactions_to_events, Amount, Asset,

@@ -41,7 +41,7 @@ pub(crate) enum DecimalJson {
     #[allow(dead_code)]
     Number(f64),
     #[allow(dead_code)]
-    String(String),
+    String(#[schemars(regex(pattern = r"^-?[0-9]+(\.[0-9]+)?$"))] String),
 }
 
 #[derive(Debug, Clone, Copy, Default)]

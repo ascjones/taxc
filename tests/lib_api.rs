@@ -13,7 +13,7 @@ use taxc::input::{
     Transactions, Valuation,
 };
 use taxc::results::{TaxBand, TaxYear};
-use taxc::CalculationOptions;
+use taxc::{CalculationOptions, Error};
 
 fn tx(id: &str, datetime: &str, details: TransactionType) -> Transaction {
     Transaction {
@@ -235,7 +235,8 @@ fn document_round_trips_through_json() {
     let parsed: Transactions = serde_json::from_str(&json).unwrap();
     let again = serde_json::to_string(&parsed).unwrap();
     assert_eq!(json, again);
-    taxc::validate(&parsed).expect("round-tripped document is valid");
+    taxc::validate(&parsed, &CalculationOptions::default())
+        .expect("round-tripped document is valid");
 }
 
 #[test]
@@ -268,12 +269,17 @@ fn value_gbp_valuation_serializes_as_a_string() {
 fn validate_reports_gbp_income_valuation_as_typed_error() {
     let mut doc = representative_document();
     doc.transactions[4].valuation = Some(Valuation::ValueGbp(dec!(1000)));
+    let expected = Error::Validation(TransactionError::GbpIncomeValuationNotAllowed {
+        id: "t5".to_string(),
+        tag: "Salary".to_string(),
+    });
     assert_eq!(
-        taxc::validate(&doc).unwrap_err(),
-        TransactionError::GbpIncomeValuationNotAllowed {
-            id: "t5".to_string(),
-            tag: "Salary".to_string(),
-        }
+        taxc::validate(&doc, &CalculationOptions::default()).unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        taxc::calculate(doc, &CalculationOptions::default()).unwrap_err(),
+        expected
     );
 }
 
@@ -282,10 +288,10 @@ fn validate_reports_undefined_asset_as_typed_error() {
     let mut doc = representative_document();
     doc.assets.pop();
     assert_eq!(
-        taxc::validate(&doc).unwrap_err(),
-        TransactionError::UndefinedAsset {
+        taxc::validate(&doc, &CalculationOptions::default()).unwrap_err(),
+        Error::Validation(TransactionError::UndefinedAsset {
             symbol: "ETH".to_string()
-        }
+        })
     );
 }
 
@@ -414,4 +420,92 @@ fn input_schema_matches_cli_schema_command() {
     assert!(output.status.success());
     let cli: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(taxc::input_schema(), cli);
+}
+
+/// An unlinked withdrawal with an unpriced non-GBP fee is only converted (and
+/// only rejected) when unlinked transfers are included, so validate must honour
+/// the same option calculate will run with.
+#[test]
+fn validate_honours_exclude_unlinked_like_calculate() {
+    let mut doc = representative_document();
+    doc.transactions.push(Transaction {
+        fee: Some(Fee {
+            asset: "ETH".to_string(),
+            amount: dec!(0.01),
+            price: None,
+        }),
+        ..tx(
+            "t-unlinked",
+            "2024-10-01T10:00:00+00:00",
+            TransactionType::Withdrawal {
+                amount: amount("ETH", dec!(1)),
+                linked_deposit: None,
+            },
+        )
+    });
+    let include = CalculationOptions::default();
+    let exclude = CalculationOptions {
+        exclude_unlinked: true,
+        ..Default::default()
+    };
+    assert!(matches!(
+        taxc::validate(&doc, &include),
+        Err(Error::Validation(TransactionError::MissingFeePrice { .. }))
+    ));
+    assert!(matches!(
+        taxc::calculate(doc.clone(), &include),
+        Err(Error::Validation(TransactionError::MissingFeePrice { .. }))
+    ));
+    taxc::validate(&doc, &exclude).unwrap();
+    taxc::calculate(doc, &exclude).unwrap();
+}
+
+#[test]
+fn out_of_range_tax_year_is_an_error_not_a_panic() {
+    let doc = representative_document();
+    for year in [TaxYear(i32::MAX), TaxYear(i32::MIN)] {
+        let options = CalculationOptions {
+            tax_year: Some(year),
+            ..Default::default()
+        };
+        assert_eq!(
+            taxc::validate(&doc, &options).unwrap_err(),
+            Error::InvalidTaxYear(year)
+        );
+        assert_eq!(
+            taxc::calculate(doc.clone(), &options).unwrap_err(),
+            Error::InvalidTaxYear(year)
+        );
+    }
+}
+
+#[test]
+fn selected_year_with_no_events_summarises_to_zero() {
+    let options = CalculationOptions {
+        tax_year: Some(TaxYear(2010)),
+        ..Default::default()
+    };
+    let results = taxc::calculate(representative_document(), &options).unwrap();
+    assert_eq!(results.years.len(), 1);
+    let s = &results.years[0].summary;
+    assert_eq!(s.tax_year, TaxYear(2010));
+    assert_eq!(s.cgt.disposal_count, 0);
+    assert_eq!(s.income.total, dec!(0));
+    assert_eq!(s.estimated_total_tax, dec!(0));
+    assert!(results.years[0].warnings.is_empty());
+}
+
+#[test]
+fn input_schema_constrains_decimal_strings_to_plain_decimals() {
+    let schema = taxc::input_schema();
+    let branches = schema["$defs"]["DecimalJson"]["anyOf"].as_array().unwrap();
+    let string_branch = branches
+        .iter()
+        .find(|b| b["type"] == "string")
+        .expect("string branch");
+    assert_eq!(string_branch["pattern"], "^-?[0-9]+(\\.[0-9]+)?$");
+    // Every string the pattern admits is one Decimal parses.
+    for ok in ["0.5", "10000", "-3.25", "0"] {
+        let _: rust_decimal::Decimal = ok.parse().unwrap();
+    }
 }

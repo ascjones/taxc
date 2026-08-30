@@ -9,8 +9,8 @@
 //! - [`input`] — the JSON document `taxc` parses (`Transactions` and its
 //!   row/field types) plus the validation error type.
 //! - [`results`] — the domain values a calculation produces.
-//! - [`validate`], [`calculate`], [`input_schema`] and their option/result
-//!   types at the crate root.
+//! - [`validate`], [`calculate`], [`input_schema`] and their option, result
+//!   and [`Error`] types at the crate root.
 //!
 //! Everything else is internal and may change without notice.
 //!
@@ -18,8 +18,9 @@
 //! use taxc::input::Transactions;
 //!
 //! let doc: Transactions = serde_json::from_str(r#"{"assets":[],"transactions":[]}"#)?;
-//! taxc::validate(&doc)?;
-//! let results = taxc::calculate(doc, &taxc::CalculationOptions::default())?;
+//! let options = taxc::CalculationOptions::default();
+//! taxc::validate(&doc, &options)?;
+//! let results = taxc::calculate(doc, &options)?;
 //! for year in &results.years {
 //!     println!("{}: CGT {}", year.summary.tax_year.display(), year.summary.cgt.estimated_cgt);
 //! }
@@ -58,10 +59,22 @@ pub mod results {
 }
 
 use core::transactions::ConversionOptions;
-use core::{calculate_cgt, document_to_events, summarize};
+use core::{calculate_cgt, document_to_events, event_warnings, summarize};
 use input::{TransactionError, Transactions};
 use results::{CgtReport, DisposalRecord, TaxBand, TaxSummary, TaxYear, TaxableEvent, Warning};
 use std::collections::BTreeSet;
+
+/// Errors returned by [`calculate`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Error {
+    /// The document was rejected; the same rejection the CLI would report.
+    #[error(transparent)]
+    Validation(#[from] TransactionError),
+    /// `CalculationOptions::tax_year` names a year with no representable
+    /// 6 April / 5 April bounds.
+    #[error("tax year {} is out of range", .0 .0)]
+    InvalidTaxYear(TaxYear),
+}
 
 /// Options for [`calculate`].
 #[derive(Debug, Clone, Default)]
@@ -103,10 +116,33 @@ pub struct TaxResults {
     pub years: Vec<TaxYearResults>,
 }
 
-/// Check that `document` would be accepted by `taxc`, without calculating
-/// anything. Returns the first rejection the CLI would report.
-pub fn validate(document: &Transactions) -> Result<(), TransactionError> {
-    document_to_events(document.clone(), ConversionOptions::default()).map(|_| ())
+/// Check that `document` would be accepted by [`calculate`] with the same
+/// `options`, without calculating anything. Returns the first rejection the
+/// CLI would report.
+pub fn validate(document: &Transactions, options: &CalculationOptions) -> Result<(), Error> {
+    document_to_events(document.clone(), conversion_options(options))?;
+    if let Some(year) = options.tax_year {
+        check_tax_year(year)?;
+    }
+    Ok(())
+}
+
+fn conversion_options(options: &CalculationOptions) -> ConversionOptions {
+    ConversionOptions {
+        exclude_unlinked: options.exclude_unlinked,
+    }
+}
+
+fn check_tax_year(year: TaxYear) -> Result<(), Error> {
+    let start = year
+        .0
+        .checked_sub(1)
+        .and_then(|y| chrono::NaiveDate::from_ymd_opt(y, 4, 6));
+    let end = chrono::NaiveDate::from_ymd_opt(year.0, 4, 5);
+    match (start, end) {
+        (Some(_), Some(_)) => Ok(()),
+        _ => Err(Error::InvalidTaxYear(year)),
+    }
 }
 
 /// Run the CGT and income calculations the CLI drives and return the
@@ -114,13 +150,11 @@ pub fn validate(document: &Transactions) -> Result<(), TransactionError> {
 pub fn calculate(
     document: Transactions,
     options: &CalculationOptions,
-) -> Result<TaxResults, TransactionError> {
-    let events = document_to_events(
-        document,
-        ConversionOptions {
-            exclude_unlinked: options.exclude_unlinked,
-        },
-    )?;
+) -> Result<TaxResults, Error> {
+    if let Some(year) = options.tax_year {
+        check_tax_year(year)?;
+    }
+    let events = document_to_events(document, conversion_options(options))?;
     let cgt = calculate_cgt(events.clone());
 
     let years: BTreeSet<TaxYear> = match options.tax_year {
@@ -156,25 +190,20 @@ fn summarize_year(
     let mut disposal_index = core::DisposalIndex::new(cgt);
     let mut warnings = Vec::new();
     for event in &year_events {
-        let mut event_warnings = if event.tag == input::Tag::Unclassified {
-            vec![Warning::UnclassifiedEvent]
+        let disposal = if event.event_type == results::EventType::Disposal {
+            disposal_index.find(event)
         } else {
-            Vec::new()
+            None
         };
-        if event.event_type == results::EventType::Disposal {
-            if let Some(d) = disposal_index.find(event) {
-                for warning in &d.warnings {
-                    if !event_warnings.contains(warning) {
-                        event_warnings.push(warning.clone());
-                    }
-                }
-            }
-        }
-        warnings.extend(event_warnings.into_iter().map(|warning| EventWarning {
-            event_id: event.id,
-            source_transaction_id: event.source_transaction_id.clone(),
-            warning,
-        }));
+        warnings.extend(
+            event_warnings(event, disposal)
+                .into_iter()
+                .map(|warning| EventWarning {
+                    event_id: event.id,
+                    source_transaction_id: event.source_transaction_id.clone(),
+                    warning,
+                }),
+        );
     }
 
     TaxYearResults { summary, warnings }

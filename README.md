@@ -125,7 +125,7 @@ by git tag:
 
 ```toml
 [dependencies]
-taxc = { git = "https://github.com/ascjones/taxc", tag = "v0.16.0" }
+taxc = { git = "https://github.com/ascjones/taxc", tag = "<latest release tag>" }
 ```
 
 The stable public surface is:
@@ -136,8 +136,9 @@ The stable public surface is:
   returned by validation.
 - `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`,
   `TaxableEvent`, `Warning`, `TaxYear`, `TaxBand`, …).
-- `taxc::validate(&doc)` — check a document the way the CLI would, returning
-  the first `TransactionError`.
+- `taxc::validate(&doc, &options)` — check a document the way the CLI would
+  with the same options, returning the first `TransactionError` (wrapped in
+  `taxc::Error`).
 - `taxc::calculate(doc, &CalculationOptions)` — run CGT matching and the
   per-year summary (CGT after AEA, income by tag, warnings) and return
   `TaxResults` as plain values, with no formatting.
@@ -152,8 +153,9 @@ notice.
 
 ```rust
 let doc: taxc::input::Transactions = serde_json::from_str(json)?;
-taxc::validate(&doc)?;
-let results = taxc::calculate(doc, &taxc::CalculationOptions::default())?;
+let options = taxc::CalculationOptions::default();
+taxc::validate(&doc, &options)?;
+let results = taxc::calculate(doc, &options)?;
 for year in &results.years {
     println!("{}: {}", year.summary.tax_year.display(), year.summary.estimated_total_tax);
 }
