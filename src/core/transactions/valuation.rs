@@ -8,7 +8,7 @@ use crate::core::price::Price;
 #[serde(untagged)]
 pub enum Valuation {
     Price(Price),
-    ValueGbp(#[schemars(with = "f64")] Decimal),
+    ValueGbp(#[schemars(with = "super::DecimalJson")] Decimal),
 }
 
 impl Valuation {

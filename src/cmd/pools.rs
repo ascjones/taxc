@@ -52,7 +52,7 @@ impl PoolsCommand {
         }
 
         let events = read_events(&self.file, self.exclude_unlinked)?;
-        let cgt_report = calculate_cgt(events)?;
+        let cgt_report = calculate_cgt(events);
 
         if self.daily {
             let entries: Vec<_> = cgt_report

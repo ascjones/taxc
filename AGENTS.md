@@ -24,6 +24,7 @@ Load the LSP tool at the start of each session with `select:LSP` via ToolSearch.
 
 ## Architecture
 
+- `src/lib.rs` is the library's public surface (`taxc::input`, `taxc::results`, `validate`, `calculate`, `input_schema`); it is consumed by external crates pinned by git tag, so only add to it deliberately and keep everything else private. `src/cli.rs` + `src/main.rs` are the binary.
 - `src/cmd/` depends on `src/core/`, never the reverse.
 - `src/cmd/` owns CLI/IO concerns (argument parsing, file reading, stdout formatting).
 - `src/core/` owns domain logic as pure functions — no file IO, no CLI types.

@@ -50,7 +50,7 @@ impl ReportCommand {
         let (transactions, events) =
             read_transactions_and_events(&self.file, self.exclude_unlinked)?;
 
-        let cgt_report = calculate_cgt(events.clone())?;
+        let cgt_report = calculate_cgt(events.clone());
 
         if self.json {
             let data = build_report_data(&[], &events, &cgt_report, &event_filter)?;

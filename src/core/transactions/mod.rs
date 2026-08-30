@@ -35,7 +35,18 @@ pub struct Asset {
 
 pub type AssetRegistry = HashMap<String, Asset>;
 
-#[derive(Debug, Clone, Copy)]
+/// Schema shape for decimal fields: written as a numeric string, accepted as
+/// either a JSON number or a numeric string.
+#[derive(JsonSchema)]
+#[schemars(untagged)]
+pub(crate) enum DecimalJson {
+    #[allow(dead_code)]
+    Number(f64),
+    #[allow(dead_code)]
+    String(String),
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ConversionOptions {
     pub exclude_unlinked: bool,
 }
@@ -48,6 +59,12 @@ pub fn read_transactions_json<R: Read>(
     reader: R,
 ) -> anyhow::Result<(Vec<Transaction>, AssetRegistry)> {
     let input: Transactions = serde_json::from_reader(reader)?;
+    Ok(prepare(input)?)
+}
+
+/// Normalise symbols, validate the asset registry, and sort transactions by
+/// time — everything that must happen to a parsed document before conversion.
+pub fn prepare(input: Transactions) -> Result<(Vec<Transaction>, AssetRegistry), TransactionError> {
     let mut assets = input.assets;
     let mut transactions = input.transactions;
     normalize_assets(&mut assets);
@@ -55,6 +72,18 @@ pub fn read_transactions_json<R: Read>(
     let registry = validate_assets(&assets, &transactions)?;
     transactions.sort_by_key(|t| t.datetime);
     Ok((transactions, registry))
+}
+
+/// Validate a parsed document and convert it to taxable events.
+///
+/// Every rejection the CLI would report for this document surfaces here as a
+/// typed [`TransactionError`].
+pub fn document_to_events(
+    input: Transactions,
+    options: ConversionOptions,
+) -> Result<Vec<TaxableEvent>, TransactionError> {
+    let (transactions, registry) = prepare(input)?;
+    transactions_to_events(&transactions, &registry, options)
 }
 
 /// Convert transactions to taxable events

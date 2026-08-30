@@ -28,7 +28,7 @@ fn gift_event_types_in_report_data() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
@@ -57,7 +57,7 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     let disposal = data
@@ -97,7 +97,7 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     let disposal = data
@@ -124,7 +124,7 @@ fn warning_records_link_source_transaction_and_event_ids() {
         ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
     }];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert!(data.warnings.iter().any(|w| matches!(
@@ -162,7 +162,7 @@ fn warning_records_grouped_by_value_and_ordered_by_first_event() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(
@@ -199,7 +199,7 @@ fn warning_records_distinct_insufficient_cost_basis_values_stay_separate() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(
@@ -227,7 +227,7 @@ fn warning_records_same_first_event_tie_breaks_deterministically() {
         ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
     }];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(data.warnings.len(), 2);
@@ -264,7 +264,7 @@ fn summary_includes_dividend_and_interest_totals() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(data.summary.total_income, "1500.00");
@@ -293,7 +293,7 @@ fn summary_separates_crypto_and_stock_cgt_totals() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     // Combined totals
@@ -335,7 +335,7 @@ fn report_rule_label_is_pool_for_pure_pool_disposal() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(disposal_cgt(&data).rule, "Pool");
@@ -356,7 +356,7 @@ fn report_rule_label_is_mixed_for_multi_component_disposal() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(disposal_cgt(&data).rule, "Mixed");
@@ -375,7 +375,7 @@ fn report_summary_aggregates_unclassified_disposals_separately() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     assert_eq!(data.summary.unclassified_count, 1);
@@ -401,7 +401,7 @@ fn no_gain_no_loss_report_value_uses_cost_basis_with_note() {
         },
     ];
 
-    let cgt_report = calculate_cgt(events.clone()).unwrap();
+    let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter()).unwrap();
 
     let ngnl = data

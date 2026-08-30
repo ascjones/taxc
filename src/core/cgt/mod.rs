@@ -224,7 +224,7 @@ type AcqKey = (NaiveDate, String);
 /// 1. Same-day rule: Match with acquisitions on the same day
 /// 2. Bed & breakfast rule: Match with acquisitions within 30 days after disposal
 /// 3. Section 104 pool: Match with pooled cost basis
-pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
+pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pools: HashMap<String, Pool> = HashMap::new();
     let mut disposals: Vec<DisposalRecord> = Vec::new();
     let mut pool_history = PoolHistory::default();
@@ -335,10 +335,10 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> anyhow::Result<CgtReport> {
             .push(snapshot_pools(year, &pools));
     }
 
-    Ok(CgtReport {
+    CgtReport {
         disposals,
         pool_history,
-    })
+    }
 }
 
 /// Apply the HMRC identification rules (same-day, then B&B, then Section 104
