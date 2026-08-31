@@ -35,7 +35,16 @@ pub struct Asset {
 
 pub type AssetRegistry = HashMap<String, Asset>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(JsonSchema)]
+#[schemars(untagged)]
+pub(crate) enum DecimalJson {
+    #[allow(dead_code)]
+    Number(f64),
+    #[allow(dead_code)]
+    String(#[schemars(regex(pattern = r"^-?[0-9]+(\.[0-9]+)?$"))] String),
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ConversionOptions {
     pub exclude_unlinked: bool,
 }
@@ -48,6 +57,10 @@ pub fn read_transactions_json<R: Read>(
     reader: R,
 ) -> anyhow::Result<(Vec<Transaction>, AssetRegistry)> {
     let input: Transactions = serde_json::from_reader(reader)?;
+    Ok(prepare(input)?)
+}
+
+pub fn prepare(input: Transactions) -> Result<(Vec<Transaction>, AssetRegistry), TransactionError> {
     let mut assets = input.assets;
     let mut transactions = input.transactions;
     normalize_assets(&mut assets);
@@ -55,6 +68,14 @@ pub fn read_transactions_json<R: Read>(
     let registry = validate_assets(&assets, &transactions)?;
     transactions.sort_by_key(|t| t.datetime);
     Ok((transactions, registry))
+}
+
+pub fn document_to_events(
+    input: Transactions,
+    options: ConversionOptions,
+) -> Result<Vec<TaxableEvent>, TransactionError> {
+    let (transactions, registry) = prepare(input)?;
+    transactions_to_events(&transactions, &registry, options)
 }
 
 /// Convert transactions to taxable events

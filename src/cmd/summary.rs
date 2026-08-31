@@ -3,9 +3,7 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
-use crate::core::{
-    calculate_cgt, CgtReport, CgtSummary, DisposalRecord, EventType, Tag, TaxBand, TaxableEvent,
-};
+use crate::core::{calculate_cgt, summarize, CgtReport, DisposalRecord, TaxBand, TaxableEvent};
 use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
 use rust_decimal::Decimal;
@@ -96,7 +94,7 @@ impl SummaryCommand {
         let all_events = read_events(&self.file, self.exclude_unlinked)?;
 
         // Keep HMRC matching correct by calculating CGT from all events.
-        let cgt_report = calculate_cgt(all_events.clone())?;
+        let cgt_report = calculate_cgt(all_events.clone());
         let filtered_events = filter.apply(&all_events);
 
         if self.json {
@@ -131,79 +129,58 @@ impl SummaryCommand {
         println!();
 
         let rate_year = filter.rate_year(events);
-
         let disposals = filtered_classified_disposals(cgt_report, filter);
-        let total_proceeds: Decimal = disposals.iter().map(|d| d.proceeds_gbp).sum();
-        let total_costs: Decimal = disposals
-            .iter()
-            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-            .sum();
-        let total_gain: Decimal = disposals.iter().map(|d| d.gain_gbp).sum();
+        let summary = summarize(events, &disposals, rate_year, band);
+        let cgt = &summary.cgt;
+        let income = &summary.income;
 
-        let exempt_amount = rate_year.cgt_exempt_amount();
         let basic_rate = rate_year.cgt_basic_rate();
         let higher_rate = rate_year.cgt_higher_rate();
 
-        let summary = CgtSummary::calculate(disposals.iter().map(|d| d.gain_gbp), exempt_amount);
-        let taxable_gain = summary.taxable_gain;
-        let tax_basic = summary.estimated_cgt(basic_rate);
-        let tax_higher = summary.estimated_cgt(higher_rate);
-
         println!("CAPITAL GAINS");
-        println!("  Disposals: {}", disposals.len());
+        println!("  Disposals: {}", cgt.disposal_count);
         println!(
             "  Proceeds: {} | Costs: {} | Gain: {}",
-            format_gbp(total_proceeds),
-            format_gbp(total_costs),
-            format_gbp_signed(total_gain)
+            format_gbp(cgt.total_proceeds),
+            format_gbp(cgt.total_costs),
+            format_gbp_signed(cgt.total_gain)
         );
         println!(
             "  Exempt: {} | Taxable: {}",
-            format_gbp(exempt_amount),
-            format_gbp_signed(taxable_gain)
+            format_gbp(cgt.summary.aea),
+            format_gbp_signed(cgt.summary.taxable_gain)
         );
         println!(
             "  CGT @ {:.0}%: {} | @ {:.0}%: {}",
             basic_rate * dec!(100),
-            format_gbp(tax_basic),
+            format_gbp(cgt.summary.estimated_cgt(basic_rate)),
             higher_rate * dec!(100),
-            format_gbp(tax_higher)
+            format_gbp(cgt.summary.estimated_cgt(higher_rate))
         );
         println!();
 
-        let income_rate = rate_year.income_rate(band);
-        let totals = income_totals(events);
-        let income = totals.taxable_income();
-        let income_tax = (income * income_rate).round_dp(2);
-
         println!("INCOME");
-        if income > Decimal::ZERO {
+        if income.taxable > Decimal::ZERO {
             println!(
                 "  Income: {} (Tax @ {:.0}%: {})",
-                format_gbp(income),
-                income_rate * dec!(100),
-                format_gbp(income_tax)
+                format_gbp(income.taxable),
+                income.rate * dec!(100),
+                format_gbp(income.estimated_income_tax)
             );
         } else {
             println!("  Income: £0.00");
         }
         println!(
             "  Salary (PAYE): {} (tax deducted at source)",
-            format_gbp(totals.salary)
+            format_gbp(income.salary)
         );
-        println!("  Dividend: {}", format_gbp(totals.dividend));
-        println!("  Interest: {}", format_gbp(totals.interest));
+        println!("  Dividend: {}", format_gbp(income.dividend));
+        println!("  Interest: {}", format_gbp(income.interest));
         println!();
-
-        let cgt_tax = match band {
-            TaxBand::Basic => tax_basic,
-            TaxBand::Higher | TaxBand::Additional => tax_higher,
-        };
-        let total_tax = cgt_tax + income_tax;
 
         println!(
             "TOTAL TAX LIABILITY: {} ({})",
-            format_gbp(total_tax),
+            format_gbp(summary.estimated_total_tax),
             band_str
         );
         println!();
@@ -217,23 +194,10 @@ impl SummaryCommand {
         band: TaxBand,
     ) -> anyhow::Result<()> {
         let rate_year = filter.rate_year(events);
-        let cgt_rate = match band {
-            TaxBand::Basic => rate_year.cgt_basic_rate(),
-            TaxBand::Higher | TaxBand::Additional => rate_year.cgt_higher_rate(),
-        };
-        let income_rate = rate_year.income_rate(band);
-
         let disposals = filtered_classified_disposals(cgt_report, filter);
-        let summary = CgtSummary::calculate(
-            disposals.iter().map(|d| d.gain_gbp),
-            rate_year.cgt_exempt_amount(),
-        );
-        let estimated_cgt = summary.estimated_cgt(cgt_rate);
-
-        let totals = income_totals(events);
-        let income = totals.taxable_income();
-        let estimated_income_tax = (income * income_rate).round_dp(2);
-        let estimated_total_tax = estimated_cgt + estimated_income_tax;
+        let summary = summarize(events, &disposals, rate_year, band);
+        let cgt = &summary.cgt;
+        let income = &summary.income;
 
         let data = SummaryJson {
             tax_year: rate_year.display(),
@@ -245,21 +209,21 @@ impl SummaryCommand {
                 exclude_unlinked: self.exclude_unlinked,
             },
             tax_band: band_label(band).to_string(),
-            disposal_count: disposals.len(),
-            gross_gains: decimal_to_f64(summary.gross_gains),
-            in_year_losses: decimal_to_f64(summary.in_year_losses),
-            net_gain_before_aea: decimal_to_f64(summary.net_gain_before_aea),
-            aea: decimal_to_f64(summary.aea),
-            taxable_gain: decimal_to_f64(summary.taxable_gain),
-            cgt_rate_pct: decimal_pct(cgt_rate),
-            estimated_cgt: decimal_to_f64(estimated_cgt),
-            income: decimal_to_f64(income),
-            salary_income: decimal_to_f64(totals.salary),
-            dividend_income: decimal_to_f64(totals.dividend),
-            interest_income: decimal_to_f64(totals.interest),
-            income_rate_pct: decimal_pct(income_rate),
-            estimated_income_tax: decimal_to_f64(estimated_income_tax),
-            estimated_total_tax: decimal_to_f64(estimated_total_tax),
+            disposal_count: cgt.disposal_count,
+            gross_gains: decimal_to_f64(cgt.summary.gross_gains),
+            in_year_losses: decimal_to_f64(cgt.summary.in_year_losses),
+            net_gain_before_aea: decimal_to_f64(cgt.summary.net_gain_before_aea),
+            aea: decimal_to_f64(cgt.summary.aea),
+            taxable_gain: decimal_to_f64(cgt.summary.taxable_gain),
+            cgt_rate_pct: decimal_pct(cgt.rate),
+            estimated_cgt: decimal_to_f64(cgt.estimated_cgt),
+            income: decimal_to_f64(income.taxable),
+            salary_income: decimal_to_f64(income.salary),
+            dividend_income: decimal_to_f64(income.dividend),
+            interest_income: decimal_to_f64(income.interest),
+            income_rate_pct: decimal_pct(income.rate),
+            estimated_income_tax: decimal_to_f64(income.estimated_income_tax),
+            estimated_total_tax: decimal_to_f64(summary.estimated_total_tax),
             currency: "GBP",
         };
 
@@ -268,7 +232,7 @@ impl SummaryCommand {
     }
 }
 
-fn filtered_classified_disposals<'a>(
+pub(crate) fn filtered_classified_disposals<'a>(
     cgt_report: &'a CgtReport,
     filter: &EventFilter,
 ) -> Vec<&'a DisposalRecord> {
@@ -278,43 +242,6 @@ fn filtered_classified_disposals<'a>(
         .filter(|d| !d.is_unclassified())
         .filter(|d| filter.matches_disposal(d))
         .collect()
-}
-
-#[derive(Debug, Default)]
-struct IncomeTotals {
-    /// All income including salary.
-    income: Decimal,
-    salary: Decimal,
-    dividend: Decimal,
-    interest: Decimal,
-}
-
-impl IncomeTotals {
-    /// Income subject to the flat-band estimate. Salary is always excluded:
-    /// it is PAYE-settled at source, so estimating tax on it again would
-    /// double-count.
-    fn taxable_income(&self) -> Decimal {
-        self.income - self.salary
-    }
-}
-
-fn income_totals(events: &[&TaxableEvent]) -> IncomeTotals {
-    let mut totals = IncomeTotals::default();
-
-    for event in events {
-        if event.event_type != EventType::Acquisition || !event.tag.is_income() {
-            continue;
-        }
-        totals.income += event.value_gbp;
-        match event.tag {
-            Tag::Salary => totals.salary += event.value_gbp,
-            Tag::Dividend => totals.dividend += event.value_gbp,
-            Tag::Interest => totals.interest += event.value_gbp,
-            _ => {}
-        }
-    }
-
-    totals
 }
 
 fn band_label(band: TaxBand) -> &'static str {

@@ -1,9 +1,17 @@
 [package]
 name = "taxc"
-version = "0.15.0"
+version = "0.16.0"
 authors = ["Andrew Jones <ascjones@gmail.com>"]
 edition = "2021"
 description = "UK Tax Calculator for Capital Gains and Income"
+
+[lib]
+name = "taxc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taxc"
+path = "src/main.rs"
 
 [dependencies]
 chrono = { version = "0.4.45", features = ["serde"] }

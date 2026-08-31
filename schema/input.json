@@ -29,8 +29,7 @@
           "type": "string"
         },
         "quantity": {
-          "type": "number",
-          "format": "double"
+          "$ref": "#/$defs/DecimalJson"
         }
       },
       "required": [
@@ -62,12 +61,23 @@
         "Fiat"
       ]
     },
+    "DecimalJson": {
+      "anyOf": [
+        {
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "type": "string",
+          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+        }
+      ]
+    },
     "Fee": {
       "type": "object",
       "properties": {
         "amount": {
-          "type": "number",
-          "format": "double"
+          "$ref": "#/$defs/DecimalJson"
         },
         "asset": {
           "type": "string"
@@ -80,8 +90,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         }
       },
       "required": [
@@ -99,33 +108,32 @@
         },
         "fx_rate": {
           "description": "FX rate to convert quote currency to GBP - requires quote",
-          "type": [
-            "number",
-            "null"
-          ],
-          "format": "double",
-          "default": null
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecimalJson"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "quote": {
           "description": "Foreign currency quote (e.g., \"USD\") - requires fx_rate",
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "rate": {
           "description": "Price per unit (in GBP, or in quote currency if FX fields present)",
-          "type": "number",
-          "format": "double"
+          "$ref": "#/$defs/DecimalJson"
         },
         "source": {
           "description": "Optional source of price data",
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         }
       },
       "required": [
@@ -172,7 +180,7 @@
       ]
     },
     "Transaction": {
-      "description": "Transaction record with common fields + type-specific data",
+      "description": "Transaction record with common fields + type-specific data.\n\nSerialization contract: optional fields are omitted when absent (never\n`null`), the default `Unclassified` tag is omitted, and decimal quantities\nare written as numeric strings (`\"0.5\"`) so they stay exact through any\nJSON parser. On input a bare JSON number is also accepted.",
       "type": "object",
       "properties": {
         "account": {
@@ -188,8 +196,7 @@
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "fee": {
           "description": "Optional fee for this transaction",
@@ -200,8 +207,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "id": {
           "description": "Unique identifier for this transaction",
@@ -209,8 +215,7 @@
         },
         "tag": {
           "description": "Optional transaction tag used for classification",
-          "$ref": "#/$defs/Tag",
-          "default": "Unclassified"
+          "$ref": "#/$defs/Tag"
         },
         "valuation": {
           "description": "Optional valuation: a price object or direct GBP total",
@@ -257,8 +262,7 @@
               "type": [
                 "string",
                 "null"
-              ],
-              "default": null
+              ]
             },
             "type": {
               "type": "string",
@@ -281,8 +285,7 @@
               "type": [
                 "string",
                 "null"
-              ],
-              "default": null
+              ]
             },
             "type": {
               "type": "string",
@@ -307,8 +310,7 @@
           "$ref": "#/$defs/Price"
         },
         {
-          "type": "number",
-          "format": "double"
+          "$ref": "#/$defs/DecimalJson"
         }
       ]
     }

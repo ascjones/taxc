@@ -66,7 +66,7 @@ fn hmrc_pooling_example() {
         disp("2018-01-01", "BTC", dec!(50), dec!(300000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -87,7 +87,7 @@ fn hmrc_pooling_example_out_of_order() {
         acq("2016-01-01", "BTC", dec!(100), dec!(1000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -108,7 +108,7 @@ fn hmrc_bnb_example_1() {
         acq("2011-07-31", "X", dec!(1000), dec!(12000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 1);
@@ -139,7 +139,7 @@ fn hmrc_bnb_example_2() {
         acq("2012-03-30", "Y", dec!(500), dec!(1000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 2);
@@ -174,7 +174,7 @@ fn hmrc_bnb_example_3() {
         acq("2009-03-31", "Z", dec!(3000), dec!(6000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 1);
@@ -197,7 +197,7 @@ fn same_day_rule() {
         disp("2024-01-15", "BTC", dec!(1), dec!(45000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -219,7 +219,7 @@ fn same_day_rule_partial() {
         disp("2024-01-15", "BTC", dec!(1), dec!(45000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -243,7 +243,7 @@ fn same_day_takes_priority_over_bed_and_breakfast() {
         acq("2024-06-20", "BTC", dec!(5), dec!(60000)), // B&B
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -264,7 +264,7 @@ fn multiple_assets_separate_pools() {
         disp("2024-06-15", "ETH", dec!(50), dec!(30000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 2);
 
@@ -286,7 +286,7 @@ fn disposal_with_fees() {
         disp_with_fee("2024-06-15", "BTC", dec!(5), dec!(75000), dec!(100)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let disposal = &report.disposals[0];
     assert_eq!(disposal.fees_gbp, dec!(100));
@@ -301,7 +301,7 @@ fn acquisition_fees_added_to_pool() {
         disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let disposal = &report.disposals[0];
     // Allowable cost should include the £500 fee
@@ -317,7 +317,7 @@ fn disposal_below_cost_produces_capital_loss() {
         disp("2024-06-15", "BTC", dec!(10), dec!(60000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let disposal = &report.disposals[0];
     assert_eq!(disposal.allowable_cost_gbp, dec!(100000));
@@ -333,7 +333,7 @@ fn disposal_with_fees_can_tip_gain_into_loss() {
         disp_with_fee("2024-06-15", "BTC", dec!(10), dec!(100050), dec!(100)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let disposal = &report.disposals[0];
     // proceeds - cost - fees = 100050 - 100000 - 100 = -50
@@ -348,7 +348,7 @@ fn disposal_more_than_pool() {
         disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let disposal = &report.disposals[0];
     // Should use full pool cost even though disposing more
@@ -367,7 +367,7 @@ fn pool_snapshot_accuracy_after_disposal() {
         disp("2024-07-15", "BTC", dec!(2), dec!(30000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 2);
 
@@ -393,7 +393,7 @@ fn matching_components_sum_to_total_cost() {
         acq("2024-06-20", "BTC", dec!(3), dec!(36000)), // B&B - 3 matched
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     // Components should be: 3 B&B + 2 Pool
@@ -413,7 +413,7 @@ fn matching_components_same_day_and_pool() {
         disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     // Should have 2 components: same-day (2) + pool (3)
@@ -450,7 +450,7 @@ fn matching_components_bnb_has_matched_date() {
         acq("2024-06-20", "BTC", dec!(5), dec!(60000)), // B&B
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 1);
@@ -472,7 +472,7 @@ fn staking_rewards_matched_same_day() {
         disp("2024-03-08", "DOT", dec!(10), dec!(85)),      // Fee disposal same day
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     let disposal = &report.disposals[0];
@@ -507,7 +507,7 @@ fn staking_rewards_matched_bnb() {
         staking("2024-03-15", "DOT", dec!(100), dec!(800)), // Staking reward within 30 days
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     let disposal = &report.disposals[0];
@@ -541,7 +541,7 @@ fn multi_asset_pool_isolation() {
         disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // BTC pool after should show BTC state only
     let (btc_qty, btc_cost) = pool_state_after(&report, &report.disposals[0]);
@@ -579,7 +579,7 @@ fn same_day_has_priority_over_bnb() {
         disp("2024-04-11", "BTC", dec!(50), dec!(30000)), // Sell 50 BTC at £600 each
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 2);
 
     // Find the April 11 disposal
@@ -640,7 +640,7 @@ fn warning_no_cost_basis() {
     // Disposal with no prior acquisitions should have InsufficientCostBasis warning with available=0
     let events = vec![disp("2024-06-15", "BTC", dec!(5), dec!(75000))];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -677,7 +677,7 @@ fn warning_insufficient_pool() {
         disp("2024-06-15", "BTC", dec!(10), dec!(150000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -723,7 +723,7 @@ fn warning_unclassified_out() {
         ),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -756,7 +756,7 @@ fn warning_count_methods() {
         ), // Unclassified + InsufficientCostBasis
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let warning_count = report
         .disposals
@@ -792,7 +792,7 @@ fn no_warning_for_normal_disposal() {
         disp("2024-06-15", "BTC", dec!(5), dec!(75000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -811,7 +811,7 @@ fn year_end_snapshots_omit_zero_balance() {
         acq("2024-01-15", "BTC", dec!(5), dec!(50000)),
         disp("2024-06-15", "BTC", dec!(5), dec!(75000)), // Dispose all
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // Final snapshot should have no pools (BTC is zero)
     let final_snapshot = report.pool_history.year_end_snapshots.last().unwrap();
@@ -829,7 +829,7 @@ fn pool_history_multiple_assets() {
         acq("2024-01-20", "ETH", dec!(50), dec!(25000)),
         disp("2024-06-15", "BTC", dec!(3), dec!(45000)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // Should have 3 entries (2 acquisitions + 1 disposal)
     assert_eq!(report.pool_history.entries.len(), 3);
@@ -864,7 +864,7 @@ fn id_propagates_to_disposal_record() {
     disposal.id = 2;
     let events = vec![acquisition, disposal];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.disposals.len(), 1);
     let disposal = &report.disposals[0];
@@ -879,7 +879,7 @@ fn pool_history_tracks_acquisitions() {
         acq("2024-01-15", "BTC", dec!(5), dec!(50000)),
         acq("2024-03-20", "ETH", dec!(10), dec!(5000)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.pool_history.entries.len(), 2);
     assert_eq!(report.pool_history.entries[0].asset, "BTC");
@@ -896,7 +896,7 @@ fn pool_history_tracks_disposals() {
         acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
         disp("2024-06-15", "BTC", dec!(3), dec!(45000)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     let btc_entries: Vec<_> = report
         .pool_history
@@ -915,7 +915,7 @@ fn year_end_snapshots_at_boundaries() {
         acq("2024-01-15", "BTC", dec!(10), dec!(100000)), // 2023/24
         disp("2024-04-10", "BTC", dec!(3), dec!(45000)),  // 2024/25
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.pool_history.year_end_snapshots.len(), 2);
 
@@ -934,7 +934,7 @@ fn year_end_snapshots_at_boundaries() {
 #[test]
 fn pool_history_empty_events() {
     let events: Vec<TaxableEvent> = vec![];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert!(report.pool_history.entries.is_empty());
     assert!(report.pool_history.year_end_snapshots.is_empty());
@@ -949,7 +949,7 @@ fn pool_history_single_tax_year() {
         acq("2024-06-15", "BTC", dec!(5), dec!(60000)),
         disp("2024-12-01", "BTC", dec!(3), dec!(45000)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // Should have only 1 year-end snapshot
     assert_eq!(report.pool_history.year_end_snapshots.len(), 1);
@@ -971,7 +971,7 @@ fn pool_history_old_events() {
         disp("2019-01-10", "BTC", dec!(30), dec!(150000)), // 2018/19
         disp("2024-06-15", "BTC", dec!(50), dec!(500000)), // 2024/25
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // Should have snapshots spanning multiple years
     assert!(report.pool_history.year_end_snapshots.len() >= 2);
@@ -990,7 +990,7 @@ fn pool_history_staking_rewards_tracked() {
         staking("2024-01-15", "DOT", dec!(100), dec!(500)),
         staking("2024-02-15", "DOT", dec!(50), dec!(280)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     assert_eq!(report.pool_history.entries.len(), 2);
     assert_eq!(
@@ -1021,7 +1021,7 @@ fn no_gain_no_loss_spouse_transfer() {
         ),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     let disposal = &report.disposals[0];
@@ -1060,7 +1060,7 @@ fn no_gain_no_loss_then_normal_sale() {
         disp("2024-06-01", "ABC", dec!(100), dec!(2000)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 2);
 
     // First disposal: no gain no loss
@@ -1104,7 +1104,7 @@ fn no_gain_no_loss_with_same_day_acquisition() {
         acq("2024-06-15", "DEF", dec!(30), dec!(600)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     let disposal = &report.disposals[0];
@@ -1131,7 +1131,7 @@ fn disposal_index_finds_ngnl_by_key_fallback() {
         ),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     // Lookup event with a different id so by_id won't match, forcing the
@@ -1172,7 +1172,7 @@ fn disposal_index_id_hit_consumes_key_fallback_entry() {
         },
     ];
 
-    let report = calculate_cgt(events.clone()).unwrap();
+    let report = calculate_cgt(events.clone());
     assert_eq!(report.disposals.len(), 2);
 
     let mut index = DisposalIndex::new(&report);
@@ -1299,7 +1299,7 @@ fn disposal_index_matches_quantity_ignoring_trailing_zeros() {
         acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
         disp("2024-06-15", "BTC", dec!(1.50), dec!(20000)),
     ];
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
 
     // A different id forces the key fallback rather than the by-id lookup.
     let mut equal_qty = disp("2024-06-15", "BTC", dec!(1.5), dec!(20000));
@@ -1328,7 +1328,7 @@ fn bnb_matches_across_tax_year_boundary() {
         acq("2024-04-10", "BTC", dec!(5), dec!(60000)),  // 2024/25, 21 days later
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 1);
@@ -1359,7 +1359,7 @@ fn insufficient_cost_basis_uses_residual_after_same_day_match() {
         disp("2024-06-15", "BTC", dec!(5), dec!(75000)), // dispose 5
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     // 2 covered same-day, 1 from pool, leaving a 3-unit shortfall over a 1-unit pool.
@@ -1387,7 +1387,7 @@ fn bnb_matches_exactly_30_days_after_disposal() {
         acq("2024-07-15", "BTC", dec!(5), dec!(60000)), // exactly 30 days
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     let disposal = &report.disposals[0];
 
     assert_eq!(disposal.matching_components.len(), 1);
@@ -1416,7 +1416,7 @@ fn cashback_acquisition_establishes_cost_basis() {
         disp("2024-06-01", "ETH", dec!(2), dec!(1500)),
     ];
 
-    let report = calculate_cgt(events).unwrap();
+    let report = calculate_cgt(events);
     assert_eq!(report.disposals.len(), 1);
 
     let disposal = &report.disposals[0];

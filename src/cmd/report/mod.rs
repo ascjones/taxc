@@ -8,8 +8,8 @@ use super::filter::{EventFilter, FilterArgs};
 use super::read_transactions_and_events;
 use crate::core::transactions::{Transaction, TransactionType};
 use crate::core::{
-    calculate_cgt, display_event_type, AssetClass, CgtReport, DisposalIndex, DisposalRecord,
-    EventType, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
+    calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
+    DisposalRecord, EventType, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
 };
 use clap::Args;
 use rust_decimal::Decimal;
@@ -50,7 +50,7 @@ impl ReportCommand {
         let (transactions, events) =
             read_transactions_and_events(&self.file, self.exclude_unlinked)?;
 
-        let cgt_report = calculate_cgt(events.clone())?;
+        let cgt_report = calculate_cgt(events.clone());
 
         if self.json {
             let data = build_report_data(&[], &events, &cgt_report, &event_filter)?;
@@ -286,92 +286,81 @@ pub(super) fn build_report_data(
         .iter()
         .map(|e| {
             // Look up CGT details for disposal events
-            let mut event_warnings = if e.tag == Tag::Unclassified {
-                vec![Warning::UnclassifiedEvent]
-            } else {
-                Vec::new()
-            };
-
-            let cgt = if e.event_type == EventType::Disposal {
-                disposal_index.find(e).map(|d| {
-                    for warning in &d.warnings {
-                        if !event_warnings.contains(warning) {
-                            event_warnings.push(warning.clone());
-                        }
-                    }
-
-                    // Determine primary matching rule
-                    let rule = if d.matching_components.is_empty() {
-                        "Pool".to_string()
-                    } else if d.matching_components.len() == 1 {
-                        format_matching_rule(&d.matching_components[0].rule)
-                    } else {
-                        "Mixed".to_string()
-                    };
-
-                    // Build matching components with acquisition details
-                    let matching_components: Vec<MatchingComponentRow> = d
-                        .matching_components
-                        .iter()
-                        .map(|mc| {
-                            // Look up acquisition details for Same-Day and B&B matches
-                            let (
-                                matched_event_id,
-                                matched_event_type,
-                                matched_tax_year,
-                                matched_asset,
-                                matched_original_qty,
-                                matched_original_value,
-                                matched_description,
-                            ) = if let Some(date) = mc.matched_date {
-                                let key = (date, d.asset.clone());
-                                let event_id = acquisition_event_index.get(&key).copied();
-                                if let Some(detail) = acquisition_details.get(&key) {
-                                    (
-                                        event_id,
-                                        Some(detail.event_type.clone()),
-                                        Some(detail.tax_year.clone()),
-                                        Some(d.asset.clone()),
-                                        Some(detail.quantity.to_string()),
-                                        Some(gbp_2dp(detail.value_gbp)),
-                                        Some(detail.description.clone()),
-                                    )
-                                } else {
-                                    (None, None, None, None, None, None, None)
-                                }
-                            } else {
-                                (None, None, None, None, None, None, None)
-                            };
-
-                            MatchingComponentRow {
-                                rule: format_matching_rule(&mc.rule),
-                                quantity: mc.quantity.to_string(),
-                                cost_gbp: gbp_2dp(mc.cost),
-                                matched_date: mc
-                                    .matched_date
-                                    .map(|d| d.format("%Y-%m-%d").to_string()),
-                                matched_event_id,
-                                matched_event_type,
-                                matched_tax_year,
-                                matched_asset,
-                                matched_original_qty,
-                                matched_original_value,
-                                matched_description,
-                            }
-                        })
-                        .collect();
-
-                    CgtDetails {
-                        proceeds_gbp: gbp_2dp(d.proceeds_gbp),
-                        cost_gbp: gbp_2dp(d.allowable_cost_gbp),
-                        gain_gbp: gbp_2dp(d.gain_gbp),
-                        rule,
-                        matching_components,
-                    }
-                })
+            let disposal = if e.event_type == EventType::Disposal {
+                disposal_index.find(e)
             } else {
                 None
             };
+            let event_warnings = event_warnings(e, disposal);
+
+            let cgt = disposal.map(|d| {
+                // Determine primary matching rule
+                let rule = if d.matching_components.is_empty() {
+                    "Pool".to_string()
+                } else if d.matching_components.len() == 1 {
+                    format_matching_rule(&d.matching_components[0].rule)
+                } else {
+                    "Mixed".to_string()
+                };
+
+                // Build matching components with acquisition details
+                let matching_components: Vec<MatchingComponentRow> = d
+                    .matching_components
+                    .iter()
+                    .map(|mc| {
+                        // Look up acquisition details for Same-Day and B&B matches
+                        let (
+                            matched_event_id,
+                            matched_event_type,
+                            matched_tax_year,
+                            matched_asset,
+                            matched_original_qty,
+                            matched_original_value,
+                            matched_description,
+                        ) = if let Some(date) = mc.matched_date {
+                            let key = (date, d.asset.clone());
+                            let event_id = acquisition_event_index.get(&key).copied();
+                            if let Some(detail) = acquisition_details.get(&key) {
+                                (
+                                    event_id,
+                                    Some(detail.event_type.clone()),
+                                    Some(detail.tax_year.clone()),
+                                    Some(d.asset.clone()),
+                                    Some(detail.quantity.to_string()),
+                                    Some(gbp_2dp(detail.value_gbp)),
+                                    Some(detail.description.clone()),
+                                )
+                            } else {
+                                (None, None, None, None, None, None, None)
+                            }
+                        } else {
+                            (None, None, None, None, None, None, None)
+                        };
+
+                        MatchingComponentRow {
+                            rule: format_matching_rule(&mc.rule),
+                            quantity: mc.quantity.to_string(),
+                            cost_gbp: gbp_2dp(mc.cost),
+                            matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                            matched_event_id,
+                            matched_event_type,
+                            matched_tax_year,
+                            matched_asset,
+                            matched_original_qty,
+                            matched_original_value,
+                            matched_description,
+                        }
+                    })
+                    .collect();
+
+                CgtDetails {
+                    proceeds_gbp: gbp_2dp(d.proceeds_gbp),
+                    cost_gbp: gbp_2dp(d.allowable_cost_gbp),
+                    gain_gbp: gbp_2dp(d.gain_gbp),
+                    rule,
+                    matching_components,
+                }
+            });
 
             let fees_gbp = e.fee_gbp.map(gbp_2dp).unwrap_or_default();
 
