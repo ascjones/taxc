@@ -7,7 +7,7 @@
 Changes that require README updates include:
 - Adding, removing, or renaming commands
 - Adding, removing, or changing command-line options/flags
-- Modifying input file formats (CSV/JSON schema)
+- Modifying the input file format (JSON schema)
 - Changing output formats or adding new output modes
 - Updating supported tax years or rates
 

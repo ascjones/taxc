@@ -1,12 +1,12 @@
 ---
 name: report-ui
-description: Generate the HTML report from a transactions file and preview it in Chrome via devtools. Checks the UI is working and suggests improvements.
+description: Generate the HTML report from a transactions file and preview it in Chrome. Checks the UI is working and suggests improvements.
 argument-hint: "[transactions-file] [-- extra-flags]"
 ---
 
 # Report UI
 
-Generate an HTML report and interactively test it in the browser using Chrome DevTools.
+Generate an HTML report and interactively test it in the browser.
 
 ## Steps
 
@@ -15,11 +15,12 @@ Generate an HTML report and interactively test it in the browser using Chrome De
    - If the user provided extra flags (e.g. `--year 2025`), pass them through.
 
 2. **Open in Chrome**
-   - Use `mcp__chrome-devtools__new_page` to open `file:///tmp/taxc-report-preview.html`.
-   - Use `mcp__chrome-devtools__take_screenshot` to capture the initial state.
+   - Load the `claude-in-chrome` skill to get the browser automation tools.
+   - Open `file:///tmp/taxc-report-preview.html` in a new tab. If the browser can't open `file://` URLs, serve it instead: `./scripts/serve-report.sh` serves `/tmp` at `http://localhost:8765/`, then open `http://localhost:8765/taxc-report-preview.html`.
+   - Take a screenshot to capture the initial state.
 
 3. **Smoke test the UI**
-   Run these checks using `mcp__chrome-devtools__evaluate_script`:
+   Run these checks by evaluating JavaScript in the page:
 
    - **Data loaded**: `DATA` object exists and has `events` and `summary`.
    - **Summary populated**: `#summary-proceeds` contains a `£` value (not the `—` placeholder).
@@ -27,7 +28,7 @@ Generate an HTML report and interactively test it in the browser using Chrome De
    - **Tables rendered**: At least one `.tx-row` in `#transactions-body`.
    - **Tab switching**: Click the Events tab, verify `#events-section` is visible and has rows.
    - **Date panel**: Call `toggleDatePanel()` and verify `.date-panel.open` exists. Then call `closeDatePanel()`.
-   - **No JS errors**: Use `mcp__chrome-devtools__list_console_messages` and check for errors.
+   - **No JS errors**: Read the browser console messages and check for errors.
 
    Report pass/fail for each check.
 
