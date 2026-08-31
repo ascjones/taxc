@@ -117,37 +117,22 @@ Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% 
 
 ## Library
 
-`taxc` is also a Rust library, so a producer can build its input document with
-compile-time checking and run the same calculations the CLI does. Depend on it
-by git tag:
+`taxc` is also a Rust library: build the input document with compile-time checking and run the same calculations the CLI does. Depend on it by git tag:
 
 ```toml
 [dependencies]
 taxc = { git = "https://github.com/ascjones/taxc", tag = "<latest release tag>" }
 ```
 
-The stable public surface is:
+The stable public surface:
 
-- `taxc::input` — the input document root `Transactions` and its field types
-  (`Asset`, `Transaction`, `TransactionType`, `Amount`, `Fee`, `Valuation`,
-  `Price`, `Tag`, `AssetClass`) plus `TransactionError`, the typed rejection
-  returned by validation.
-- `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`,
-  `TaxableEvent`, `Warning`, `TaxYear`, `TaxBand`, …).
-- `taxc::validate(&doc, &options)` — check a document the way the CLI would
-  with the same options, returning the first `TransactionError` (wrapped in
-  `taxc::Error`).
-- `taxc::calculate(doc, &CalculationOptions)` — run CGT matching and the
-  per-year summary (CGT after AEA, income by tag, warnings) and return
-  `TaxResults` as plain values, with no formatting.
-- `taxc::input_schema()` — the input JSON Schema, identical to `taxc schema input`.
+- `taxc::input` — the input document root `Transactions` and its field types (`Asset`, `Transaction`, `Amount`, `Valuation`, `Tag`, …), plus `TransactionError`, the typed rejection returned by validation
+- `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`, `TaxableEvent`, `Warning`, `TaxYear`, `TaxBand`, …)
+- `taxc::validate(&doc, &options)` — check a document the way the CLI would, returning the first `TransactionError` (wrapped in `taxc::Error`)
+- `taxc::calculate(doc, &CalculationOptions)` — run CGT matching and the per-year summary (CGT after AEA, income by tag, warnings), returning `TaxResults` as plain values with no formatting
+- `taxc::input_schema()` — the input JSON Schema, identical to `taxc schema input`
 
-Serialization contract for `taxc::input` types: optional fields are omitted
-when absent (never `null`), the default `Unclassified` tag is omitted, decimal
-quantities are written as numeric strings (`"0.5"`, exact through any JSON
-parser; bare numbers are still accepted on input), and UTC datetimes are
-written with a `Z` suffix. Everything outside these paths is internal and may change without
-notice.
+Serialization contract for `taxc::input` types: optional fields are omitted when absent (never `null`), the default `Unclassified` tag is omitted, decimal quantities are written as numeric strings (`"0.5"`, exact through any JSON parser; bare numbers are still accepted on input), and UTC datetimes end in `Z`. Everything outside these paths is internal and may change without notice.
 
 ```rust
 let doc: taxc::input::Transactions = serde_json::from_str(json)?;
