@@ -12,6 +12,7 @@ use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
     DisposalRecord, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
+use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
@@ -245,25 +246,40 @@ pub(super) fn build_report_data(
     cgt_report: &CgtReport,
     filter: &EventFilter,
 ) -> ReportData {
-    use chrono::NaiveDate;
-
-    // Filter events for reporting/output rows.
     let filtered_events: Vec<_> = filter.apply(events);
+    let acquisitions = acquisition_lookup(&filtered_events);
+    let event_rows = build_event_rows(&filtered_events, cgt_report, &acquisitions);
 
-    // Build index of acquisitions by (date, asset) -> event id for navigation
-    // Multiple acquisitions on the same day for the same asset share an id (first one)
+    ReportData {
+        transactions: build_transaction_rows(transactions, &filtered_events),
+        warnings: group_warnings(&event_rows),
+        summary: build_summary(&filtered_events, &event_rows, cgt_report, filter),
+        events: event_rows,
+    }
+}
+
+/// Acquisitions keyed by (date, asset), so a disposal's Same-Day and B&B
+/// matches can be linked back to the acquisition row they came from.
+/// Multiple acquisitions of one asset on one day are aggregated, and take
+/// the first event's id for navigation.
+#[derive(Default)]
+struct AcquisitionLookup {
+    event_ids: HashMap<(NaiveDate, String), usize>,
+    details: HashMap<(NaiveDate, String), AcquisitionDetail>,
+}
+
+fn acquisition_lookup(filtered_events: &[&TaxableEvent]) -> AcquisitionLookup {
     let mut acquisition_event_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
-    for e in &filtered_events {
+    let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
+
+    for e in filtered_events {
         if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
             let key = (e.date(), e.asset.clone());
             acquisition_event_index.entry(key).or_insert(e.id);
         }
     }
 
-    // Build a map of acquisition details by (date, asset) for lookup
-    // Aggregates multiple acquisitions on the same day
-    let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
-    for e in &filtered_events {
+    for e in filtered_events {
         if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
             let key = (e.date(), e.asset.clone());
             let detail = acquisition_details
@@ -279,11 +295,22 @@ pub(super) fn build_report_data(
         }
     }
 
+    AcquisitionLookup {
+        event_ids: acquisition_event_index,
+        details: acquisition_details,
+    }
+}
+
+fn build_event_rows(
+    filtered_events: &[&TaxableEvent],
+    cgt_report: &CgtReport,
+    acquisitions: &AcquisitionLookup,
+) -> Vec<EventRow> {
     // Build CGT lookup: prefer id, fallback to a composite key
     let mut disposal_index = DisposalIndex::new(cgt_report);
 
     // Build events list with CGT details for disposals
-    let event_rows: Vec<EventRow> = filtered_events
+    filtered_events
         .iter()
         .map(|e| {
             // Look up CGT details for disposal events
@@ -320,8 +347,8 @@ pub(super) fn build_report_data(
                             matched_description,
                         ) = if let Some(date) = mc.matched_date {
                             let key = (date, d.asset.clone());
-                            let event_id = acquisition_event_index.get(&key).copied();
-                            if let Some(detail) = acquisition_details.get(&key) {
+                            let event_id = acquisitions.event_ids.get(&key).copied();
+                            if let Some(detail) = acquisitions.details.get(&key) {
                                 (
                                     event_id,
                                     Some(detail.event_type.clone()),
@@ -399,10 +426,15 @@ pub(super) fn build_report_data(
                 cgt,
             }
         })
-        .collect();
+        .collect()
+}
 
-    let warnings = group_warnings(&event_rows);
-
+fn build_summary(
+    filtered_events: &[&TaxableEvent],
+    event_rows: &[EventRow],
+    cgt_report: &CgtReport,
+    filter: &EventFilter,
+) -> Summary {
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events
         .iter()
@@ -502,9 +534,39 @@ pub(super) fn build_report_data(
         .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
         .count();
 
+    Summary {
+        total_proceeds: pence_string(total_proceeds),
+        total_costs: pence_string(total_costs),
+        total_gain: pence_string(total_gain),
+        total_proceeds_with_unclassified: pence_string(total_proceeds_with_unclassified),
+        total_costs_with_unclassified: pence_string(total_costs_with_unclassified),
+        total_gain_with_unclassified: pence_string(total_gain_with_unclassified),
+        crypto,
+        stocks,
+        fiat,
+        total_income: pence_string(total_income),
+        total_dividend_income: pence_string(total_dividend_income),
+        total_interest_income: pence_string(total_interest_income),
+        event_count: filtered_events.len(),
+        disposal_count,
+        income_count,
+        warning_count,
+        unclassified_count,
+        cost_basis_warning_count,
+        tax_years,
+        assets,
+        min_date: min_date.map(iso_date),
+        max_date: max_date.map(iso_date),
+    }
+}
+
+fn build_transaction_rows(
+    transactions: &[Transaction],
+    filtered_events: &[&TaxableEvent],
+) -> Vec<TransactionRow> {
     // Build transaction_id -> event_ids mapping
     let mut tx_event_map: HashMap<String, Vec<usize>> = HashMap::new();
-    for e in &filtered_events {
+    for e in filtered_events {
         tx_event_map
             .entry(e.source_transaction_id.clone())
             .or_default()
@@ -512,7 +574,7 @@ pub(super) fn build_report_data(
     }
 
     // Build transaction rows
-    let transaction_rows: Vec<TransactionRow> = transactions
+    transactions
         .iter()
         .map(|tx| {
             let (transaction_type, amounts) = match &tx.details {
@@ -569,37 +631,7 @@ pub(super) fn build_report_data(
                 event_ids,
             }
         })
-        .collect();
-
-    ReportData {
-        transactions: transaction_rows,
-        events: event_rows,
-        warnings,
-        summary: Summary {
-            total_proceeds: pence_string(total_proceeds),
-            total_costs: pence_string(total_costs),
-            total_gain: pence_string(total_gain),
-            total_proceeds_with_unclassified: pence_string(total_proceeds_with_unclassified),
-            total_costs_with_unclassified: pence_string(total_costs_with_unclassified),
-            total_gain_with_unclassified: pence_string(total_gain_with_unclassified),
-            crypto,
-            stocks,
-            fiat,
-            total_income: pence_string(total_income),
-            total_dividend_income: pence_string(total_dividend_income),
-            total_interest_income: pence_string(total_interest_income),
-            event_count: filtered_events.len(),
-            disposal_count,
-            income_count,
-            warning_count,
-            unclassified_count,
-            cost_basis_warning_count,
-            tax_years,
-            assets,
-            min_date: min_date.map(iso_date),
-            max_date: max_date.map(iso_date),
-        },
-    }
+        .collect()
 }
 
 fn sum_disposals_by_class(

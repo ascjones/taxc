@@ -4,7 +4,7 @@ use super::filter::{EventFilter, FilterArgs};
 use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
 use crate::core::fmt::iso_date;
-use crate::core::{calculate_cgt, summarize, CgtReport, DisposalRecord, TaxBand, TaxableEvent};
+use crate::core::{calculate_cgt, summarize, CgtReport, DisposalRecord, TaxBand, TaxSummary};
 use clap::{Args, ValueEnum};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -98,23 +98,21 @@ impl SummaryCommand {
         let cgt_report = calculate_cgt(all_events.clone());
         let filtered_events = filter.apply(&all_events);
 
+        let rate_year = filter.rate_year(&filtered_events);
+        let disposals = filtered_classified_disposals(&cgt_report, &filter);
+        let summary = summarize(&filtered_events, &disposals, rate_year, tax_band);
+
         if self.json {
-            self.print_json(&filtered_events, &cgt_report, &filter, tax_band)
+            self.print_json(&summary, &filter)
         } else {
-            self.print_summary(&filtered_events, &cgt_report, &filter, tax_band);
+            self.print_summary(&summary, &filter);
             Ok(())
         }
     }
 
-    fn print_summary(
-        &self,
-        events: &[&TaxableEvent],
-        cgt_report: &CgtReport,
-        filter: &EventFilter,
-        band: TaxBand,
-    ) {
+    fn print_summary(&self, summary: &TaxSummary, filter: &EventFilter) {
         let scope = filter.scope_label();
-        let band_str = band_label(band);
+        let band_str = band_label(summary.tax_band);
 
         println!();
         if let Some(ref asset) = self.asset {
@@ -129,14 +127,11 @@ impl SummaryCommand {
         }
         println!();
 
-        let rate_year = filter.rate_year(events);
-        let disposals = filtered_classified_disposals(cgt_report, filter);
-        let summary = summarize(events, &disposals, rate_year, band);
         let cgt = &summary.cgt;
         let income = &summary.income;
 
-        let basic_rate = rate_year.cgt_basic_rate();
-        let higher_rate = rate_year.cgt_higher_rate();
+        let basic_rate = summary.tax_year.cgt_basic_rate();
+        let higher_rate = summary.tax_year.cgt_higher_rate();
 
         println!("CAPITAL GAINS");
         println!("  Disposals: {}", cgt.disposal_count);
@@ -187,21 +182,12 @@ impl SummaryCommand {
         println!();
     }
 
-    fn print_json(
-        &self,
-        events: &[&TaxableEvent],
-        cgt_report: &CgtReport,
-        filter: &EventFilter,
-        band: TaxBand,
-    ) -> anyhow::Result<()> {
-        let rate_year = filter.rate_year(events);
-        let disposals = filtered_classified_disposals(cgt_report, filter);
-        let summary = summarize(events, &disposals, rate_year, band);
+    fn print_json(&self, summary: &TaxSummary, filter: &EventFilter) -> anyhow::Result<()> {
         let cgt = &summary.cgt;
         let income = &summary.income;
 
         let data = SummaryJson {
-            tax_year: rate_year.display(),
+            tax_year: summary.tax_year.display(),
             filters: SummaryFilters {
                 from: filter.from.map(iso_date),
                 to: filter.to.map(iso_date),
@@ -209,7 +195,7 @@ impl SummaryCommand {
                 event_kind: filter.event_kind.map(|k| k.as_str().to_string()),
                 exclude_unlinked: self.exclude_unlinked,
             },
-            tax_band: band_label(band).to_string(),
+            tax_band: band_label(summary.tax_band).to_string(),
             disposal_count: cgt.disposal_count,
             gross_gains: decimal_to_f64(cgt.summary.gross_gains),
             in_year_losses: decimal_to_f64(cgt.summary.in_year_losses),

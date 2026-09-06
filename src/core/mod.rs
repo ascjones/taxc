@@ -13,7 +13,7 @@ pub use cgt::{
     YearEndSnapshot,
 };
 pub use events::{display_event_type, AssetClass, EventType, Tag, TaxableEvent};
-pub use summary::{event_warnings, summarize};
+pub use summary::{event_warnings, summarize, TaxSummary};
 pub use transactions::{
     document_to_events, read_transactions_json, transactions_to_events, ConversionOptions,
     TransactionError, Transactions,
