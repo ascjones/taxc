@@ -412,6 +412,24 @@ fn tag_name(tag: Tag) -> &'static str {
     }
 }
 
+/// Resolve a valuation to GBP, or `None` when the transaction carries none.
+/// The two wrappers below decide what an absent valuation means.
+fn valuation_to_gbp(
+    id: &str,
+    valuation: Option<&Valuation>,
+    expected_asset: &str,
+    quantity: Decimal,
+) -> Result<Option<Decimal>, TransactionError> {
+    match valuation {
+        Some(Valuation::Price(price)) => {
+            validate_price_base(id, price, expected_asset)?;
+            price.to_gbp(quantity).map(Some)
+        }
+        Some(Valuation::ValueGbp(value_gbp)) => Ok(Some(*value_gbp)),
+        None => Ok(None),
+    }
+}
+
 fn valuation_to_gbp_required(
     id: &str,
     tag: Tag,
@@ -420,18 +438,13 @@ fn valuation_to_gbp_required(
     expected_asset: &str,
     quantity: Decimal,
 ) -> Result<Decimal, TransactionError> {
-    match valuation {
-        Some(Valuation::Price(price)) => {
-            validate_price_base(id, price, expected_asset)?;
-            price.to_gbp(quantity)
-        }
-        Some(Valuation::ValueGbp(value_gbp)) => Ok(*value_gbp),
-        None => Err(TransactionError::MissingTaggedValuation {
+    valuation_to_gbp(id, valuation, expected_asset, quantity)?.ok_or_else(|| {
+        TransactionError::MissingTaggedValuation {
             id: id.to_string(),
             tag: tag_name(tag).to_string(),
             tx_type: tx_type.to_string(),
-        }),
-    }
+        }
+    })
 }
 
 fn valuation_to_gbp_optional(
@@ -440,12 +453,5 @@ fn valuation_to_gbp_optional(
     expected_asset: &str,
     quantity: Decimal,
 ) -> Result<Decimal, TransactionError> {
-    match valuation {
-        Some(Valuation::Price(price)) => {
-            validate_price_base(id, price, expected_asset)?;
-            price.to_gbp(quantity)
-        }
-        Some(Valuation::ValueGbp(value_gbp)) => Ok(*value_gbp),
-        None => Ok(Decimal::ZERO),
-    }
+    Ok(valuation_to_gbp(id, valuation, expected_asset, quantity)?.unwrap_or(Decimal::ZERO))
 }

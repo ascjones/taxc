@@ -3,6 +3,7 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::{format_gbp, format_quantity};
 use super::read_events;
+use crate::core::fmt::iso_date;
 use crate::core::{
     calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, YearEndSnapshot,
 };
@@ -153,7 +154,7 @@ impl PoolsCommand {
         ]);
         for entry in entries {
             builder.push_record([
-                entry.date.format("%Y-%m-%d").to_string(),
+                iso_date(entry.date),
                 entry.asset.clone(),
                 display_event_type(entry.event_type, entry.tag).to_string(),
                 format_quantity(entry.quantity),
@@ -231,9 +232,8 @@ fn filter_year_end_snapshots(
 }
 
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
-    if quantity.is_zero() {
-        Decimal::ZERO
-    } else {
-        (cost_gbp / quantity).round_dp(2)
-    }
+    cost_gbp
+        .checked_div(quantity)
+        .map(|basis| basis.round_dp(2))
+        .unwrap_or_default()
 }

@@ -3,9 +3,10 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
+use crate::core::fmt::iso_date;
 use crate::core::{calculate_cgt, summarize, CgtReport, DisposalRecord, TaxBand, TaxableEvent};
-use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Serialize;
@@ -202,8 +203,8 @@ impl SummaryCommand {
         let data = SummaryJson {
             tax_year: rate_year.display(),
             filters: SummaryFilters {
-                from: filter.from.map(date_str),
-                to: filter.to.map(date_str),
+                from: filter.from.map(iso_date),
+                to: filter.to.map(iso_date),
                 asset: filter.asset.clone(),
                 event_kind: filter.event_kind.map(|k| k.as_str().to_string()),
                 exclude_unlinked: self.exclude_unlinked,
@@ -260,11 +261,5 @@ fn decimal_to_f64(d: Decimal) -> f64 {
 }
 
 fn decimal_pct(rate: Decimal) -> u8 {
-    format!("{:.0}", rate * dec!(100))
-        .parse::<u8>()
-        .unwrap_or_default()
-}
-
-fn date_str(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+    (rate * dec!(100)).round().to_u8().unwrap_or_default()
 }

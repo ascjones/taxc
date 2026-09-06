@@ -6,10 +6,11 @@ pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transfe
 
 use super::filter::{EventFilter, FilterArgs};
 use super::read_transactions_and_events;
+use crate::core::fmt::{iso_date, pence_string};
 use crate::core::transactions::{Transaction, TransactionType};
 use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
-    DisposalRecord, EventType, MatchingRule, Tag, TaxYear, TaxableEvent, Warning,
+    DisposalRecord, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
 use clap::Args;
 use rust_decimal::Decimal;
@@ -53,7 +54,7 @@ impl ReportCommand {
         let cgt_report = calculate_cgt(events.clone());
 
         if self.json {
-            let data = build_report_data(&[], &events, &cgt_report, &event_filter)?;
+            let data = build_report_data(&[], &events, &cgt_report, &event_filter);
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
@@ -243,7 +244,7 @@ pub(super) fn build_report_data(
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
     filter: &EventFilter,
-) -> anyhow::Result<ReportData> {
+) -> ReportData {
     use chrono::NaiveDate;
 
     // Filter events for reporting/output rows.
@@ -298,7 +299,7 @@ pub(super) fn build_report_data(
                 let rule = if d.matching_components.is_empty() {
                     "Pool".to_string()
                 } else if d.matching_components.len() == 1 {
-                    format_matching_rule(&d.matching_components[0].rule)
+                    d.matching_components[0].rule.display().to_string()
                 } else {
                     "Mixed".to_string()
                 };
@@ -327,7 +328,7 @@ pub(super) fn build_report_data(
                                     Some(detail.tax_year.clone()),
                                     Some(d.asset.clone()),
                                     Some(detail.quantity.to_string()),
-                                    Some(gbp_2dp(detail.value_gbp)),
+                                    Some(pence_string(detail.value_gbp)),
                                     Some(detail.description.clone()),
                                 )
                             } else {
@@ -338,10 +339,10 @@ pub(super) fn build_report_data(
                         };
 
                         MatchingComponentRow {
-                            rule: format_matching_rule(&mc.rule),
+                            rule: mc.rule.display().to_string(),
                             quantity: mc.quantity.to_string(),
-                            cost_gbp: gbp_2dp(mc.cost),
-                            matched_date: mc.matched_date.map(|d| d.format("%Y-%m-%d").to_string()),
+                            cost_gbp: pence_string(mc.cost),
+                            matched_date: mc.matched_date.map(iso_date),
                             matched_event_id,
                             matched_event_type,
                             matched_tax_year,
@@ -354,28 +355,28 @@ pub(super) fn build_report_data(
                     .collect();
 
                 CgtDetails {
-                    proceeds_gbp: gbp_2dp(d.proceeds_gbp),
-                    cost_gbp: gbp_2dp(d.allowable_cost_gbp),
-                    gain_gbp: gbp_2dp(d.gain_gbp),
+                    proceeds_gbp: pence_string(d.proceeds_gbp),
+                    cost_gbp: pence_string(d.allowable_cost_gbp),
+                    gain_gbp: pence_string(d.gain_gbp),
                     rule,
                     matching_components,
                 }
             });
 
-            let fees_gbp = e.fee_gbp.map(gbp_2dp).unwrap_or_default();
+            let fees_gbp = e.fee_gbp.map(pence_string).unwrap_or_default();
 
             let (value_gbp, value_gbp_note) = if e.tag == Tag::NoGainNoLoss {
                 (
                     cgt.as_ref()
                         .map(|details| details.cost_gbp.clone())
-                        .unwrap_or_else(|| gbp_2dp(e.value_gbp)),
+                        .unwrap_or_else(|| pence_string(e.value_gbp)),
                     Some(NGNL_VALUE_NOTE.to_string()),
                 )
             } else {
-                (gbp_2dp(e.value_gbp), None)
+                (pence_string(e.value_gbp), None)
             };
 
-            Ok(EventRow {
+            EventRow {
                 id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
                 account: e.account.clone(),
@@ -396,9 +397,9 @@ pub(super) fn build_report_data(
                 description: e.description.clone().unwrap_or_default(),
                 warnings: event_warnings,
                 cgt,
-            })
+            }
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .collect();
 
     let warnings = group_warnings(&event_rows);
 
@@ -570,23 +571,23 @@ pub(super) fn build_report_data(
         })
         .collect();
 
-    Ok(ReportData {
+    ReportData {
         transactions: transaction_rows,
         events: event_rows,
         warnings,
         summary: Summary {
-            total_proceeds: gbp_2dp(total_proceeds),
-            total_costs: gbp_2dp(total_costs),
-            total_gain: gbp_2dp(total_gain),
-            total_proceeds_with_unclassified: gbp_2dp(total_proceeds_with_unclassified),
-            total_costs_with_unclassified: gbp_2dp(total_costs_with_unclassified),
-            total_gain_with_unclassified: gbp_2dp(total_gain_with_unclassified),
+            total_proceeds: pence_string(total_proceeds),
+            total_costs: pence_string(total_costs),
+            total_gain: pence_string(total_gain),
+            total_proceeds_with_unclassified: pence_string(total_proceeds_with_unclassified),
+            total_costs_with_unclassified: pence_string(total_costs_with_unclassified),
+            total_gain_with_unclassified: pence_string(total_gain_with_unclassified),
             crypto,
             stocks,
             fiat,
-            total_income: gbp_2dp(total_income),
-            total_dividend_income: gbp_2dp(total_dividend_income),
-            total_interest_income: gbp_2dp(total_interest_income),
+            total_income: pence_string(total_income),
+            total_dividend_income: pence_string(total_dividend_income),
+            total_interest_income: pence_string(total_interest_income),
             event_count: filtered_events.len(),
             disposal_count,
             income_count,
@@ -595,10 +596,10 @@ pub(super) fn build_report_data(
             cost_basis_warning_count,
             tax_years,
             assets,
-            min_date: min_date.map(|d| d.format("%Y-%m-%d").to_string()),
-            max_date: max_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            min_date: min_date.map(iso_date),
+            max_date: max_date.map(iso_date),
         },
-    })
+    }
 }
 
 fn sum_disposals_by_class(
@@ -620,19 +621,10 @@ fn sum_disposals_by_class(
             },
         );
     AssetClassTotals {
-        proceeds: gbp_2dp(proceeds),
-        costs: gbp_2dp(costs),
-        gain: gbp_2dp(gain),
+        proceeds: pence_string(proceeds),
+        costs: pence_string(costs),
+        gain: pence_string(gain),
     }
-}
-
-/// Render a GBP amount as a plain 2dp string, rounding half away from zero.
-/// `{:.2}` alone truncates `Decimal` values rather than rounding.
-fn gbp_2dp(d: Decimal) -> String {
-    format!(
-        "{:.2}",
-        d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-    )
 }
 
 fn format_event_type(event_type: EventType, tag: Tag) -> String {
@@ -672,22 +664,11 @@ fn group_warnings(event_rows: &[EventRow]) -> Vec<WarningRecord> {
             },
         )
         .collect();
-    warnings.sort_by_key(|w| {
-        (
-            w.related_event_ids.first().copied(),
-            format!("{:?}", w.warning),
-        )
+    warnings.sort_by(|a, b| {
+        (a.related_event_ids.first().copied(), &a.warning)
+            .cmp(&(b.related_event_ids.first().copied(), &b.warning))
     });
     warnings
-}
-
-fn format_matching_rule(rule: &MatchingRule) -> String {
-    match rule {
-        MatchingRule::SameDay => "Same-Day",
-        MatchingRule::BedAndBreakfast => "B&B",
-        MatchingRule::Pool => "Pool",
-    }
-    .to_string()
 }
 
 #[cfg(test)]

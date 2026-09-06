@@ -1,5 +1,6 @@
 //! Shared event filtering infrastructure for CLI commands.
 
+use crate::core::fmt::iso_date;
 use crate::core::{DisposalRecord, EventType, TaxYear, TaxableEvent};
 use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
@@ -153,7 +154,6 @@ impl EventFilter {
     /// "2024/25" (when the bounds exactly span a tax year), or an explicit
     /// date range.
     pub fn scope_label(&self) -> String {
-        let date_str = |d: NaiveDate| d.format("%Y-%m-%d").to_string();
         match (self.from, self.to) {
             (None, None) => "All Years".to_string(),
             (Some(from), Some(to)) => {
@@ -161,11 +161,11 @@ impl EventFilter {
                 if from == tax_year.start_date() && to == tax_year.end_date() {
                     tax_year.display()
                 } else {
-                    format!("{} to {}", date_str(from), date_str(to))
+                    format!("{} to {}", iso_date(from), iso_date(to))
                 }
             }
-            (Some(from), None) => format!("From {}", date_str(from)),
-            (None, Some(to)) => format!("Up to {}", date_str(to)),
+            (Some(from), None) => format!("From {}", iso_date(from)),
+            (None, Some(to)) => format!("Up to {}", iso_date(to)),
         }
     }
 
@@ -190,9 +190,8 @@ pub fn parse_date(s: &str, flag: &str) -> anyhow::Result<NaiveDate> {
 }
 
 fn year_bounds(year: i32) -> anyhow::Result<(Option<NaiveDate>, Option<NaiveDate>)> {
-    let from = NaiveDate::from_ymd_opt(year - 1, 4, 6)
-        .ok_or_else(|| anyhow::anyhow!("invalid --year value: {}", year))?;
-    let to = NaiveDate::from_ymd_opt(year, 4, 5)
+    let (from, to) = TaxYear(year)
+        .try_bounds()
         .ok_or_else(|| anyhow::anyhow!("invalid --year value: {}", year))?;
     Ok((Some(from), Some(to)))
 }

@@ -80,7 +80,7 @@ pub fn summarize(
         estimated_cgt,
     };
 
-    let income_rate = rate_year.income_rate(band);
+    let income_rate = band.income_rate();
     let mut by_tag: BTreeMap<Tag, Decimal> = BTreeMap::new();
     let mut total = Decimal::ZERO;
     for event in events {

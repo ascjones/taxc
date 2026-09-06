@@ -1,24 +1,26 @@
 use super::valuation::Valuation;
 use super::{Asset, Transaction, TransactionType};
+use crate::core::price::Price;
+
+fn normalize_price(price: &mut Price) {
+    price.base = normalize_currency(&price.base);
+    if let Some(quote) = price.quote.as_mut() {
+        *quote = normalize_currency(quote);
+    }
+}
 
 pub(super) fn normalize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions {
         // Normalize valuation price object at transaction level.
         if let Some(Valuation::Price(p)) = tx.valuation.as_mut() {
-            p.base = normalize_currency(&p.base);
-            if let Some(quote) = p.quote.as_mut() {
-                *quote = normalize_currency(quote);
-            }
+            normalize_price(p);
         }
 
         // Normalize fee at transaction level
         if let Some(f) = tx.fee.as_mut() {
             f.asset = normalize_currency(&f.asset);
             if let Some(fp) = f.price.as_mut() {
-                fp.base = normalize_currency(&fp.base);
-                if let Some(quote) = fp.quote.as_mut() {
-                    *quote = normalize_currency(quote);
-                }
+                normalize_price(fp);
             }
         }
 

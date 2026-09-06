@@ -16,7 +16,7 @@ pub fn generate_html(
     cgt_report: &CgtReport,
     filter: &EventFilter,
 ) -> anyhow::Result<String> {
-    let data = build_report_data(transactions, events, cgt_report, filter)?;
+    let data = build_report_data(transactions, events, cgt_report, filter);
     let json_data = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
     let js = JS.replace("__JSON_DATA__", &json_data);
 

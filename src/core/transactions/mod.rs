@@ -15,9 +15,7 @@ mod validate;
 mod valuation;
 
 pub use error::TransactionError;
-#[allow(unused_imports)]
 pub use transaction::{Amount, Fee, Transaction, TransactionType};
-#[allow(unused_imports)]
 pub use valuation::Valuation;
 
 /// Input root for transaction JSON
