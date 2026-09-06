@@ -47,9 +47,10 @@ impl TaxYear {
         NaiveDate::from_ymd_opt(self.0, 4, 5).unwrap()
     }
 
-    /// Display as "2024/25" format
+    /// Display as "2024/25" format. The end year is zero-padded, so
+    /// `TaxYear(2005)` is "2004/05" rather than "2004/5".
     pub fn display(&self) -> String {
-        format!("{}/{}", self.0 - 1, self.0 % 100)
+        format!("{}/{:02}", self.0 - 1, self.0.rem_euclid(100))
     }
 
     /// Get CGT annual exempt amount for this tax year
@@ -168,6 +169,16 @@ mod tests {
         assert_eq!(TaxYear(2024).display(), "2023/24");
         assert_eq!(TaxYear(2025).display(), "2024/25");
         assert_eq!(TaxYear(2026).display(), "2025/26");
+    }
+
+    #[test]
+    fn tax_year_display_pads_single_digit_end_year() {
+        // Years ending 2000-2009 must keep the leading zero: "2004/05",
+        // never "2004/5".
+        assert_eq!(TaxYear(2000).display(), "1999/00");
+        assert_eq!(TaxYear(2005).display(), "2004/05");
+        assert_eq!(TaxYear(2009).display(), "2008/09");
+        assert_eq!(TaxYear(2010).display(), "2009/10");
     }
 
     #[test]
