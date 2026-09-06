@@ -64,9 +64,6 @@ fn report_html_embeds_ngnl_value_note() {
 /// JS executes without errors, summary metrics are populated, and the events table has rows.
 #[test]
 fn report_html_renders_in_browser() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-browser", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -77,15 +74,7 @@ fn report_html_renders_in_browser() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -188,9 +177,6 @@ fn report_html_renders_in_browser() {
 /// Test that the transactions tab renders, expands to show events, and links back to the events tab
 #[test]
 fn report_html_transactions_tab_and_navigation() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-tx-tab", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -201,15 +187,7 @@ fn report_html_transactions_tab_and_navigation() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -340,9 +318,6 @@ fn report_html_transactions_tab_and_navigation() {
 /// Test that date range filters are prepopulated with the min/max dates from the data
 #[test]
 fn report_html_date_range_prepopulated() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-dates", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -353,15 +328,7 @@ fn report_html_date_range_prepopulated() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -457,9 +424,6 @@ fn report_html_date_range_prepopulated() {
 /// Test that single tax year report prepopulates year boundaries and selects the tax year
 #[test]
 fn report_html_single_year_prepopulated() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-single-year", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -472,15 +436,7 @@ fn report_html_single_year_prepopulated() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -518,9 +474,6 @@ fn report_html_single_year_prepopulated() {
 /// Test that changing the tax year dropdown updates date pickers and filters displayed data
 #[test]
 fn report_html_tax_year_changes_date_range() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-year-change", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -531,15 +484,7 @@ fn report_html_tax_year_changes_date_range() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -664,9 +609,6 @@ fn report_html_tax_year_changes_date_range() {
 /// Test that toggling the disposal filter off and on doesn't break expand/collapse
 #[test]
 fn report_html_expand_works_after_filter_toggle() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-toggle", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&[
@@ -677,15 +619,7 @@ fn report_html_expand_works_after_filter_toggle() {
     ]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
@@ -762,23 +696,12 @@ fn wait_for_tx_row_count(tab: &headless_chrome::Tab, expected: u64) {
 /// the pill via its close button restores all rows.
 #[test]
 fn report_html_asset_filter_autocomplete_pills() {
-    use headless_chrome::{Browser, LaunchOptions};
-    use std::time::Duration;
-
     let out = unique_tmp_file("report-html-asset-filter", "html");
     let out_str = out.to_string_lossy().to_string();
     let output = run_taxc(&["report", "tests/data/two_assets.json", "--output", &out_str]);
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build launch options"),
-    )
-    .expect("Failed to launch browser");
+    let browser = common::launch_browser();
 
     let tab = browser.new_tab().expect("Failed to create tab");
     let canonical = out.canonicalize().expect("Failed to canonicalize path");
