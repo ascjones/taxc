@@ -313,9 +313,14 @@ fn cli_summary(path: &std::path::Path, band: &str) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn f64_of(d: rust_decimal::Decimal) -> f64 {
-    use rust_decimal::prelude::ToPrimitive;
-    d.round_dp(2).to_f64().unwrap()
+/// `taxc summary --json` renders money as a 2dp string, rounded half away
+/// from zero; render the library's Decimal the same way to compare.
+fn pence_of(d: rust_decimal::Decimal) -> String {
+    use rust_decimal::RoundingStrategy;
+    format!(
+        "{:.2}",
+        d.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
+    )
 }
 
 /// The library returns the same numbers `taxc summary --json` prints.
@@ -342,19 +347,22 @@ fn calculate_matches_cli_summary() {
         assert_eq!(s.tax_year, TaxYear(2025));
         assert_eq!(cli["tax_year"], "2024/25");
         assert_eq!(cli["disposal_count"], s.cgt.disposal_count);
-        assert_eq!(cli["gross_gains"], f64_of(s.cgt.summary.gross_gains));
-        assert_eq!(cli["in_year_losses"], f64_of(s.cgt.summary.in_year_losses));
-        assert_eq!(cli["aea"], f64_of(s.cgt.summary.aea));
-        assert_eq!(cli["taxable_gain"], f64_of(s.cgt.summary.taxable_gain));
-        assert_eq!(cli["estimated_cgt"], f64_of(s.cgt.estimated_cgt));
-        assert_eq!(cli["income"], f64_of(s.income.taxable));
-        assert_eq!(cli["salary_income"], f64_of(s.income.salary));
-        assert_eq!(cli["dividend_income"], f64_of(s.income.dividend));
+        assert_eq!(cli["gross_gains"], pence_of(s.cgt.summary.gross_gains));
+        assert_eq!(
+            cli["in_year_losses"],
+            pence_of(s.cgt.summary.in_year_losses)
+        );
+        assert_eq!(cli["aea"], pence_of(s.cgt.summary.aea));
+        assert_eq!(cli["taxable_gain"], pence_of(s.cgt.summary.taxable_gain));
+        assert_eq!(cli["estimated_cgt"], pence_of(s.cgt.estimated_cgt));
+        assert_eq!(cli["income"], pence_of(s.income.taxable));
+        assert_eq!(cli["salary_income"], pence_of(s.income.salary));
+        assert_eq!(cli["dividend_income"], pence_of(s.income.dividend));
         assert_eq!(
             cli["estimated_income_tax"],
-            f64_of(s.income.estimated_income_tax)
+            pence_of(s.income.estimated_income_tax)
         );
-        assert_eq!(cli["estimated_total_tax"], f64_of(s.estimated_total_tax));
+        assert_eq!(cli["estimated_total_tax"], pence_of(s.estimated_total_tax));
 
         // Sanity-check the values are non-trivial, not just mutually zero.
         assert_eq!(s.cgt.disposal_count, 2);

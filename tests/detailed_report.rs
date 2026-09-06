@@ -131,34 +131,34 @@ fn summary_json_output() {
         .get("disposal_count")
         .and_then(|v| v.as_u64())
         .is_some());
-    assert!(json.get("gross_gains").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("gross_gains").and_then(|v| v.as_str()).is_some());
     assert!(json
         .get("in_year_losses")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("net_gain_before_aea")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
-    assert!(json.get("aea").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("taxable_gain").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("estimated_cgt").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("income").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("aea").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("taxable_gain").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("estimated_cgt").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("income").and_then(|v| v.as_str()).is_some());
     assert!(json
         .get("dividend_income")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("interest_income")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("estimated_income_tax")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("estimated_total_tax")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert_eq!(json.get("currency").and_then(|v| v.as_str()), Some("GBP"));
 }
@@ -583,9 +583,9 @@ fn summary_salary_paye_cashback_not_income() {
 
     // Only the £200 dividend is in the estimate; salary stays visible and
     // Cashback £50 must not be counted.
-    assert_eq!(json["income"].as_f64(), Some(200.0));
-    assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
-    assert_eq!(json["estimated_income_tax"].as_f64(), Some(40.0));
+    assert_eq!(json["income"].as_str(), Some("200.00"));
+    assert_eq!(json["salary_income"].as_str(), Some("1000.00"));
+    assert_eq!(json["estimated_income_tax"].as_str(), Some("40.00"));
 }
 
 /// Default text output shows PAYE salary as its own auditable line

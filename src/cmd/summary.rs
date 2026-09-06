@@ -3,7 +3,7 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
-use crate::core::fmt::iso_date;
+use crate::core::fmt::{iso_date, pence_string};
 use crate::core::{calculate_cgt, summarize, CgtReport, DisposalRecord, TaxBand, TaxSummary};
 use clap::{Args, ValueEnum};
 use rust_decimal::prelude::ToPrimitive;
@@ -62,20 +62,20 @@ struct SummaryJson {
     filters: SummaryFilters,
     tax_band: String,
     disposal_count: usize,
-    gross_gains: f64,
-    in_year_losses: f64,
-    net_gain_before_aea: f64,
-    aea: f64,
-    taxable_gain: f64,
+    gross_gains: String,
+    in_year_losses: String,
+    net_gain_before_aea: String,
+    aea: String,
+    taxable_gain: String,
     cgt_rate_pct: u8,
-    estimated_cgt: f64,
-    income: f64,
-    salary_income: f64,
-    dividend_income: f64,
-    interest_income: f64,
+    estimated_cgt: String,
+    income: String,
+    salary_income: String,
+    dividend_income: String,
+    interest_income: String,
     income_rate_pct: u8,
-    estimated_income_tax: f64,
-    estimated_total_tax: f64,
+    estimated_income_tax: String,
+    estimated_total_tax: String,
     currency: &'static str,
 }
 
@@ -197,20 +197,20 @@ impl SummaryCommand {
             },
             tax_band: band_label(summary.tax_band).to_string(),
             disposal_count: cgt.disposal_count,
-            gross_gains: decimal_to_f64(cgt.summary.gross_gains),
-            in_year_losses: decimal_to_f64(cgt.summary.in_year_losses),
-            net_gain_before_aea: decimal_to_f64(cgt.summary.net_gain_before_aea),
-            aea: decimal_to_f64(cgt.summary.aea),
-            taxable_gain: decimal_to_f64(cgt.summary.taxable_gain),
+            gross_gains: pence_string(cgt.summary.gross_gains),
+            in_year_losses: pence_string(cgt.summary.in_year_losses),
+            net_gain_before_aea: pence_string(cgt.summary.net_gain_before_aea),
+            aea: pence_string(cgt.summary.aea),
+            taxable_gain: pence_string(cgt.summary.taxable_gain),
             cgt_rate_pct: decimal_pct(cgt.rate),
-            estimated_cgt: decimal_to_f64(cgt.estimated_cgt),
-            income: decimal_to_f64(income.taxable),
-            salary_income: decimal_to_f64(income.salary),
-            dividend_income: decimal_to_f64(income.dividend),
-            interest_income: decimal_to_f64(income.interest),
+            estimated_cgt: pence_string(cgt.estimated_cgt),
+            income: pence_string(income.taxable),
+            salary_income: pence_string(income.salary),
+            dividend_income: pence_string(income.dividend),
+            interest_income: pence_string(income.interest),
             income_rate_pct: decimal_pct(income.rate),
-            estimated_income_tax: decimal_to_f64(income.estimated_income_tax),
-            estimated_total_tax: decimal_to_f64(summary.estimated_total_tax),
+            estimated_income_tax: pence_string(income.estimated_income_tax),
+            estimated_total_tax: pence_string(summary.estimated_total_tax),
             currency: "GBP",
         };
 
@@ -237,13 +237,6 @@ fn band_label(band: TaxBand) -> &'static str {
         TaxBand::Higher => "higher",
         TaxBand::Additional => "additional",
     }
-}
-
-fn decimal_to_f64(d: Decimal) -> f64 {
-    use rust_decimal::prelude::ToPrimitive;
-    d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-        .to_f64()
-        .unwrap_or(0.0)
 }
 
 fn decimal_pct(rate: Decimal) -> u8 {
