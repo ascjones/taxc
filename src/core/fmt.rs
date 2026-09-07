@@ -24,8 +24,15 @@ pub fn pence_string(amount: Decimal) -> String {
 }
 
 /// Render a quantity with up to 8 decimal places, trailing zeros trimmed.
+///
+/// Rounds half away from zero, the same rule as [`round_pence`], so a
+/// quantity and an amount never disagree about which way a midpoint goes.
+/// Note this rounds where the pre-consolidation formatter truncated.
 pub fn quantity_string(quantity: Decimal) -> String {
-    quantity.round_dp(QUANTITY_DP).normalize().to_string()
+    quantity
+        .round_dp_with_strategy(QUANTITY_DP, RoundingStrategy::MidpointAwayFromZero)
+        .normalize()
+        .to_string()
 }
 
 /// Render a date as ISO `YYYY-MM-DD`.
@@ -71,6 +78,23 @@ mod tests {
     #[test]
     fn quantity_string_caps_at_eight_places() {
         assert_eq!(quantity_string(dec!(1.123456789)), "1.12345679");
+    }
+
+    #[test]
+    fn quantity_string_rounds_half_away_from_zero() {
+        // The same half-way rule as round_pence, so a quantity and an amount
+        // never disagree about which way a midpoint goes.
+        assert_eq!(quantity_string(dec!(0.000000005)), "0.00000001");
+        assert_eq!(quantity_string(dec!(0.000000015)), "0.00000002");
+        assert_eq!(quantity_string(dec!(-0.000000005)), "-0.00000001");
+    }
+
+    #[test]
+    fn quantity_string_keeps_sub_unit_dust_visible() {
+        // Below 8dp the value rounds up rather than vanishing to "0", so a
+        // non-zero pool balance is never rendered as empty.
+        assert_eq!(quantity_string(dec!(0.000000009)), "0.00000001");
+        assert_eq!(quantity_string(dec!(0.0000000001)), "0");
     }
 
     #[test]

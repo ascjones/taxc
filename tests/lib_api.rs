@@ -363,6 +363,11 @@ fn calculate_matches_cli_summary() {
             pence_of(s.income.estimated_income_tax)
         );
         assert_eq!(cli["estimated_total_tax"], pence_of(s.estimated_total_tax));
+        assert_eq!(
+            cli["net_gain_before_aea"],
+            pence_of(s.cgt.summary.net_gain_before_aea)
+        );
+        assert_eq!(cli["interest_income"], pence_of(s.income.interest));
 
         // Sanity-check the values are non-trivial, not just mutually zero.
         assert_eq!(s.cgt.disposal_count, 2);

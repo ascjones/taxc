@@ -262,7 +262,6 @@ pub(super) fn build_report_data(
 /// matches can be linked back to the acquisition row they came from.
 /// Multiple acquisitions of one asset on one day are aggregated, and take
 /// the first event's id for navigation.
-#[derive(Default)]
 struct AcquisitionLookup {
     event_ids: HashMap<(NaiveDate, String), usize>,
     details: HashMap<(NaiveDate, String), AcquisitionDetail>,

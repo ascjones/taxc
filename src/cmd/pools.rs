@@ -1,9 +1,9 @@
 //! Pools command - pool balances over time
 
 use super::filter::{EventFilter, FilterArgs};
-use super::format::{format_gbp, format_quantity};
+use super::format::format_gbp;
 use super::read_events;
-use crate::core::fmt::iso_date;
+use crate::core::fmt::{iso_date, quantity_string};
 use crate::core::{
     calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, YearEndSnapshot,
 };
@@ -117,7 +117,7 @@ impl PoolsCommand {
             for pool in &snapshot.pools {
                 builder.push_record([
                     pool.asset.clone(),
-                    format_quantity(pool.quantity),
+                    quantity_string(pool.quantity),
                     format_gbp(pool.cost_gbp),
                     format_gbp(cost_basis(pool.quantity, pool.cost_gbp)),
                 ]);
@@ -157,7 +157,7 @@ impl PoolsCommand {
                 iso_date(entry.date),
                 entry.asset.clone(),
                 display_event_type(entry.event_type, entry.tag).to_string(),
-                format_quantity(entry.quantity),
+                quantity_string(entry.quantity),
                 format_gbp(entry.cost_gbp),
                 format_gbp(cost_basis(entry.quantity, entry.cost_gbp)),
             ]);
@@ -232,8 +232,12 @@ fn filter_year_end_snapshots(
 }
 
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
-    cost_gbp
-        .checked_div(quantity)
-        .map(|basis| basis.round_dp(2))
-        .unwrap_or_default()
+    // An empty pool has no cost basis; that is the only case that legitimately
+    // renders as zero. Any other division failure must not be reported as a
+    // plausible £0.00.
+    if quantity.is_zero() {
+        Decimal::ZERO
+    } else {
+        (cost_gbp / quantity).round_dp(2)
+    }
 }

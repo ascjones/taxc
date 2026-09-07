@@ -408,6 +408,26 @@ fn pools_json_output() {
     assert!(first_snapshot.get("pools").is_some());
 }
 
+/// A quantity carrying more than 8 decimal places is rendered rounded, half
+/// away from zero -- the same rule money uses. Nothing below 8dp is silently
+/// truncated away.
+#[test]
+fn pools_json_quantity_rounds_beyond_eight_places() {
+    let output = run_taxc(&["pools", "tests/data/sub_satoshi_quantity.json", "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Failed to parse pools JSON output");
+    let pools = json["year_end_snapshots"][0]["pools"].as_array().unwrap();
+    let btc = pools
+        .iter()
+        .find(|p| p["asset"] == "BTC")
+        .expect("BTC pool present");
+
+    assert_eq!(btc["quantity"].as_str(), Some("1.12345679"));
+}
+
 /// Test pools command with --daily flag
 #[test]
 fn pools_daily_output() {

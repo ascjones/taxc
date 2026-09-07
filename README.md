@@ -35,6 +35,8 @@ Self-contained HTML report, opened in your browser: summary cards, interactive f
 
 Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history.
 
+Quantities render to at most 8 decimal places, rounded half away from zero — the same rule monetary amounts use. A quantity carrying more decimals is rounded, not truncated, so a non-zero balance below `0.00000001` shows as `0.00000001` rather than `0`.
+
 ### `taxc schema`
 
 Print the JSON schema for the input (default) or output (`taxc schema output`) format. Schemas are also checked into `schema/`.

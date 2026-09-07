@@ -1,0 +1,15 @@
+{
+  "assets": [
+    { "symbol": "BTC", "asset_class": "Crypto" }
+  ],
+  "transactions": [
+    {
+      "id": "tx-001",
+      "datetime": "2024-01-15T10:00:00+00:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": { "asset": "GBP", "quantity": 1000 },
+      "bought": { "asset": "BTC", "quantity": "1.123456789" }
+    }
+  ]
+}
