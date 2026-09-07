@@ -134,15 +134,9 @@ fn conversion_options(options: &CalculationOptions) -> ConversionOptions {
 }
 
 fn check_tax_year(year: TaxYear) -> Result<(), Error> {
-    let start = year
-        .0
-        .checked_sub(1)
-        .and_then(|y| chrono::NaiveDate::from_ymd_opt(y, 4, 6));
-    let end = chrono::NaiveDate::from_ymd_opt(year.0, 4, 5);
-    match (start, end) {
-        (Some(_), Some(_)) => Ok(()),
-        _ => Err(Error::InvalidTaxYear(year)),
-    }
+    year.try_bounds()
+        .map(|_| ())
+        .ok_or(Error::InvalidTaxYear(year))
 }
 
 /// Run the CGT and income calculations the CLI drives and return the

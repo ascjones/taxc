@@ -23,6 +23,8 @@ All commands take an optional positional `FILE` (JSON); if omitted or `-`, input
 
 Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`; add `--json` for machine-readable output, `-t higher` for a different tax band.
 
+In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields remain numbers.
+
 Salary is treated as PAYE-settled (already taxed at source): it is reported on its own line (`salary_income` in JSON) but excluded from the income tax estimate, since UK employers must operate PAYE even on salary paid in crypto. For the rare case of employment income received gross (non-RCA tokens, or an overseas employer with no UK presence), tag it `OtherIncome` instead.
 
 ### `taxc report`
@@ -32,6 +34,8 @@ Self-contained HTML report, opened in your browser: summary cards, interactive f
 ### `taxc pools`
 
 Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history.
+
+Quantities render to at most 8 decimal places, rounded half away from zero — the same rule monetary amounts use. A quantity carrying more decimals is rounded, not truncated, so a non-zero balance below `0.00000001` shows as `0.00000001` rather than `0`.
 
 ### `taxc schema`
 

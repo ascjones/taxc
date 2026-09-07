@@ -1,4 +1,5 @@
 use super::events::{EventType, Tag, TaxableEvent};
+use super::fmt::{iso_date, pence_string, quantity_string};
 use super::uk::TaxYear;
 use super::warnings::Warning;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
@@ -7,19 +8,15 @@ use serde::{Serialize, Serializer};
 use std::collections::{HashMap, VecDeque};
 
 fn serialize_date<S: Serializer>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&date.format("%Y-%m-%d").to_string())
+    serializer.serialize_str(&iso_date(*date))
 }
 
 fn serialize_quantity<S: Serializer>(qty: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
-    let s = format!("{:.8}", qty);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    serializer.serialize_str(trimmed)
+    serializer.serialize_str(&quantity_string(*qty))
 }
 
 fn serialize_decimal_2dp<S: Serializer>(d: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
-    // `{:.2}` alone truncates Decimal values rather than rounding.
-    let rounded = d.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
-    serializer.serialize_str(&format!("{:.2}", rounded))
+    serializer.serialize_str(&pence_string(*d))
 }
 
 /// Snapshot of a single pool at a point in time (for daily history)

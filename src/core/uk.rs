@@ -12,6 +12,18 @@ pub enum TaxBand {
     Additional,
 }
 
+impl TaxBand {
+    /// Income tax rate for miscellaneous income (e.g. staking rewards).
+    /// The band alone determines the rate; it does not vary by tax year.
+    pub fn income_rate(self) -> Decimal {
+        match self {
+            TaxBand::Basic => dec!(0.20),
+            TaxBand::Higher => dec!(0.40),
+            TaxBand::Additional => dec!(0.45),
+        }
+    }
+}
+
 /// UK Tax Year (runs 6 April to 5 April)
 /// The year value represents the end year (e.g., 2025 = 2024/25 tax year)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -37,19 +49,40 @@ impl TaxYear {
         }
     }
 
+    /// The tax year's 6 April / 5 April bounds, or `None` when the year is
+    /// too large or small for a representable date.
+    ///
+    /// The single place these dates are derived; `start_date`, `end_date` and
+    /// every caller that needs to reject an out-of-range year go through it.
+    pub fn try_bounds(&self) -> Option<(NaiveDate, NaiveDate)> {
+        let start = self
+            .0
+            .checked_sub(1)
+            .and_then(|y| NaiveDate::from_ymd_opt(y, 4, 6))?;
+        let end = NaiveDate::from_ymd_opt(self.0, 4, 5)?;
+        Some((start, end))
+    }
+
     /// First day of the tax year (6 April).
+    ///
+    /// Panics if the year has no representable bounds; use [`TaxYear::try_bounds`]
+    /// for a year that came from untrusted input.
     pub fn start_date(&self) -> NaiveDate {
-        NaiveDate::from_ymd_opt(self.0 - 1, 4, 6).unwrap()
+        self.try_bounds().expect("tax year out of range").0
     }
 
     /// Last day of the tax year (5 April).
+    ///
+    /// Panics if the year has no representable bounds; use [`TaxYear::try_bounds`]
+    /// for a year that came from untrusted input.
     pub fn end_date(&self) -> NaiveDate {
-        NaiveDate::from_ymd_opt(self.0, 4, 5).unwrap()
+        self.try_bounds().expect("tax year out of range").1
     }
 
-    /// Display as "2024/25" format
+    /// Display as "2024/25" format. The end year is zero-padded, so
+    /// `TaxYear(2005)` is "2004/05" rather than "2004/5".
     pub fn display(&self) -> String {
-        format!("{}/{}", self.0 - 1, self.0 % 100)
+        format!("{}/{:02}", self.0 - 1, self.0.rem_euclid(100))
     }
 
     /// Get CGT annual exempt amount for this tax year
@@ -107,15 +140,6 @@ impl TaxYear {
             _ => dec!(0.28),
         }
     }
-
-    /// Get income tax rate for miscellaneous income (e.g., staking rewards)
-    pub fn income_rate(&self, band: TaxBand) -> Decimal {
-        match band {
-            TaxBand::Basic => dec!(0.20),      // 20%
-            TaxBand::Higher => dec!(0.40),     // 40%
-            TaxBand::Additional => dec!(0.45), // 45%
-        }
-    }
 }
 
 impl std::fmt::Display for TaxYear {
@@ -168,6 +192,16 @@ mod tests {
         assert_eq!(TaxYear(2024).display(), "2023/24");
         assert_eq!(TaxYear(2025).display(), "2024/25");
         assert_eq!(TaxYear(2026).display(), "2025/26");
+    }
+
+    #[test]
+    fn tax_year_display_pads_single_digit_end_year() {
+        // Years ending 2000-2009 must keep the leading zero: "2004/05",
+        // never "2004/5".
+        assert_eq!(TaxYear(2000).display(), "1999/00");
+        assert_eq!(TaxYear(2005).display(), "2004/05");
+        assert_eq!(TaxYear(2009).display(), "2008/09");
+        assert_eq!(TaxYear(2010).display(), "2009/10");
     }
 
     #[test]
@@ -226,9 +260,15 @@ mod tests {
 
     #[test]
     fn income_rates() {
-        let ty = TaxYear(2025);
-        assert_eq!(ty.income_rate(TaxBand::Basic), dec!(0.20));
-        assert_eq!(ty.income_rate(TaxBand::Higher), dec!(0.40));
-        assert_eq!(ty.income_rate(TaxBand::Additional), dec!(0.45));
+        assert_eq!(TaxBand::Basic.income_rate(), dec!(0.20));
+        assert_eq!(TaxBand::Higher.income_rate(), dec!(0.40));
+        assert_eq!(TaxBand::Additional.income_rate(), dec!(0.45));
+    }
+
+    #[test]
+    fn try_bounds_rejects_unrepresentable_year() {
+        assert!(TaxYear(2025).try_bounds().is_some());
+        assert!(TaxYear(i32::MIN).try_bounds().is_none());
+        assert!(TaxYear(i32::MAX).try_bounds().is_none());
     }
 }

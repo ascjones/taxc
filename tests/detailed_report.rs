@@ -131,34 +131,34 @@ fn summary_json_output() {
         .get("disposal_count")
         .and_then(|v| v.as_u64())
         .is_some());
-    assert!(json.get("gross_gains").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("gross_gains").and_then(|v| v.as_str()).is_some());
     assert!(json
         .get("in_year_losses")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("net_gain_before_aea")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
-    assert!(json.get("aea").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("taxable_gain").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("estimated_cgt").and_then(|v| v.as_f64()).is_some());
-    assert!(json.get("income").and_then(|v| v.as_f64()).is_some());
+    assert!(json.get("aea").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("taxable_gain").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("estimated_cgt").and_then(|v| v.as_str()).is_some());
+    assert!(json.get("income").and_then(|v| v.as_str()).is_some());
     assert!(json
         .get("dividend_income")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("interest_income")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("estimated_income_tax")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert!(json
         .get("estimated_total_tax")
-        .and_then(|v| v.as_f64())
+        .and_then(|v| v.as_str())
         .is_some());
     assert_eq!(json.get("currency").and_then(|v| v.as_str()), Some("GBP"));
 }
@@ -408,6 +408,26 @@ fn pools_json_output() {
     assert!(first_snapshot.get("pools").is_some());
 }
 
+/// A quantity carrying more than 8 decimal places is rendered rounded, half
+/// away from zero -- the same rule money uses. Nothing below 8dp is silently
+/// truncated away.
+#[test]
+fn pools_json_quantity_rounds_beyond_eight_places() {
+    let output = run_taxc(&["pools", "tests/data/sub_satoshi_quantity.json", "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Failed to parse pools JSON output");
+    let pools = json["year_end_snapshots"][0]["pools"].as_array().unwrap();
+    let btc = pools
+        .iter()
+        .find(|p| p["asset"] == "BTC")
+        .expect("BTC pool present");
+
+    assert_eq!(btc["quantity"].as_str(), Some("1.12345679"));
+}
+
 /// Test pools command with --daily flag
 #[test]
 fn pools_daily_output() {
@@ -583,9 +603,9 @@ fn summary_salary_paye_cashback_not_income() {
 
     // Only the £200 dividend is in the estimate; salary stays visible and
     // Cashback £50 must not be counted.
-    assert_eq!(json["income"].as_f64(), Some(200.0));
-    assert_eq!(json["salary_income"].as_f64(), Some(1000.0));
-    assert_eq!(json["estimated_income_tax"].as_f64(), Some(40.0));
+    assert_eq!(json["income"].as_str(), Some("200.00"));
+    assert_eq!(json["salary_income"].as_str(), Some("1000.00"));
+    assert_eq!(json["estimated_income_tax"].as_str(), Some("40.00"));
 }
 
 /// Default text output shows PAYE salary as its own auditable line

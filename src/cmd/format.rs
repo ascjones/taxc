@@ -1,14 +1,11 @@
 //! Shared stdout formatting helpers for CLI commands.
 
-use rust_decimal::{Decimal, RoundingStrategy};
+use crate::core::fmt::pence_string;
+use rust_decimal::Decimal;
 
-/// Format a monetary amount rounded to pence (half away from zero). Note
-/// that `{:.2}` alone truncates `Decimal` values rather than rounding.
+/// Format a monetary amount with the currency symbol, rounded to pence.
 pub fn format_gbp(amount: Decimal) -> String {
-    format!(
-        "£{:.2}",
-        amount.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
-    )
+    format!("£{}", pence_string(amount))
 }
 
 pub fn format_gbp_signed(amount: Decimal) -> String {
@@ -17,12 +14,6 @@ pub fn format_gbp_signed(amount: Decimal) -> String {
     } else {
         format_gbp(amount)
     }
-}
-
-/// Format a quantity with up to 8 decimal places, trimming trailing zeros.
-pub fn format_quantity(qty: Decimal) -> String {
-    let s = format!("{:.8}", qty);
-    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 #[cfg(test)]
@@ -46,12 +37,5 @@ mod tests {
     fn gbp_signed_places_sign_before_symbol() {
         assert_eq!(format_gbp_signed(dec!(-12.345)), "-£12.35");
         assert_eq!(format_gbp_signed(dec!(12.34)), "£12.34");
-    }
-
-    #[test]
-    fn quantity_trims_trailing_zeros() {
-        assert_eq!(format_quantity(dec!(1.50000000)), "1.5");
-        assert_eq!(format_quantity(dec!(2)), "2");
-        assert_eq!(format_quantity(dec!(0.00000001)), "0.00000001");
     }
 }
