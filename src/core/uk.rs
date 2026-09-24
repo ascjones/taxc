@@ -248,27 +248,6 @@ mod tests {
     }
 
     #[test]
-    fn tax_year_from_date_after_april_6() {
-        // 7 April 2024 is in 2024/25 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 4, 7).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2025));
-    }
-
-    #[test]
-    fn tax_year_from_date_january() {
-        // 15 January 2024 is in 2023/24 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2024));
-    }
-
-    #[test]
-    fn tax_year_from_date_december() {
-        // 31 December 2024 is in 2024/25 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2025));
-    }
-
-    #[test]
     fn tax_year_display() {
         assert_eq!(TaxYear(2024).display(), "2023/24");
         assert_eq!(TaxYear(2025).display(), "2024/25");

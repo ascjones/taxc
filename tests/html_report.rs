@@ -629,9 +629,12 @@ fn report_html_tax_year_changes_date_range() {
     // At least one year should have fewer rows than the total (proving filtering works)
     let year1_rows = counts["year1Rows"].as_u64().unwrap_or(0) as usize;
     let year2_rows = counts["year2Rows"].as_u64().unwrap_or(0) as usize;
-    assert!(
-        year1_rows < initial_tx || year2_rows < initial_tx,
-        "At least one tax year should filter to fewer rows than total ({initial_tx}), got year1={year1_rows} year2={year2_rows}"
+    // mixed_rules.json: one transaction in 2023/24, three in 2024/25.
+    assert_eq!(initial_tx, 4);
+    assert_eq!(
+        (year1_rows, year2_rows),
+        (1, 3),
+        "tax-year presets should show 1 and 3 transactions"
     );
 
     let _ = fs::remove_file(out);

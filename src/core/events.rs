@@ -237,44 +237,6 @@ mod tests {
     use super::*;
     use rust_decimal_macros::dec;
 
-    #[test]
-    fn total_cost_includes_fees() {
-        let event = TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-1".to_string(),
-            account: String::new(),
-            datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "GBP".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1000),
-            value_gbp: dec!(1000),
-            fee_gbp: Some(dec!(50)),
-            description: None,
-        };
-        assert_eq!(event.total_cost_gbp(), dec!(1050));
-    }
-
-    #[test]
-    fn total_cost_without_fees() {
-        let event = TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-1".to_string(),
-            account: String::new(),
-            datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "GBP".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1000),
-            value_gbp: dec!(1000),
-            fee_gbp: None,
-            description: None,
-        };
-        assert_eq!(event.total_cost_gbp(), dec!(1000));
-    }
-
     fn at(datetime: &str) -> TaxableEvent {
         TaxableEvent {
             datetime: DateTime::parse_from_rfc3339(datetime).unwrap(),

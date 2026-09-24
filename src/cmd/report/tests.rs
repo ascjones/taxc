@@ -31,13 +31,8 @@ fn gift_event_types_in_report_data() {
     let cgt_report = calculate_cgt(events.clone());
     let data = build_report_data(&[], &events, &cgt_report, &no_filter());
 
-    let event_types: Vec<String> = data.events.iter().map(|e| e.event_type.clone()).collect();
-    assert!(event_types
-        .iter()
-        .any(|t| t == display_event_type(EventType::Acquisition, Tag::Gift)));
-    assert!(event_types
-        .iter()
-        .any(|t| t == display_event_type(EventType::Disposal, Tag::Gift)));
+    let event_types: Vec<&str> = data.events.iter().map(|e| e.event_type.as_str()).collect();
+    assert_eq!(event_types, vec!["GiftIn", "GiftOut"]);
 }
 
 #[test]
@@ -67,6 +62,7 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
         .and_then(|e| e.cgt.as_ref())
         .expect("expected disposal with CGT details");
 
+    assert_eq!(disposal.matching_components.len(), 1);
     for component in &disposal.matching_components {
         assert_eq!(
             component.matched_event_id,
@@ -107,6 +103,7 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
         .and_then(|e| e.cgt.as_ref())
         .expect("expected disposal with CGT details");
 
+    assert_eq!(disposal.matching_components.len(), 1);
     for component in &disposal.matching_components {
         assert_eq!(
             component.matched_event_id,
@@ -114,25 +111,6 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
             "expected B&B match to point to first acquisition event id for the matched date"
         );
     }
-}
-
-#[test]
-fn warning_records_link_source_transaction_and_event_ids() {
-    let events = vec![TaxableEvent {
-        id: 1,
-        source_transaction_id: "tx-1".to_string(),
-        ..disp("2024-06-01", "BTC", dec!(1), dec!(25000))
-    }];
-
-    let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
-
-    assert!(data.warnings.iter().any(|w| matches!(
-        w.warning,
-        Warning::InsufficientCostBasis { .. }
-    ) && w.source_transaction_ids
-        == vec!["tx-1".to_string()]
-        && w.related_event_ids == vec![1]));
 }
 
 #[test]

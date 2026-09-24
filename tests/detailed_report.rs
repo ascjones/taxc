@@ -63,10 +63,10 @@ fn report_mixed_rules() {
 fn report_filter_by_asset() {
     let output = run_taxc(&[
         "report",
-        "tests/data/mixed_rules.json",
+        "tests/data/two_assets.json",
         "--json",
         "--asset",
-        "BTC",
+        "btc",
     ]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -80,6 +80,7 @@ fn report_filter_by_asset() {
         .and_then(|v| v.as_array())
         .expect("Missing events array");
 
+    // two_assets.json holds BTC and ETH, so the filter has something to drop.
     assert!(!events.is_empty(), "Expected filtered events");
     for e in events {
         assert_eq!(
@@ -88,6 +89,7 @@ fn report_filter_by_asset() {
             "Expected only BTC events"
         );
     }
+    assert_eq!(json["summary"]["assets"], serde_json::json!(["BTC"]));
 }
 
 /// Test JSON input format using summary command
@@ -476,15 +478,16 @@ fn pools_daily_json_output() {
 /// Test pools command with asset filter
 #[test]
 fn pools_filter_by_asset() {
-    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "-a", "BTC"]);
+    let output = run_taxc(&["pools", "tests/data/two_assets.json", "-a", "BTC"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Should show BTC pools
-    assert!(stdout.contains("BTC"));
+    // two_assets.json holds BTC and ETH; only BTC may remain.
+    assert!(stdout.contains("BTC"), "{stdout}");
+    assert!(!stdout.contains("ETH"), "{stdout}");
 }
 
 /// Test pools command with year filter
@@ -524,9 +527,10 @@ fn pools_combined_filters() {
         serde_json::from_str(&stdout).expect("Failed to parse filtered pools JSON");
 
     let snapshots = json["year_end_snapshots"].as_array().unwrap();
-    // Should have exactly one snapshot for 2024/25
-    assert!(!snapshots.is_empty());
+    assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0]["tax_year"], "2024/25");
+    let pools = snapshots[0]["pools"].as_array().unwrap();
+    assert!(pools.iter().all(|p| p["asset"] == "BTC"), "{pools:?}");
 }
 
 #[test]

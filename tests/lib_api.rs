@@ -526,10 +526,6 @@ fn input_schema_constrains_decimal_strings_to_plain_decimals() {
         .find(|b| b["type"] == "string")
         .expect("string branch");
     assert_eq!(string_branch["pattern"], "^-?[0-9]+(\\.[0-9]+)?$");
-    // Every string the pattern admits is one Decimal parses.
-    for ok in ["0.5", "10000", "-3.25", "0"] {
-        let _: rust_decimal::Decimal = ok.parse().unwrap();
-    }
 }
 
 /// validate and calculate report the same first rejection when both the

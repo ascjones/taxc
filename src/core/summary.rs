@@ -268,15 +268,14 @@ mod tests {
 
         let warnings = event_warnings(&d, Some(record));
         assert_eq!(
-            warnings
-                .iter()
-                .filter(|w| **w == Warning::UnclassifiedEvent)
-                .count(),
-            1
-        );
-        assert!(
-            warnings.len() >= 2,
-            "insufficient-basis warning also carried: {warnings:?}"
+            warnings,
+            vec![
+                Warning::UnclassifiedEvent,
+                Warning::InsufficientCostBasis {
+                    available: dec!(0),
+                    required: dec!(1),
+                },
+            ]
         );
         assert!(event_warnings(&d, None).contains(&Warning::UnclassifiedEvent));
     }
@@ -303,6 +302,20 @@ mod tests {
         assert_eq!(years[1].tax_year, TaxYear(2025));
         assert_eq!(years[1].cgt.summary.taxable_gain, dec!(5000));
         assert_eq!(years[1].cgt.estimated_cgt, dec!(900.00));
+    }
+
+    #[test]
+    fn summarize_additional_rate_uses_the_higher_cgt_rate() {
+        let events = vec![
+            acq("2024-11-01", "BTC", dec!(1), dec!(1000)),
+            disp("2024-12-01", "BTC", dec!(1), dec!(11000)),
+        ];
+        let report = calculate_cgt(events.clone());
+        let refs: Vec<&TaxableEvent> = events.iter().collect();
+        let disposals: Vec<&DisposalRecord> = report.disposals.iter().collect();
+        let s = summarize(&refs, &disposals, TaxYear(2025), TaxBand::Additional);
+        // (10,000 - 3,000 AEA) x 24%
+        assert_eq!(s.cgt.estimated_cgt, dec!(1680.00));
     }
 
     #[test]
