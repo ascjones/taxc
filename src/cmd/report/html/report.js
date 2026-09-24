@@ -37,8 +37,7 @@ const DATETIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
 const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' });
 
 function formatCurrency(value) {
-    const num = parseFloat(value) || 0;
-    return GBP_FORMAT.format(num);
+    return GBP_FORMAT.format(num(value));
 }
 
 function formatCount(value) {
@@ -58,8 +57,7 @@ function formatDateTime(datetime) {
 }
 
 function formatQuantity(qty) {
-    const num = parseFloat(qty) || 0;
-    return QTY_FORMAT.format(num);
+    return QTY_FORMAT.format(num(qty));
 }
 
 function formatRuleBadge(rule) {
@@ -90,11 +88,12 @@ function formatEventType(eventKind, warnings) {
     return `<span class="event-arrow ${cls}${warn}">${arrow}<small>${label}</small></span>`;
 }
 
+// Money and quantity fields arrive as decimal strings.
+const num = v => parseFloat(v) || 0;
+
 // Warnings are serialized internally tagged: {"type": "UnclassifiedEvent", ...fields}.
 function warningTypeName(warning) {
-    if (!warning) return '';
-    if (typeof warning === 'string') return warning;
-    return warning.type || '';
+    return warning ? warning.type : '';
 }
 
 function hasWarningType(warnings, warningType) {
@@ -102,12 +101,10 @@ function hasWarningType(warnings, warningType) {
 }
 
 function formatWarningDisplay(w) {
-    if (typeof w === 'string') return w;
     const type = warningTypeName(w);
     if (type === 'UnclassifiedEvent') return 'Unclassified';
     if (type === 'InsufficientCostBasis') {
-        if (w.available == null) return 'Insufficient Cost Basis';
-        if (parseFloat(w.available) === 0) return 'No Cost Basis';
+        if (num(w.available) === 0) return 'No Cost Basis';
         return `Insufficient Cost Basis (${w.available}/${w.required})`;
     }
     return type;
@@ -263,7 +260,7 @@ function formatAmounts(amounts) {
             + `</div>`;
     }
     const a = amounts[0];
-    const prefix = a.label === 'Bought' || a.label === 'In' ? '+' : a.label === 'Sold' || a.label === 'Out' ? '−' : '';
+    const prefix = a.label === 'Bought' ? '+' : a.label === 'Sold' ? '−' : '';
     const cls = prefix === '+' ? 'tx-amount-in' : prefix === '−' ? 'tx-amount-out' : '';
     return `<div class="tx-amount-line"><span class="${cls}">${prefix}${formatQuantity(a.quantity)} ${escapeHtml(a.asset)}</span></div>`;
 }
@@ -278,10 +275,10 @@ function formatFee(fee) {
 const EVENT_SORT_ACCESSORS = {
     datetime: e => e.datetime,
     tag: e => e.tag || '',
-    quantity: e => parseFloat(e.quantity) || 0,
+    quantity: e => num(e.quantity),
     asset: e => e.asset,
-    value: e => parseFloat(e.value_gbp) || 0,
-    gain: e => (e.cgt ? parseFloat(e.cgt.gain_gbp) || 0 : null),
+    value: e => num(e.value_gbp),
+    gain: e => (e.cgt ? num(e.cgt.gain_gbp) : null),
     account: e => e.account || '',
 };
 
@@ -523,7 +520,7 @@ function buildEventRow(e) {
         + `<td>${escapeHtml(e.account || '')}</td>`
         + `</tr>`;
 
-    const fees = parseFloat(e.fees_gbp) || 0;
+    const fees = num(e.fees_gbp);
     const fields = cardField('Description', escapeHtml(e.description || ''))
         + cardField('Note', escapeHtml(e.value_gbp_note || ''))
         + cardField('Event Type', escapeHtml(e.event_type))
@@ -1072,11 +1069,11 @@ function calculateFilteredSummary(events) {
 
     events.forEach(e => {
         if (e.cgt) {
-            const proceeds = parseFloat(e.cgt.proceeds_gbp) || 0;
+            const proceeds = num(e.cgt.proceeds_gbp);
             // Costs include disposal fees so Proceeds − Costs = Gain,
             // matching the Rust-side Summary totals.
-            const costs = (parseFloat(e.cgt.cost_gbp) || 0) + (parseFloat(e.fees_gbp) || 0);
-            const gain = parseFloat(e.cgt.gain_gbp) || 0;
+            const costs = num(e.cgt.cost_gbp) + num(e.fees_gbp);
+            const gain = num(e.cgt.gain_gbp);
             const isUnclassified = hasWarningType(e.warnings, 'UnclassifiedEvent');
 
             totalProceedsWithUnclassified += proceeds;
@@ -1107,7 +1104,7 @@ function calculateFilteredSummary(events) {
         }
 
         const tag = (e.tag || '').toLowerCase();
-        const valueGbp = parseFloat(e.value_gbp) || 0;
+        const valueGbp = num(e.value_gbp);
 
         if (INCOME_TAGS.has(tag) && e.event_kind === 'acquisition') {
             totalIncome += valueGbp;
@@ -1211,13 +1208,13 @@ function renderTaxYearChart() {
         const b = byYear.get(e.tax_year);
         if (!b) return;
         if (e.cgt && !hasWarningType(e.warnings, 'UnclassifiedEvent')) {
-            b.gain += parseFloat(e.cgt.gain_gbp) || 0;
-            b.proceeds += parseFloat(e.cgt.proceeds_gbp) || 0;
-            b.costs += (parseFloat(e.cgt.cost_gbp) || 0) + (parseFloat(e.fees_gbp) || 0);
+            b.gain += num(e.cgt.gain_gbp);
+            b.proceeds += num(e.cgt.proceeds_gbp);
+            b.costs += num(e.cgt.cost_gbp) + num(e.fees_gbp);
             b.disposals++;
         }
         if (e.event_kind === 'acquisition' && INCOME_TAGS.has((e.tag || '').toLowerCase())) {
-            b.income += parseFloat(e.value_gbp) || 0;
+            b.income += num(e.value_gbp);
         }
     });
 

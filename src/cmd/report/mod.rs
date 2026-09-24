@@ -4,7 +4,7 @@ pub mod html;
 
 pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values.";
 
-use super::filter::{EventFilter, FilterArgs};
+use super::filter::{EventFilter, EventKind, FilterArgs};
 use super::read_transactions_and_events;
 use crate::core::fmt::{iso_date, pence_string, quantity_string};
 use crate::core::transactions::{Transaction, TransactionType};
@@ -19,7 +19,7 @@ use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -166,7 +166,7 @@ pub struct EventRow {
     pub tag: Tag,
     pub event_type: String,
     pub asset: String,
-    pub asset_class: String,
+    pub asset_class: AssetClass,
     pub quantity: String,
     pub value_gbp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -390,14 +390,11 @@ fn build_event_rows(
                 account: e.account.clone(),
                 datetime: uk_rfc3339(e.datetime),
                 tax_year: TaxYear::from_date(e.date()).display(),
-                event_kind: match e.event_type {
-                    EventType::Acquisition => "acquisition".to_string(),
-                    EventType::Disposal => "disposal".to_string(),
-                },
+                event_kind: EventKind::from(e.event_type).as_str().to_string(),
                 tag: e.tag,
-                event_type: format_event_type(e.event_type, e.tag),
+                event_type: display_event_type(e.event_type, e.tag).to_string(),
                 asset: e.asset.clone(),
-                asset_class: format_asset_class(&e.asset_class),
+                asset_class: e.asset_class,
                 quantity: quantity_string(e.quantity),
                 value_gbp,
                 value_gbp_note,
@@ -419,7 +416,7 @@ fn build_summary(
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events
         .iter()
-        .map(|e| (e.asset.clone(), e.asset_class.clone()))
+        .map(|e| (e.asset.clone(), e.asset_class))
         .collect();
 
     // Calculate summary from disposals that match the active filter.
@@ -486,18 +483,17 @@ fn build_summary(
             },
         );
 
-    // Collect unique tax years
-    let mut tax_years: Vec<String> = filtered_events
+    let tax_years: BTreeSet<TaxYear> = filtered_events
         .iter()
-        .map(|e| TaxYear::from_date(e.date()).display())
+        .map(|e| TaxYear::from_date(e.date()))
         .collect();
-    tax_years.sort();
-    tax_years.dedup();
-
-    // Collect unique assets
-    let mut assets: Vec<String> = filtered_events.iter().map(|e| e.asset.clone()).collect();
-    assets.sort();
-    assets.dedup();
+    let tax_years: Vec<String> = tax_years.iter().map(TaxYear::display).collect();
+    let assets: Vec<String> = filtered_events
+        .iter()
+        .map(|e| e.asset.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
 
     // Calculate date range from filtered events
     let min_date = filtered_events.iter().map(|e| e.date()).min();
@@ -571,39 +567,24 @@ fn build_transaction_rows(
         .iter()
         .filter(shown)
         .map(|tx| {
+            let amount = |label: &str, a: &crate::core::transactions::Amount| TransactionAmount {
+                label: label.to_string(),
+                asset: a.asset.clone(),
+                quantity: quantity_string(a.quantity),
+            };
             let (transaction_type, amounts) = match &tx.details {
                 TransactionType::Trade { sold, bought } => (
-                    "Trade".to_string(),
-                    vec![
-                        TransactionAmount {
-                            label: "Sold".to_string(),
-                            asset: sold.asset.clone(),
-                            quantity: quantity_string(sold.quantity),
-                        },
-                        TransactionAmount {
-                            label: "Bought".to_string(),
-                            asset: bought.asset.clone(),
-                            quantity: quantity_string(bought.quantity),
-                        },
-                    ],
+                    "Trade",
+                    vec![amount("Sold", sold), amount("Bought", bought)],
                 ),
-                TransactionType::Deposit { amount, .. } => (
-                    "Deposit".to_string(),
-                    vec![TransactionAmount {
-                        label: "Amount".to_string(),
-                        asset: amount.asset.clone(),
-                        quantity: quantity_string(amount.quantity),
-                    }],
-                ),
-                TransactionType::Withdrawal { amount, .. } => (
-                    "Withdrawal".to_string(),
-                    vec![TransactionAmount {
-                        label: "Amount".to_string(),
-                        asset: amount.asset.clone(),
-                        quantity: quantity_string(amount.quantity),
-                    }],
-                ),
+                TransactionType::Deposit { amount: a, .. } => {
+                    ("Deposit", vec![amount("Amount", a)])
+                }
+                TransactionType::Withdrawal { amount: a, .. } => {
+                    ("Withdrawal", vec![amount("Amount", a)])
+                }
             };
+            let transaction_type = transaction_type.to_string();
 
             let fee = tx.fee.as_ref().map(|f| TransactionFee {
                 asset: f.asset.clone(),
@@ -639,19 +620,6 @@ fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
     moved
         .into_iter()
         .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
-}
-
-fn format_event_type(event_type: EventType, tag: Tag) -> String {
-    display_event_type(event_type, tag).to_string()
-}
-
-fn format_asset_class(ac: &AssetClass) -> String {
-    match ac {
-        AssetClass::Crypto => "Crypto",
-        AssetClass::Stock => "Stock",
-        AssetClass::Fiat => "Fiat",
-    }
-    .to_string()
 }
 
 /// Group event warnings into one record per distinct warning value, ordered

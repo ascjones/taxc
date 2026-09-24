@@ -14,12 +14,18 @@ pub enum EventKind {
     Acquisition,
 }
 
+impl From<EventType> for EventKind {
+    fn from(event_type: EventType) -> Self {
+        match event_type {
+            EventType::Acquisition => EventKind::Acquisition,
+            EventType::Disposal => EventKind::Disposal,
+        }
+    }
+}
+
 impl EventKind {
     pub fn matches(self, event_type: EventType) -> bool {
-        match self {
-            EventKind::Disposal => event_type == EventType::Disposal,
-            EventKind::Acquisition => event_type == EventType::Acquisition,
-        }
+        self == EventKind::from(event_type)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -98,7 +104,7 @@ impl FilterArgs {
 }
 
 /// Resolved event filter used by CLI commands.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EventFilter {
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,

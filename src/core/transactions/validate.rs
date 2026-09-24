@@ -33,7 +33,7 @@ pub(super) fn asset_class_for(registry: &AssetRegistry, symbol: &str) -> AssetCl
     let normalized = normalize_currency(symbol);
     registry
         .get(normalized.as_str())
-        .map(|asset| asset.asset_class.clone())
+        .map(|asset| asset.asset_class)
         .expect("asset validated")
 }
 

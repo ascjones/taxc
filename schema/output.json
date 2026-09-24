@@ -33,6 +33,15 @@
     "summary"
   ],
   "$defs": {
+    "AssetClass": {
+      "description": "Asset class for tax treatment",
+      "type": "string",
+      "enum": [
+        "Crypto",
+        "Stock",
+        "Fiat"
+      ]
+    },
     "AssetClassTotals": {
       "type": "object",
       "properties": {
@@ -93,7 +102,7 @@
           "type": "string"
         },
         "asset_class": {
-          "type": "string"
+          "$ref": "#/$defs/AssetClass"
         },
         "cgt": {
           "description": "CGT details for disposal events (None for other event types)",

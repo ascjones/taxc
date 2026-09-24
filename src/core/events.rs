@@ -85,7 +85,7 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
 }
 
 /// Asset class for tax treatment
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
     Crypto,
     Stock,

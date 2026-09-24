@@ -40,9 +40,8 @@ pub struct SummaryCommand {
     filter: FilterArgs,
 }
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum TaxBandArg {
-    #[default]
     Basic,
     Higher,
     Additional,
@@ -309,7 +308,7 @@ fn print_year(summary: &TaxSummary) {
     println!();
 }
 
-pub(crate) fn filtered_classified_disposals<'a>(
+fn filtered_classified_disposals<'a>(
     cgt_report: &'a CgtReport,
     filter: &EventFilter,
 ) -> Vec<&'a DisposalRecord> {

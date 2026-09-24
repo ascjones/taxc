@@ -173,7 +173,7 @@ fn summarize_year(
     year: TaxYear,
     band: TaxBand,
 ) -> TaxYearResults {
-    let in_year = |date: chrono::NaiveDate| date >= year.start_date() && date <= year.end_date();
+    let in_year = |date: chrono::NaiveDate| TaxYear::from_date(date) == year;
     let year_events: Vec<&TaxableEvent> = events.iter().filter(|e| in_year(e.date())).collect();
     let disposals: Vec<&DisposalRecord> = cgt
         .disposals
