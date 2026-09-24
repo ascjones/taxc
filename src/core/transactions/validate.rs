@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use rust_decimal::Decimal;
 
@@ -126,79 +126,79 @@ pub(super) fn validate_amounts(transactions: &[Transaction]) -> Result<(), Trans
 }
 
 pub(super) fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> {
-    let mut seen = HashSet::new();
     let mut index: HashMap<&str, &Transaction> = HashMap::new();
-
     for tx in transactions {
-        if !seen.insert(tx.id.clone()) {
+        if index.insert(tx.id.as_str(), tx).is_some() {
             return Err(TransactionError::DuplicateTransactionId(tx.id.clone()));
         }
-        index.insert(&tx.id, tx);
     }
 
-    for tx in transactions {
-        match &tx.details {
-            TransactionType::Deposit {
-                linked_withdrawal: Some(withdrawal_id),
-                ..
-            } if tx.tag == Tag::Unclassified => {
-                let withdrawal = index.get(withdrawal_id.as_str()).ok_or_else(|| {
-                    TransactionError::LinkedTransactionNotFound {
-                        id: tx.id.clone(),
-                        linked_id: withdrawal_id.clone(),
-                    }
-                })?;
-                if !matches!(withdrawal.details, TransactionType::Withdrawal { .. }) {
-                    return Err(TransactionError::LinkedTransactionTypeMismatch {
-                        id: tx.id.clone(),
-                        linked_id: withdrawal_id.clone(),
-                    });
-                }
-                if !matches!(
-                    withdrawal.details,
-                    TransactionType::Withdrawal {
-                        linked_deposit: Some(ref deposit_id),
-                        ..
-                    } if deposit_id == &tx.id
-                ) {
-                    return Err(TransactionError::LinkedTransactionNotReciprocal {
-                        id: tx.id.clone(),
-                        linked_id: withdrawal_id.clone(),
-                    });
-                }
+    for tx in transactions.iter().filter(|t| t.tag == Tag::Unclassified) {
+        let Some((link, amount)) = transfer_link(tx) else {
+            continue;
+        };
+        let other = index
+            .get(link)
+            .ok_or_else(|| TransactionError::LinkedTransactionNotFound {
+                id: tx.id.clone(),
+                linked_id: link.to_string(),
+            })?;
+        let opposite = matches!(
+            (&tx.details, &other.details),
+            (
+                TransactionType::Deposit { .. },
+                TransactionType::Withdrawal { .. }
+            ) | (
+                TransactionType::Withdrawal { .. },
+                TransactionType::Deposit { .. }
+            )
+        );
+        if !opposite {
+            return Err(TransactionError::LinkedTransactionTypeMismatch {
+                id: tx.id.clone(),
+                linked_id: link.to_string(),
+            });
+        }
+        let Some((_, other_amount)) = transfer_link(other).filter(|(back, _)| *back == tx.id)
+        else {
+            return Err(TransactionError::LinkedTransactionNotReciprocal {
+                id: tx.id.clone(),
+                linked_id: link.to_string(),
+            });
+        };
+
+        if amount.asset != other_amount.asset {
+            return Err(TransactionError::LinkedTransactionAssetMismatch {
+                id: tx.id.clone(),
+                asset: amount.asset.clone(),
+                linked_id: link.to_string(),
+                linked_asset: other_amount.asset.clone(),
+            });
+        }
+        if let TransactionType::Withdrawal { .. } = tx.details {
+            if other_amount.quantity > amount.quantity {
+                return Err(TransactionError::LinkedDepositExceedsWithdrawal {
+                    withdrawal_id: tx.id.clone(),
+                    deposit_id: link.to_string(),
+                });
             }
-            TransactionType::Withdrawal {
-                linked_deposit: Some(deposit_id),
-                ..
-            } if tx.tag == Tag::Unclassified => {
-                let deposit = index.get(deposit_id.as_str()).ok_or_else(|| {
-                    TransactionError::LinkedTransactionNotFound {
-                        id: tx.id.clone(),
-                        linked_id: deposit_id.clone(),
-                    }
-                })?;
-                if !matches!(deposit.details, TransactionType::Deposit { .. }) {
-                    return Err(TransactionError::LinkedTransactionTypeMismatch {
-                        id: tx.id.clone(),
-                        linked_id: deposit_id.clone(),
-                    });
-                }
-                if !matches!(
-                    deposit.details,
-                    TransactionType::Deposit {
-                        linked_withdrawal: Some(ref withdrawal_id),
-                        ..
-                    } if withdrawal_id == &tx.id
-                ) {
-                    return Err(TransactionError::LinkedTransactionNotReciprocal {
-                        id: tx.id.clone(),
-                        linked_id: deposit_id.clone(),
-                    });
-                }
-            }
-            _ => {}
         }
     }
 
     Ok(())
+}
+
+/// The linked transaction id and moved amount of one leg of a transfer.
+fn transfer_link(tx: &Transaction) -> Option<(&str, &Amount)> {
+    match &tx.details {
+        TransactionType::Deposit {
+            amount,
+            linked_withdrawal: Some(link),
+        }
+        | TransactionType::Withdrawal {
+            amount,
+            linked_deposit: Some(link),
+        } => Some((link.as_str(), amount)),
+        _ => None,
+    }
 }

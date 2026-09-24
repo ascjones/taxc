@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use crate::core::events::AssetClass;
 use crate::core::events::TaxableEvent;
+use crate::core::events::{AssetClass, Tag};
+use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -85,11 +86,23 @@ pub fn transactions_to_events(
     validate_amounts(transactions)?;
     validate_links(transactions)?;
 
-    let mut events = Vec::new();
+    let deposited: HashMap<&str, Decimal> = transactions
+        .iter()
+        .filter_map(|tx| match &tx.details {
+            TransactionType::Deposit {
+                amount,
+                linked_withdrawal: Some(w),
+            } if tx.tag == Tag::Unclassified => Some((w.as_str(), amount.quantity)),
+            _ => None,
+        })
+        .collect();
 
+    let mut events = Vec::new();
     for tx in transactions {
-        let mut tx_events = tx.to_taxable_events(registry, options.exclude_unlinked)?;
-        events.append(&mut tx_events);
+        events.extend(tx.to_taxable_events(registry, options.exclude_unlinked)?);
+        if let Some(&qty) = deposited.get(tx.id.as_str()) {
+            events.extend(convert::linked_transfer_shortfall(tx, qty, registry)?);
+        }
     }
 
     events.sort_by_key(|e| e.datetime);

@@ -55,6 +55,10 @@ An optional `tag` classifies a transaction for tax. Income tags (`Salary`, `Othe
 
 GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no `valuation` (the amount is the value); other assets require one to establish market value. Quantities must be positive and fees non-negative; violations are rejected with an error.
 
+**Fees paid in crypto.** Following HMRC (CRYPTO22280), tokens spent on a fee are a disposal of those tokens at market value, and the fee's value is an allowable cost of the transaction it paid for. taxc therefore records a separate disposal of `fee.amount` of `fee.asset` alongside the transaction. Record `sold`/`amount` quantities **net of the fee** — the fee tokens go in `fee`, not in the traded quantity — or they will be disposed of twice. A GBP fee is an allowable cost only.
+
+**Linked transfers** (`linked_deposit`/`linked_withdrawal`) move one asset between your own accounts and are not disposals. Both legs must be the same asset, and the deposit cannot exceed the withdrawal. A fee paid in the moved asset is disposed of as above; any further amount that left but did not arrive is recorded as an unclassified disposal and flagged for review, rather than staying in the pool.
+
 ### Example
 
 ```json
