@@ -34,6 +34,37 @@ fn report_html_respects_from_to_and_event_kind() {
     let _ = fs::remove_file(out);
 }
 
+/// User-supplied strings are embedded in a `<script>` block, so a description
+/// containing `</script>` must not be able to end it early.
+#[test]
+fn report_html_script_breakout_in_description_is_escaped() {
+    let out = unique_tmp_file("report-hostile", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = run_taxc(&[
+        "report",
+        "tests/data/hostile_description.json",
+        "--output",
+        &out_str,
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let html = fs::read_to_string(&out).expect("failed reading generated HTML");
+    let _ = fs::remove_file(&out);
+
+    assert!(
+        !html.contains("<script>window.pwned"),
+        "hostile description must not appear as live markup"
+    );
+    assert!(
+        !html.contains("</script><!--"),
+        "`<!--` must not reach the page raw"
+    );
+    assert_eq!(
+        html.matches("</script>").count(),
+        1,
+        "only the template's own closing tag may appear"
+    );
+}
+
 #[test]
 fn report_html_embeds_ngnl_value_note() {
     let out = unique_tmp_file("report-ngnl-note", "html");
