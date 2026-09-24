@@ -10,7 +10,7 @@ use crate::core::fmt::{iso_date, pence_string, quantity_string};
 use crate::core::transactions::{Transaction, TransactionType};
 use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
-    DisposalRecord, EventType, Tag, TaxYear, TaxableEvent, Warning,
+    DisposalRecord, DisposalTotals, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
 use crate::core::{uk_date, uk_rfc3339};
 use anyhow::Context;
@@ -360,19 +360,13 @@ fn build_event_rows(
     cgt_report: &CgtReport,
     acquisitions: &AcquisitionLookup,
 ) -> Vec<EventRow> {
-    // Build CGT lookup: prefer id, fallback to a composite key
-    let mut disposal_index = DisposalIndex::new(cgt_report);
+    let disposal_index = DisposalIndex::new(cgt_report);
 
     // Build events list with CGT details for disposals
     filtered_events
         .iter()
         .map(|e| {
-            // Look up CGT details for disposal events
-            let disposal = if e.event_type == EventType::Disposal {
-                disposal_index.find(e)
-            } else {
-                None
-            };
+            let disposal = disposal_index.find(e);
             let event_warnings = event_warnings(e, disposal);
 
             let cgt = disposal.map(|d| cgt_details(d, acquisitions));
@@ -442,27 +436,21 @@ fn build_summary(
         .filter(|d| !d.is_unclassified())
         .collect();
 
-    let total_proceeds: Decimal = classified_disposals.iter().map(|d| d.proceeds_gbp).sum();
-    let total_costs: Decimal = classified_disposals
-        .iter()
-        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-        .sum();
-    let total_gain: Decimal = classified_disposals.iter().map(|d| d.gain_gbp).sum();
-
-    // Per-asset-class totals (classified only)
-    let crypto =
-        sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Crypto);
-    let stocks = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Stock);
-    let fiat = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Fiat);
-
+    let classified: DisposalTotals = classified_disposals.iter().copied().collect();
+    let by_class = |class: AssetClass| {
+        let t: DisposalTotals = classified_disposals
+            .iter()
+            .copied()
+            .filter(|d| asset_class_map.get(&d.asset) == Some(&class))
+            .collect();
+        AssetClassTotals {
+            proceeds: pence_string(t.proceeds),
+            costs: pence_string(t.costs),
+            gain: pence_string(t.gain),
+        }
+    };
     // Totals including unclassified events
-    let total_proceeds_with_unclassified: Decimal =
-        filtered_disposals.iter().map(|d| d.proceeds_gbp).sum();
-    let total_costs_with_unclassified: Decimal = filtered_disposals
-        .iter()
-        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-        .sum();
-    let total_gain_with_unclassified: Decimal = filtered_disposals.iter().map(|d| d.gain_gbp).sum();
+    let with_unclassified: DisposalTotals = filtered_disposals.iter().copied().collect();
 
     // Warning counts
     let warning_count = event_rows.iter().filter(|e| !e.warnings.is_empty()).count();
@@ -522,15 +510,15 @@ fn build_summary(
         .count();
 
     Summary {
-        total_proceeds: pence_string(total_proceeds),
-        total_costs: pence_string(total_costs),
-        total_gain: pence_string(total_gain),
-        total_proceeds_with_unclassified: pence_string(total_proceeds_with_unclassified),
-        total_costs_with_unclassified: pence_string(total_costs_with_unclassified),
-        total_gain_with_unclassified: pence_string(total_gain_with_unclassified),
-        crypto,
-        stocks,
-        fiat,
+        total_proceeds: pence_string(classified.proceeds),
+        total_costs: pence_string(classified.costs),
+        total_gain: pence_string(classified.gain),
+        total_proceeds_with_unclassified: pence_string(with_unclassified.proceeds),
+        total_costs_with_unclassified: pence_string(with_unclassified.costs),
+        total_gain_with_unclassified: pence_string(with_unclassified.gain),
+        crypto: by_class(AssetClass::Crypto),
+        stocks: by_class(AssetClass::Stock),
+        fiat: by_class(AssetClass::Fiat),
         total_income: pence_string(total_income),
         total_dividend_income: pence_string(total_dividend_income),
         total_interest_income: pence_string(total_interest_income),
@@ -651,31 +639,6 @@ fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
     moved
         .into_iter()
         .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
-}
-
-fn sum_disposals_by_class(
-    disposals: &[&DisposalRecord],
-    asset_class_map: &HashMap<String, AssetClass>,
-    class: AssetClass,
-) -> AssetClassTotals {
-    let (proceeds, costs, gain) = disposals
-        .iter()
-        .filter(|d| asset_class_map.get(&d.asset) == Some(&class))
-        .fold(
-            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
-            |(proceeds, costs, gain), d| {
-                (
-                    proceeds + d.proceeds_gbp,
-                    costs + d.allowable_cost_gbp + d.fees_gbp,
-                    gain + d.gain_gbp,
-                )
-            },
-        );
-    AssetClassTotals {
-        proceeds: pence_string(proceeds),
-        costs: pence_string(costs),
-        gain: pence_string(gain),
-    }
 }
 
 fn format_event_type(event_type: EventType, tag: Tag) -> String {

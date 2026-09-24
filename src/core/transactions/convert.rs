@@ -116,14 +116,9 @@ impl EventContext<'_> {
     /// Convert the transaction fee to GBP, if there is one. `priced_asset`
     /// names the asset the transaction price refers to, when it applies.
     fn fee_gbp(&self, priced_asset: Option<&str>) -> Result<Option<Decimal>, TransactionError> {
-        match self.fee {
-            Some(f) => Ok(Some(fee_to_gbp_with_context(
-                f,
-                priced_asset,
-                self.tx_price(),
-            )?)),
-            None => Ok(None),
-        }
+        self.fee
+            .map(|f| fee_to_gbp_with_context(f, priced_asset, self.tx_price()))
+            .transpose()
     }
 
     /// Tokens spent on a fee are themselves disposed of (HMRC CRYPTO22280),
@@ -168,7 +163,7 @@ impl EventContext<'_> {
     fn invalid_tag(&self, tx_type: &str) -> TransactionError {
         TransactionError::InvalidTagForType {
             id: self.id.to_string(),
-            tag: tag_name(self.tag).to_string(),
+            tag: format!("{:?}", self.tag),
             tx_type: tx_type.to_string(),
         }
     }
@@ -195,18 +190,11 @@ impl EventContext<'_> {
                 bought.quantity
             }
         } else {
-            match self.valuation {
-                Some(Valuation::Price(price)) => {
-                    validate_price_base(self.id, price, &bought.asset)?;
-                    price.to_gbp(bought.quantity)?
-                }
-                Some(Valuation::ValueGbp(value_gbp)) => *value_gbp,
-                None => {
-                    return Err(TransactionError::MissingTradeValuation {
-                        id: self.id.to_string(),
-                    })
-                }
-            }
+            valuation_to_gbp(self.id, self.valuation, &bought.asset, bought.quantity)?.ok_or_else(
+                || TransactionError::MissingTradeValuation {
+                    id: self.id.to_string(),
+                },
+            )?
         };
 
         let has_disposal = !is_gbp(&sold.asset);
@@ -270,7 +258,7 @@ impl EventContext<'_> {
                 if self.valuation.is_some() {
                     return Err(TransactionError::GbpIncomeValuationNotAllowed {
                         id: self.id.to_string(),
-                        tag: tag_name(self.tag).to_string(),
+                        tag: format!("{:?}", self.tag),
                     });
                 }
                 amount.quantity
@@ -487,8 +475,7 @@ fn fee_to_gbp_with_context(
 
     // Use transaction price if fee asset matches the priced asset.
     if let (Some(asset), Some(price)) = (priced_asset, tx_price) {
-        let fee_asset_normalized = normalize_currency(&fee.asset);
-        if fee_asset_normalized == normalize_currency(asset) {
+        if fee.asset.eq_ignore_ascii_case(asset) {
             return price.to_gbp(fee.amount);
         }
     }
@@ -497,23 +484,6 @@ fn fee_to_gbp_with_context(
     Err(TransactionError::MissingFeePrice {
         asset: fee.asset.clone(),
     })
-}
-
-fn tag_name(tag: Tag) -> &'static str {
-    match tag {
-        Tag::Unclassified => "Unclassified",
-        Tag::Trade => "Trade",
-        Tag::StakingReward => "StakingReward",
-        Tag::Salary => "Salary",
-        Tag::OtherIncome => "OtherIncome",
-        Tag::Airdrop => "Airdrop",
-        Tag::AirdropIncome => "AirdropIncome",
-        Tag::Dividend => "Dividend",
-        Tag::Interest => "Interest",
-        Tag::Gift => "Gift",
-        Tag::Cashback => "Cashback",
-        Tag::NoGainNoLoss => "NoGainNoLoss",
-    }
 }
 
 /// Resolve a valuation to GBP, or `None` when the transaction carries none.
@@ -545,7 +515,7 @@ fn valuation_to_gbp_required(
     valuation_to_gbp(id, valuation, expected_asset, quantity)?.ok_or_else(|| {
         TransactionError::MissingTaggedValuation {
             id: id.to_string(),
-            tag: tag_name(tag).to_string(),
+            tag: format!("{tag:?}"),
             tx_type: tx_type.to_string(),
         }
     })

@@ -4,9 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Type of taxable event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
-    #[default]
     Acquisition,
     Disposal,
 }
@@ -94,31 +93,23 @@ pub enum AssetClass {
 }
 
 /// A taxable event (acquisition, disposal, or income)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TaxableEvent {
     /// Sequential event identifier assigned during conversion
     pub id: usize,
     /// Original input transaction ID for this event
     pub source_transaction_id: String,
     /// Account this event originated from
-    #[serde(default)]
     pub account: String,
     #[serde(rename = "date")]
-    #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
     pub event_type: EventType,
-    #[serde(default)]
     pub tag: Tag,
     pub asset: String,
     pub asset_class: AssetClass,
-    #[schemars(with = "f64")]
     pub quantity: Decimal,
-    #[schemars(with = "f64")]
     pub value_gbp: Decimal,
-    #[serde(default)]
-    #[schemars(with = "Option<f64>")]
     pub fee_gbp: Option<Decimal>,
-    #[serde(default)]
     pub description: Option<String>,
 }
 

@@ -182,14 +182,10 @@ fn summarize_year(
         .collect();
     let summary = summarize(&year_events, &disposals, year, band);
 
-    let mut disposal_index = core::DisposalIndex::new(cgt);
+    let disposal_index = core::DisposalIndex::new(cgt);
     let mut warnings = Vec::new();
     for event in &year_events {
-        let disposal = if event.event_type == results::EventType::Disposal {
-            disposal_index.find(event)
-        } else {
-            None
-        };
+        let disposal = disposal_index.find(event);
         warnings.extend(
             event_warnings(event, disposal)
                 .into_iter()

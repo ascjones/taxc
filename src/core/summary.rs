@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 
-use super::cgt::{CgtSummary, DisposalRecord};
+use super::cgt::{CgtSummary, DisposalRecord, DisposalTotals};
 use super::events::{EventType, Tag, TaxableEvent};
 use super::fmt::round_tax;
 use super::uk::{cgt_rate_on, TaxBand, TaxYear};
@@ -83,14 +83,12 @@ pub fn summarize(
         TaxBand::Basic => estimated_cgt_basic,
         TaxBand::Higher | TaxBand::Additional => estimated_cgt_higher,
     };
+    let totals: DisposalTotals = disposals.iter().copied().collect();
     let cgt = CgtPosition {
         disposal_count: disposals.len(),
-        total_proceeds: disposals.iter().map(|d| d.proceeds_gbp).sum(),
-        total_costs: disposals
-            .iter()
-            .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-            .sum(),
-        total_gain: disposals.iter().map(|d| d.gain_gbp).sum(),
+        total_proceeds: totals.proceeds,
+        total_costs: totals.costs,
+        total_gain: totals.gain,
         summary,
         rate: match band {
             TaxBand::Basic => rate_year.cgt_basic_rate(),

@@ -1114,80 +1114,6 @@ fn no_gain_no_loss_with_same_day_acquisition() {
     assert_eq!(disposal.proceeds_gbp, disposal.allowable_cost_gbp);
 }
 
-/// DisposalIndex key-based fallback must find NoGainNoLoss disposals
-/// even though their proceeds_gbp differs from the event's value_gbp.
-#[test]
-fn disposal_index_finds_ngnl_by_key_fallback() {
-    let events = vec![
-        acq("2024-01-01", "XYZ", dec!(100), dec!(1000)),
-        event(
-            EventType::Disposal,
-            Tag::NoGainNoLoss,
-            "2024-06-15",
-            "XYZ",
-            dec!(50),
-            dec!(800), // market value, ignored by CGT
-            None,
-        ),
-    ];
-
-    let report = calculate_cgt(events);
-    assert_eq!(report.disposals.len(), 1);
-
-    // Lookup event with a different id so by_id won't match, forcing the
-    // key-based fallback. Its value_gbp (market value) deliberately differs
-    // from the disposal's proceeds (deemed cost) to prove the key ignores it.
-    let mut lookup = event(
-        EventType::Disposal,
-        Tag::NoGainNoLoss,
-        "2024-06-15",
-        "XYZ",
-        dec!(50),
-        dec!(800),
-        None,
-    );
-    lookup.id = 9999;
-
-    let mut index = DisposalIndex::new(&report);
-    let found = index.find(&lookup);
-    assert!(
-        found.is_some(),
-        "key-based fallback should find NGNL disposal"
-    );
-    assert_eq!(found.unwrap().gain_gbp, dec!(0));
-}
-
-#[test]
-fn disposal_index_id_hit_consumes_key_fallback_entry() {
-    // Two disposals share the same (datetime, asset, quantity) key.
-    let events = vec![
-        acq("2024-01-01", "XYZ", dec!(100), dec!(1000)),
-        TaxableEvent {
-            id: 2,
-            ..disp("2024-06-15", "XYZ", dec!(10), dec!(200))
-        },
-        TaxableEvent {
-            id: 3,
-            ..disp("2024-06-15", "XYZ", dec!(10), dec!(500))
-        },
-    ];
-
-    let report = calculate_cgt(events.clone());
-    assert_eq!(report.disposals.len(), 2);
-
-    let mut index = DisposalIndex::new(&report);
-
-    // First lookup hits by id and must also consume the key-queue entry.
-    let by_id = index.find(&events[2]).expect("found by id");
-    assert_eq!(by_id.id, 3);
-
-    // A key-based fallback lookup must not return the same disposal again.
-    let mut lookup = disp("2024-06-15", "XYZ", dec!(10), dec!(200));
-    lookup.id = 9999;
-    let by_key = index.find(&lookup).expect("found by key fallback");
-    assert_eq!(by_key.id, 2, "id hit must not be returned again via key");
-}
-
 // === CgtSummary: gain netting, AEA, and tax estimation ===
 
 #[test]
@@ -1288,33 +1214,6 @@ fn pool_remove_never_goes_negative_on_awkward_split() {
             pool.cost_gbp
         );
     }
-}
-
-#[test]
-fn disposal_index_matches_quantity_ignoring_trailing_zeros() {
-    // Behavioural contract of DisposalKey: two quantities that are equal after
-    // normalization (1.5 vs 1.50) resolve to the same disposal via the
-    // key-based fallback, while a genuinely different quantity does not.
-    let events = vec![
-        acq("2024-01-01", "BTC", dec!(10), dec!(100000)),
-        disp("2024-06-15", "BTC", dec!(1.50), dec!(20000)),
-    ];
-    let report = calculate_cgt(events);
-
-    // A different id forces the key fallback rather than the by-id lookup.
-    let mut equal_qty = disp("2024-06-15", "BTC", dec!(1.5), dec!(20000));
-    equal_qty.id = 999;
-    let mut different_qty = disp("2024-06-15", "BTC", dec!(1.6), dec!(20000));
-    different_qty.id = 999;
-
-    assert!(
-        DisposalIndex::new(&report).find(&equal_qty).is_some(),
-        "1.5 and 1.50 are the same quantity and must match"
-    );
-    assert!(
-        DisposalIndex::new(&report).find(&different_qty).is_none(),
-        "1.6 must not match a disposal of 1.50"
-    );
 }
 
 #[test]

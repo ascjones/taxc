@@ -1,11 +1,9 @@
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// Domain warning types emitted during conversion/calculation.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Warning {
     /// Event was unclassified and may need manual review.
