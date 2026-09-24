@@ -692,3 +692,42 @@ fn summary_text_spanning_tax_years_shows_each_year() {
     assert!(stdout.contains("TAX YEAR 2024/25"), "{stdout}");
     assert!(stdout.contains("TOTAL TAX LIABILITY: £900.00"), "{stdout}");
 }
+
+/// The output schema must describe what `report --json` actually emits:
+/// warning amounts are decimal strings, not numbers.
+#[test]
+fn output_schema_types_warning_amounts_as_strings() {
+    let output = run_taxc(&["schema", "output"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let text = schema.to_string();
+    assert!(
+        !text.contains(r#""available":{"format":"double","type":"number"}"#),
+        "Warning.available still declared as a number"
+    );
+
+    let report = run_taxc(&[
+        "report",
+        "--json",
+        "tests/data/insufficient_cost_basis.json",
+    ]);
+    let json: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    let warning = &json["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["warning"]["type"] == "InsufficientCostBasis")
+        .unwrap()["warning"];
+    assert!(warning["available"].is_string());
+}
+
+#[test]
+fn missing_input_file_error_names_the_path() {
+    let output = run_taxc(&["summary", "tests/data/does-not-exist.json"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("tests/data/does-not-exist.json"),
+        "{stderr}"
+    );
+}

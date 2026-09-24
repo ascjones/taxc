@@ -61,12 +61,7 @@ impl PoolsCommand {
                 .entries
                 .iter()
                 .filter(|entry| event_filter.matches_date(entry.date))
-                .filter(|entry| {
-                    event_filter
-                        .asset
-                        .as_ref()
-                        .is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
-                })
+                .filter(|entry| event_filter.matches_asset(&entry.asset))
                 .filter(|entry| {
                     event_filter
                         .event_kind
@@ -218,12 +213,7 @@ fn filter_year_end_snapshots(
             pools: snapshot
                 .pools
                 .iter()
-                .filter(|p| {
-                    filter
-                        .asset
-                        .as_ref()
-                        .is_none_or(|a| p.asset.eq_ignore_ascii_case(a))
-                })
+                .filter(|p| filter.matches_asset(&p.asset))
                 .cloned()
                 .collect(),
         })

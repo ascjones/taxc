@@ -148,12 +148,26 @@ function formatGainCell(e) {
 }
 
 function navigateToRow(tab, tbodyId, dataAttr, id, attempt = 0) {
+    const inReport = tab === 'events'
+        ? DATA.events.some(e => e.id === id)
+        : DATA.transactions.some(t => t.id === id);
+    if (!inReport) {
+        showNotice('That row is outside this report\'s filter (--year, --from/--to, --asset).');
+        return;
+    }
     switchTab(tab);
     ensureRowRendered(tab, id);
     setTimeout(() => {
         const row = document.querySelector(`#${tbodyId} tr[data-${dataAttr}="${CSS.escape(String(id))}"]`);
         if (!row) {
-            // The target may not exist in the current filtered view.
+            if (attempt === 1) {
+                // Hidden by the on-page filters: show everything, then retry.
+                selectPreset('all', true);
+                selectedAssets.clear();
+                renderAssetPills();
+                document.querySelectorAll('.filter-dd-panel input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+                applyFilters();
+            }
             if (attempt < 3) navigateToRow(tab, tbodyId, dataAttr, id, attempt + 1);
             return;
         }
@@ -162,6 +176,22 @@ function navigateToRow(tab, tbodyId, dataAttr, id, attempt = 0) {
         void row.offsetWidth;
         row.classList.add('row-highlight');
     }, 50);
+}
+
+function showNotice(message) {
+    let el = document.getElementById('notice');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'notice';
+        el.setAttribute('role', 'status');
+        el.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
+            'background:#333;color:#fff;padding:8px 14px;border-radius:6px;z-index:1000;font-size:13px';
+        document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.hidden = false;
+    clearTimeout(showNotice.timer);
+    showNotice.timer = setTimeout(() => { el.hidden = true; }, 4000);
 }
 
 function navigateToEvent(eventId) {

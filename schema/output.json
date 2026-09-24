@@ -526,12 +526,10 @@
           "type": "object",
           "properties": {
             "available": {
-              "type": "number",
-              "format": "double"
+              "type": "string"
             },
             "required": {
-              "type": "number",
-              "format": "double"
+              "type": "string"
             },
             "type": {
               "type": "string",

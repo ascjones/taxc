@@ -120,10 +120,11 @@ pub struct TaxResults {
 /// `options`, without calculating anything. Returns the first rejection the
 /// CLI would report.
 pub fn validate(document: &Transactions, options: &CalculationOptions) -> Result<(), Error> {
-    document_to_events(document.clone(), conversion_options(options))?;
+    // Same order as `calculate`, so both report the same first rejection.
     if let Some(year) = options.tax_year {
         check_tax_year(year)?;
     }
+    document_to_events(document.clone(), conversion_options(options))?;
     Ok(())
 }
 

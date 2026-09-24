@@ -429,3 +429,125 @@ fn event_datetime_is_rendered_in_uk_local_time() {
     assert_eq!(data.events[0].datetime, "2024-04-06T00:30:00+01:00");
     assert_eq!(data.events[0].tax_year, "2024/25");
 }
+
+/// Parse a document and convert it the way the CLI does.
+fn load(
+    json: &str,
+) -> (
+    Vec<crate::core::transactions::Transaction>,
+    Vec<TaxableEvent>,
+) {
+    let (txs, registry) = crate::core::read_transactions_json(json.as_bytes()).unwrap();
+    let events = crate::core::transactions_to_events(
+        &txs,
+        &registry,
+        crate::core::ConversionOptions::default(),
+    )
+    .unwrap();
+    (txs, events)
+}
+
+const TWO_ASSETS: &str = r#"{
+  "assets": [
+    {"symbol": "BTC", "asset_class": "Crypto"},
+    {"symbol": "ETH", "asset_class": "Crypto"}
+  ],
+  "transactions": [
+    {"id": "btc-buy", "datetime": "2024-05-01T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "GBP", "quantity": 1000}, "bought": {"asset": "BTC", "quantity": 1}},
+    {"id": "eth-buy", "datetime": "2024-05-02T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "GBP", "quantity": 500}, "bought": {"asset": "ETH", "quantity": 1}},
+    {"id": "btc-sell", "datetime": "2024-06-01T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "BTC", "quantity": 1}, "bought": {"asset": "GBP", "quantity": 2000}},
+    {"id": "btc-rebuy", "datetime": "2024-06-10T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "GBP", "quantity": 1800}, "bought": {"asset": "BTC", "quantity": 1}}
+  ]
+}"#;
+
+#[test]
+fn transaction_rows_respect_the_asset_filter() {
+    let (txs, events) = load(TWO_ASSETS);
+    let cgt_report = calculate_cgt(events.clone());
+    let filter = EventFilter {
+        asset: Some("BTC".to_string()),
+        ..no_filter()
+    };
+    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let ids: Vec<&str> = data.transactions.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(ids, vec!["btc-buy", "btc-sell", "btc-rebuy"]);
+}
+
+#[test]
+fn transaction_rows_respect_the_date_filter() {
+    let (txs, events) = load(TWO_ASSETS);
+    let cgt_report = calculate_cgt(events.clone());
+    let filter = EventFilter {
+        from: chrono::NaiveDate::from_ymd_opt(2024, 6, 1),
+        ..no_filter()
+    };
+    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let ids: Vec<&str> = data.transactions.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(ids, vec!["btc-sell", "btc-rebuy"]);
+}
+
+#[test]
+fn bnb_link_survives_when_the_acquisition_is_outside_the_filter() {
+    let (txs, events) = load(TWO_ASSETS);
+    let cgt_report = calculate_cgt(events.clone());
+    let filter = EventFilter {
+        to: chrono::NaiveDate::from_ymd_opt(2024, 6, 5),
+        ..no_filter()
+    };
+    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let sale = data
+        .events
+        .iter()
+        .find(|e| e.source_transaction_id == "btc-sell")
+        .unwrap();
+    let components = &sale.cgt.as_ref().unwrap().matching_components;
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].rule, "B&B");
+    let rebuy_id = events
+        .iter()
+        .find(|e| e.source_transaction_id == "btc-rebuy")
+        .unwrap()
+        .id;
+    assert_eq!(components[0].matched_event_id, Some(rebuy_id));
+    assert_eq!(
+        components[0].matched_original_value.as_deref(),
+        Some("1800.00")
+    );
+}
+
+#[test]
+fn report_quantities_use_the_canonical_rendering() {
+    let events = vec![TaxableEvent {
+        id: 1,
+        ..acq("2024-05-01", "ETH", dec!(1.1234567890), dec!(1000))
+    }];
+    let cgt_report = calculate_cgt(events.clone());
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    assert_eq!(data.events[0].quantity, "1.12345679");
+}
+
+#[test]
+fn summary_disposal_count_excludes_unclassified_like_taxc_summary() {
+    let events = vec![
+        TaxableEvent {
+            id: 1,
+            ..acq("2024-05-01", "BTC", dec!(2), dec!(1000))
+        },
+        TaxableEvent {
+            id: 2,
+            ..disp("2024-06-01", "BTC", dec!(1), dec!(900))
+        },
+        TaxableEvent {
+            id: 3,
+            tag: Tag::Unclassified,
+            ..disp("2024-06-02", "BTC", dec!(1), dec!(900))
+        },
+    ];
+    let cgt_report = calculate_cgt(events.clone());
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    assert_eq!(data.summary.disposal_count, 1);
+}

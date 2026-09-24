@@ -76,6 +76,14 @@ impl FilterArgs {
             (from, to)
         };
 
+        for date in from.iter().chain(to.iter()) {
+            anyhow::ensure!(
+                TaxYear::from_date(*date).try_bounds().is_some(),
+                "date {} is out of range",
+                iso_date(*date)
+            );
+        }
+
         if let (Some(f), Some(t)) = (from, to) {
             anyhow::ensure!(f <= t, "--from ({}) must be on or before --to ({})", f, t);
         }
@@ -100,50 +108,32 @@ pub struct EventFilter {
 
 impl EventFilter {
     pub fn matches_date(&self, date: NaiveDate) -> bool {
-        if let Some(from) = self.from {
-            if date < from {
-                return false;
-            }
-        }
-        if let Some(to) = self.to {
-            if date > to {
-                return false;
-            }
-        }
-        true
+        self.from.is_none_or(|from| date >= from) && self.to.is_none_or(|to| date <= to)
+    }
+
+    /// Asset symbols are normalised to upper case on input, so the filter's
+    /// symbol is compared the same way -- Unicode-aware, not ASCII-only.
+    pub fn matches_asset(&self, asset: &str) -> bool {
+        self.asset
+            .as_ref()
+            .is_none_or(|a| a.trim().to_uppercase() == asset.to_uppercase())
     }
 
     pub fn matches_event(&self, event: &TaxableEvent) -> bool {
-        if !self.matches_date(event.date()) {
-            return false;
-        }
-        if let Some(ref asset) = self.asset {
-            if !event.asset.eq_ignore_ascii_case(asset) {
-                return false;
-            }
-        }
-        if let Some(kind) = self.event_kind {
-            if !kind.matches(event.event_type) {
-                return false;
-            }
-        }
-        true
+        self.matches_date(event.date())
+            && self.matches_asset(&event.asset)
+            && self
+                .event_kind
+                .is_none_or(|kind| kind.matches(event.event_type))
     }
 
     pub fn matches_disposal(&self, disposal: &DisposalRecord) -> bool {
-        if !self.matches_date(disposal.date) {
-            return false;
-        }
-        if let Some(ref asset) = self.asset {
-            if !disposal.asset.eq_ignore_ascii_case(asset) {
-                return false;
-            }
-        }
-        if let Some(kind) = self.event_kind {
-            // Disposal records are only valid for EventKind::Disposal.
-            return kind == EventKind::Disposal;
-        }
-        true
+        // A disposal record only passes an event-kind filter for disposals.
+        self.matches_date(disposal.date)
+            && self.matches_asset(&disposal.asset)
+            && self
+                .event_kind
+                .is_none_or(|kind| kind == EventKind::Disposal)
     }
 
     pub fn apply<'a>(&self, events: &'a [TaxableEvent]) -> Vec<&'a TaxableEvent> {
@@ -158,7 +148,7 @@ impl EventFilter {
             (None, None) => "All Years".to_string(),
             (Some(from), Some(to)) => {
                 let tax_year = TaxYear::from_date(from);
-                if from == tax_year.start_date() && to == tax_year.end_date() {
+                if tax_year.try_bounds() == Some((from, to)) {
                     tax_year.display()
                 } else {
                     format!("{} to {}", iso_date(from), iso_date(to))
@@ -218,6 +208,27 @@ mod tests {
             fee_gbp: None,
             description: None,
         }
+    }
+
+    #[test]
+    fn extreme_date_is_rejected_not_panicked_on() {
+        // chrono parses signed years this large, but their tax year has no
+        // representable 5 April end.
+        let args = FilterArgs {
+            from: Some("+262142-04-06".to_string()),
+            to: Some("+262142-04-07".to_string()),
+            ..Default::default()
+        };
+        let err = args.build(None).unwrap_err().to_string();
+        assert!(err.contains("out of range"), "{err}");
+    }
+
+    #[test]
+    fn asset_filter_matches_non_ascii_symbols_case_insensitively() {
+        let args = FilterArgs::default();
+        let filter = args.build(Some("stéth".to_string())).unwrap();
+        assert!(filter.matches_asset("STÉTH"));
+        assert!(!filter.matches_asset("STETH"));
     }
 
     #[test]

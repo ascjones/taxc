@@ -13,9 +13,9 @@ pub enum Warning {
     /// Pool had insufficient quantity to cover the disposal.
     /// When `available = 0`, this means no cost basis at all.
     InsufficientCostBasis {
-        #[schemars(with = "f64")]
+        #[schemars(with = "String")]
         available: Decimal,
-        #[schemars(with = "f64")]
+        #[schemars(with = "String")]
         required: Decimal,
     },
 }

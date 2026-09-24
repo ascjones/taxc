@@ -531,3 +531,27 @@ fn input_schema_constrains_decimal_strings_to_plain_decimals() {
         let _: rust_decimal::Decimal = ok.parse().unwrap();
     }
 }
+
+/// validate and calculate report the same first rejection when both the
+/// tax year and the document are invalid.
+#[test]
+fn validate_and_calculate_agree_on_the_first_rejection() {
+    let doc = Transactions {
+        assets: vec![],
+        transactions: vec![tx(
+            "t1",
+            "2024-06-01T10:00:00Z",
+            TransactionType::Deposit {
+                amount: amount("BTC", dec!(1)),
+                linked_withdrawal: None,
+            },
+        )],
+    };
+    let options = CalculationOptions {
+        tax_year: Some(TaxYear(i32::MAX)),
+        ..Default::default()
+    };
+    let validated = taxc::validate(&doc, &options).unwrap_err();
+    let calculated = taxc::calculate(doc, &options).unwrap_err();
+    assert_eq!(validated, calculated);
+}
