@@ -5,7 +5,7 @@ use super::format::{format_gbp, format_gbp_signed};
 use super::read_events;
 use crate::core::fmt::{iso_date, pence_string};
 use crate::core::{
-    calculate_cgt, summarize_by_year, CgtReport, DisposalRecord, TaxBand, TaxSummary,
+    calculate_cgt, summarize_by_year, CgtReport, DisposalRecord, TaxBand, TaxSummary, TaxYear,
 };
 use clap::{Args, ValueEnum};
 use rust_decimal::prelude::ToPrimitive;
@@ -94,6 +94,9 @@ struct Figures {
     dividend_income: String,
     interest_income: String,
     income_rate_pct: Option<u8>,
+    /// Dividend rate in percent, to two places (e.g. 8.75).
+    dividend_rate_pct: Option<Decimal>,
+    dividend_allowance: String,
     estimated_income_tax: String,
     estimated_total_tax: String,
 }
@@ -123,6 +126,14 @@ impl Figures {
             dividend_income: sum(|y| y.income.dividend),
             interest_income: sum(|y| y.income.interest),
             income_rate_pct: common_pct(|y| y.income.rate),
+            dividend_rate_pct: {
+                let first = years[0].income.dividend_rate;
+                years
+                    .iter()
+                    .all(|y| y.income.dividend_rate == first)
+                    .then(|| (first * dec!(100)).normalize())
+            },
+            dividend_allowance: sum(|y| y.income.dividend_allowance),
             estimated_income_tax: sum(|y| y.income.estimated_income_tax),
             estimated_total_tax: sum(|y| y.estimated_total_tax),
         }
@@ -253,22 +264,33 @@ fn print_year(summary: &TaxSummary) {
         format_gbp(cgt.summary.aea),
         format_gbp_signed(cgt.summary.taxable_gain)
     );
-    println!(
-        "  CGT @ {:.0}%: {} | @ {:.0}%: {}",
-        basic_rate * dec!(100),
-        format_gbp(cgt.summary.estimated_cgt(basic_rate)),
-        higher_rate * dec!(100),
-        format_gbp(cgt.summary.estimated_cgt(higher_rate))
-    );
+    if summary.tax_year == TaxYear(2025) {
+        // Rates changed on 30 Oct 2024, so one percentage would mislead.
+        println!(
+            "  CGT basic rate: {} | higher rate: {} (10%/20% before 30 Oct 2024, {:.0}%/{:.0}% after)",
+            format_gbp(cgt.estimated_cgt_basic),
+            format_gbp(cgt.estimated_cgt_higher),
+            basic_rate * dec!(100),
+            higher_rate * dec!(100),
+        );
+    } else {
+        println!(
+            "  CGT @ {:.0}%: {} | @ {:.0}%: {}",
+            basic_rate * dec!(100),
+            format_gbp(cgt.estimated_cgt_basic),
+            higher_rate * dec!(100),
+            format_gbp(cgt.estimated_cgt_higher)
+        );
+    }
     println!();
 
     println!("INCOME");
     if income.taxable > Decimal::ZERO {
         println!(
-            "  Income: {} (Tax @ {:.0}%: {})",
+            "  Income: {} (Tax: {}; non-dividend income @ {:.0}%)",
             format_gbp(income.taxable),
-            income.rate * dec!(100),
-            format_gbp(income.estimated_income_tax)
+            format_gbp(income.estimated_income_tax),
+            income.rate * dec!(100)
         );
     } else {
         println!("  Income: £0.00");
@@ -277,7 +299,12 @@ fn print_year(summary: &TaxSummary) {
         "  Salary (PAYE): {} (tax deducted at source)",
         format_gbp(income.salary)
     );
-    println!("  Dividend: {}", format_gbp(income.dividend));
+    println!(
+        "  Dividend: {} (allowance {}, then {}%)",
+        format_gbp(income.dividend),
+        format_gbp(income.dividend_allowance),
+        (income.dividend_rate * dec!(100)).normalize()
+    );
     println!("  Interest: {}", format_gbp(income.interest));
     println!();
 }

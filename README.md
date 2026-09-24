@@ -23,7 +23,7 @@ All commands take an optional positional `FILE` (JSON); if omitted or `-`, input
 
 Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`; add `--json` for machine-readable output, `-t higher` for a different tax band.
 
-In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields remain numbers.
+In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields remain numbers; `dividend_rate_pct` carries two decimal places (e.g. `8.75`).
 
 When the selected range spans more than one tax year, each year is summarised on its own — with that year's AEA and rates, and losses netted only within the year — and the totals are the sums. The text output prints a block per year; the JSON carries the per-year figures in `years` and the sums at the top level, where `tax_year` reads e.g. `"2022/23 to 2024/25"` and a `*_rate_pct` is `null` if the years' rates differ. Use `-y` to select a single year.
 
@@ -126,10 +126,16 @@ CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypt
 | 2007/08 – 2009/10 | £9,200 – £10,100     | 18%        | 28%         |
 
 > **Note:** CGT rates changed mid-year on 30 October 2024 (10%/20% → 18%/24%).
-> Estimates for 2024/25 use the post-change rates throughout, so gains realised
-> before that date are over-estimated. Rates before 2010/11 are approximate.
+> For 2024/25 each gain is taxed at the rate in force on its disposal date, and
+> losses and the AEA are set against the 18%/24% gains first — the allocation
+> HMRC permits that gives the lowest liability. Rates before 2010/11 are
+> approximate.
 
-Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% rates for basic, higher, and additional rate taxpayers.
+Income tax is a flat estimate by band:
+
+- **Dividends** are taxed at the dividend rates after the dividend allowance (£500 from 2024/25, £1,000 in 2023/24, £2,000 from 2018/19, £5,000 in 2016/17–2017/18). Rates are 8.75%/33.75%/39.35% for 2022/23–2025/26, 10.75%/35.75%/39.35% from 2026/27, and 7.5%/32.5%/38.1% for 2016/17–2021/22.
+- **Other income** (e.g. staking rewards, interest) is taxed at 20%/40%/45%. The personal allowance and personal savings allowance are not applied.
+- **Salary** is PAYE-settled and excluded, as above.
 
 ## Library
 

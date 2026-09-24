@@ -602,10 +602,12 @@ fn summary_salary_paye_cashback_not_income() {
         serde_json::from_str(&stdout).expect("Invalid JSON summary output");
 
     // Only the £200 dividend is in the estimate; salary stays visible and
-    // Cashback £50 must not be counted.
+    // Cashback £50 must not be counted. The dividend is inside the 2024/25
+    // £500 dividend allowance, so no income tax is due.
     assert_eq!(json["income"].as_str(), Some("200.00"));
     assert_eq!(json["salary_income"].as_str(), Some("1000.00"));
-    assert_eq!(json["estimated_income_tax"].as_str(), Some("40.00"));
+    assert_eq!(json["dividend_allowance"].as_str(), Some("500.00"));
+    assert_eq!(json["estimated_income_tax"].as_str(), Some("0.00"));
 }
 
 /// Default text output shows PAYE salary as its own auditable line

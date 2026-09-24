@@ -27,7 +27,7 @@
     },
     {
       "id": "sell-2024",
-      "datetime": "2024-07-01T10:00:00Z",
+      "datetime": "2024-12-01T10:00:00Z",
       "account": "kraken",
       "type": "Trade",
       "sold": { "asset": "BTC", "quantity": 1 },

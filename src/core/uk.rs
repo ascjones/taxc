@@ -20,6 +20,28 @@ pub fn uk_rfc3339(datetime: DateTime<FixedOffset>) -> String {
     datetime.with_timezone(&London).to_rfc3339()
 }
 
+/// First day of the 18%/24% CGT rates (Autumn Budget 2024).
+fn cgt_rate_change_2024() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2024, 10, 30).expect("valid date")
+}
+
+/// CGT rate for a gain realised on `date` (non-residential-property assets).
+///
+/// Within 2024/25 the rate depends on the date: gains before 30 October 2024
+/// are taxed at 10%/20%, gains from that date at 18%/24%.
+pub fn cgt_rate_on(date: NaiveDate, band: TaxBand) -> Decimal {
+    let year = TaxYear::from_date(date);
+    let (basic, higher) = if year == TaxYear(2025) && date < cgt_rate_change_2024() {
+        (dec!(0.10), dec!(0.20))
+    } else {
+        (year.cgt_basic_rate(), year.cgt_higher_rate())
+    };
+    match band {
+        TaxBand::Basic => basic,
+        TaxBand::Higher | TaxBand::Additional => higher,
+    }
+}
+
 /// Tax band for income tax calculations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TaxBand {
@@ -169,6 +191,38 @@ impl TaxYear {
     }
 }
 
+impl TaxYear {
+    /// Dividend tax rate for this tax year and band.
+    pub fn dividend_rate(&self, band: TaxBand) -> Decimal {
+        let (basic, higher, additional) = match self.0 {
+            // 2026/27 onwards: ordinary and upper rates up 2 points
+            2027.. => (dec!(0.1075), dec!(0.3575), dec!(0.3935)),
+            // 2022/23 to 2025/26
+            2023..=2026 => (dec!(0.0875), dec!(0.3375), dec!(0.3935)),
+            // 2016/17 to 2021/22
+            2017..=2022 => (dec!(0.075), dec!(0.325), dec!(0.381)),
+            // Before 2016/17: the effective rates after the 10% tax credit
+            _ => (dec!(0), dec!(0.25), dec!(0.306)),
+        };
+        match band {
+            TaxBand::Basic => basic,
+            TaxBand::Higher => higher,
+            TaxBand::Additional => additional,
+        }
+    }
+
+    /// Dividend allowance: dividends up to this amount are taxed at 0%.
+    pub fn dividend_allowance(&self) -> Decimal {
+        match self.0 {
+            2025.. => dec!(500),
+            2024 => dec!(1000),
+            2019..=2023 => dec!(2000),
+            2017..=2018 => dec!(5000),
+            _ => dec!(0),
+        }
+    }
+}
+
 impl std::fmt::Display for TaxYear {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.display())
@@ -290,6 +344,51 @@ mod tests {
             assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
             assert_eq!(ty.cgt_higher_rate(), dec!(0.28));
         }
+    }
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn cgt_rate_changes_on_30_october_2024() {
+        assert_eq!(cgt_rate_on(d(2024, 10, 29), TaxBand::Basic), dec!(0.10));
+        assert_eq!(cgt_rate_on(d(2024, 10, 29), TaxBand::Higher), dec!(0.20));
+        assert_eq!(cgt_rate_on(d(2024, 10, 30), TaxBand::Basic), dec!(0.18));
+        assert_eq!(
+            cgt_rate_on(d(2024, 10, 30), TaxBand::Additional),
+            dec!(0.24)
+        );
+        assert_eq!(cgt_rate_on(d(2021, 6, 1), TaxBand::Higher), dec!(0.20));
+        assert_eq!(cgt_rate_on(d(2015, 6, 1), TaxBand::Higher), dec!(0.28));
+    }
+
+    #[test]
+    fn dividend_rates_by_year_and_band() {
+        assert_eq!(TaxYear(2027).dividend_rate(TaxBand::Basic), dec!(0.1075));
+        assert_eq!(TaxYear(2027).dividend_rate(TaxBand::Higher), dec!(0.3575));
+        assert_eq!(
+            TaxYear(2027).dividend_rate(TaxBand::Additional),
+            dec!(0.3935)
+        );
+        assert_eq!(TaxYear(2025).dividend_rate(TaxBand::Basic), dec!(0.0875));
+        assert_eq!(TaxYear(2023).dividend_rate(TaxBand::Higher), dec!(0.3375));
+        assert_eq!(TaxYear(2022).dividend_rate(TaxBand::Basic), dec!(0.075));
+        assert_eq!(
+            TaxYear(2017).dividend_rate(TaxBand::Additional),
+            dec!(0.381)
+        );
+    }
+
+    #[test]
+    fn dividend_allowance_by_year() {
+        assert_eq!(TaxYear(2026).dividend_allowance(), dec!(500));
+        assert_eq!(TaxYear(2025).dividend_allowance(), dec!(500));
+        assert_eq!(TaxYear(2024).dividend_allowance(), dec!(1000));
+        assert_eq!(TaxYear(2023).dividend_allowance(), dec!(2000));
+        assert_eq!(TaxYear(2019).dividend_allowance(), dec!(2000));
+        assert_eq!(TaxYear(2018).dividend_allowance(), dec!(5000));
+        assert_eq!(TaxYear(2017).dividend_allowance(), dec!(5000));
     }
 
     #[test]
