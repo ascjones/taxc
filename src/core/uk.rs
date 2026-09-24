@@ -119,8 +119,18 @@ impl TaxYear {
             2018 => dec!(11300),
             // 2015/16 and 2016/17: £11,100
             2016..=2017 => dec!(11100),
-            // 2014/15: £11,000 (approximate for earlier years)
-            _ => dec!(11000),
+            // 2014/15: £11,000
+            2015 => dec!(11000),
+            // 2013/14: £10,900
+            2014 => dec!(10900),
+            // 2011/12 and 2012/13: £10,600
+            2012..=2013 => dec!(10600),
+            // 2009/10 and 2010/11: £10,100
+            2010..=2011 => dec!(10100),
+            // 2008/09: £9,600
+            2009 => dec!(9600),
+            // 2007/08: £9,200 (used for earlier years too, as an approximation)
+            _ => dec!(9200),
         }
     }
 
@@ -244,6 +254,13 @@ mod tests {
         assert_eq!(TaxYear(2017).cgt_exempt_amount(), dec!(11100));
         assert_eq!(TaxYear(2016).cgt_exempt_amount(), dec!(11100));
         assert_eq!(TaxYear(2015).cgt_exempt_amount(), dec!(11000));
+        assert_eq!(TaxYear(2014).cgt_exempt_amount(), dec!(10900));
+        assert_eq!(TaxYear(2013).cgt_exempt_amount(), dec!(10600));
+        assert_eq!(TaxYear(2012).cgt_exempt_amount(), dec!(10600));
+        assert_eq!(TaxYear(2011).cgt_exempt_amount(), dec!(10100));
+        assert_eq!(TaxYear(2010).cgt_exempt_amount(), dec!(10100));
+        assert_eq!(TaxYear(2009).cgt_exempt_amount(), dec!(9600));
+        assert_eq!(TaxYear(2008).cgt_exempt_amount(), dec!(9200));
     }
 
     #[test]

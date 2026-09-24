@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use super::cgt::{CgtSummary, DisposalRecord};
 use super::events::{EventType, Tag, TaxableEvent};
+use super::fmt::round_tax;
 use super::uk::{TaxBand, TaxYear};
 use super::warnings::Warning;
 
@@ -93,7 +94,7 @@ pub fn summarize(
     let tag_total = |tag: Tag| by_tag.get(&tag).copied().unwrap_or_default();
     let salary = tag_total(Tag::Salary);
     let taxable = total - salary;
-    let estimated_income_tax = (taxable * income_rate).round_dp(2);
+    let estimated_income_tax = round_tax(taxable * income_rate);
     let income = IncomePosition {
         total,
         taxable,

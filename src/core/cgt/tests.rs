@@ -1490,3 +1490,71 @@ fn matching_is_the_same_whatever_offset_the_instants_are_written_in() {
     );
     assert_eq!(a.disposals[0].gain_gbp, b.disposals[0].gain_gbp);
 }
+
+#[test]
+fn sterling_acquisitions_do_not_create_a_pool() {
+    // GBP salary/dividends are income events, not chargeable assets.
+    let mut salary = acq("2024-06-01", "GBP", dec!(1000), dec!(1000));
+    salary.tag = crate::core::Tag::Salary;
+    let report = calculate_cgt(vec![salary, acq("2024-06-02", "BTC", dec!(1), dec!(500))]);
+    assert!(report.pool_history.entries.iter().all(|e| e.asset != "GBP"));
+    let last = report.pool_history.year_end_snapshots.last().unwrap();
+    assert!(last.pools.iter().all(|p| p.asset != "GBP"));
+}
+
+#[test]
+fn full_disposal_of_an_18_decimal_quantity_leaves_no_dust_or_warning() {
+    let qty = dec!(0.123456789012345678);
+    let report = calculate_cgt(vec![
+        acq("2024-06-01", "ETH", qty, dec!(300)),
+        disp("2024-08-01", "ETH", qty, dec!(400)),
+    ]);
+    let d = &report.disposals[0];
+    assert!(d.warnings.is_empty(), "{:?}", d.warnings);
+    assert_eq!(d.allowable_cost_gbp, dec!(300));
+    assert_eq!(final_pool(&report, "ETH"), (Decimal::ZERO, Decimal::ZERO));
+}
+
+#[test]
+fn several_same_day_acquisitions_pool_their_exact_total() {
+    let report = calculate_cgt(vec![
+        acq("2024-06-01", "ETH", dec!(0.1), dec!(100)),
+        acq("2024-06-01", "ETH", dec!(0.2), dec!(200)),
+        acq("2024-06-01", "ETH", dec!(0.4), dec!(400)),
+        disp("2024-08-01", "ETH", dec!(0.7), dec!(1000)),
+    ]);
+    let d = &report.disposals[0];
+    assert!(d.warnings.is_empty(), "{:?}", d.warnings);
+    assert_eq!(d.allowable_cost_gbp, dec!(700));
+    assert_eq!(final_pool(&report, "ETH"), (Decimal::ZERO, Decimal::ZERO));
+}
+
+#[test]
+fn year_end_snapshots_cover_idle_tax_years() {
+    let report = calculate_cgt(vec![
+        acq("2021-06-01", "BTC", dec!(1), dec!(1000)),
+        acq("2024-06-01", "BTC", dec!(1), dec!(1000)),
+    ]);
+    let years: Vec<TaxYear> = report
+        .pool_history
+        .year_end_snapshots
+        .iter()
+        .map(|s| s.tax_year)
+        .collect();
+    assert_eq!(
+        years,
+        vec![TaxYear(2022), TaxYear(2023), TaxYear(2024), TaxYear(2025)]
+    );
+    // An idle year carries the holding forward unchanged.
+    assert_eq!(
+        report.pool_history.year_end_snapshots[1].pools[0].quantity,
+        dec!(1)
+    );
+}
+
+#[test]
+fn estimated_cgt_rounds_down_to_the_penny() {
+    // HMRC rounds tax down to the whole penny.
+    let summary = CgtSummary::calculate([dec!(4000.3056)], dec!(3000));
+    assert_eq!(summary.estimated_cgt(dec!(0.18)), dec!(180.05));
+}

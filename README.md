@@ -109,6 +109,10 @@ Disposals are matched against acquisitions in order:
 2. **Bed & Breakfast Rule** — acquisitions within 30 days after the disposal
 3. **Section 104 Pool** — remaining shares from the pooled cost basis
 
+All acquisitions of an asset on one UK day are treated as a single acquisition (TCGA 1992 s105). Sterling is not a chargeable asset, so GBP never enters a pool. Estimated tax is rounded down to the penny, as HMRC does.
+
+Losses are netted against all gains in the same tax year. taxc does not model the connected-person rule (TCGA 1992 s18), under which a loss on a disposal to a connected person — typically a family gift — can only be set against gains on disposals to that same person; review such losses by hand.
+
 ## Tax Years Supported
 
 CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypto and shares):
@@ -118,12 +122,12 @@ CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypt
 | 2024/25 onwards   | £3,000               | 18%        | 24%         |
 | 2023/24           | £6,000               | 10%        | 20%         |
 | 2016/17 – 2022/23 | £11,100 – £12,300    | 10%        | 20%         |
-| 2010/11 – 2015/16 | £11,000 – £11,100    | 18%        | 28%         |
+| 2010/11 – 2015/16 | £10,100 – £11,100    | 18%        | 28%         |
+| 2007/08 – 2009/10 | £9,200 – £10,100     | 18%        | 28%         |
 
 > **Note:** CGT rates changed mid-year on 30 October 2024 (10%/20% → 18%/24%).
 > Estimates for 2024/25 use the post-change rates throughout, so gains realised
-> before that date are over-estimated. Exempt amounts and rates for 2014/15 and
-> earlier are approximate.
+> before that date are over-estimated. Rates before 2010/11 are approximate.
 
 Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% rates for basic, higher, and additional rate taxpayers.
 

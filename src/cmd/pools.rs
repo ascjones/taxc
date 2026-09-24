@@ -3,7 +3,7 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::format_gbp;
 use super::read_events;
-use crate::core::fmt::{iso_date, quantity_string};
+use crate::core::fmt::{iso_date, quantity_string, round_pence};
 use crate::core::{
     calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, YearEndSnapshot,
 };
@@ -238,6 +238,6 @@ fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
     if quantity.is_zero() {
         Decimal::ZERO
     } else {
-        (cost_gbp / quantity).round_dp(2)
+        round_pence(cost_gbp / quantity)
     }
 }

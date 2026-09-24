@@ -395,7 +395,16 @@ fn calculate_summarises_every_year_with_events_by_default() {
     let results = taxc::calculate(doc, &CalculationOptions::default()).unwrap();
     let years: Vec<TaxYear> = results.years.iter().map(|y| y.summary.tax_year).collect();
     assert_eq!(years, vec![TaxYear(2025), TaxYear(2026)]);
-    assert_eq!(results.events.len(), results.cgt.pool_history.entries.len());
+    // One pool-history entry per chargeable event; sterling income events
+    // never enter a pool.
+    let chargeable = results.events.iter().filter(|e| e.asset != "GBP").count();
+    assert_eq!(results.cgt.pool_history.entries.len(), chargeable);
+    assert!(results
+        .cgt
+        .pool_history
+        .entries
+        .iter()
+        .all(|e| e.asset != "GBP"));
 }
 
 #[test]

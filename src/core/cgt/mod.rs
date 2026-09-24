@@ -1,4 +1,5 @@
 use super::events::{EventType, Tag, TaxableEvent};
+use super::fmt::round_pence;
 use super::fmt::{iso_date, pence_string, quantity_string};
 use super::uk::TaxYear;
 use super::warnings::Warning;
@@ -138,7 +139,7 @@ impl Pool {
         } else {
             // Partial disposal - proportional cost
             let proportion = quantity / self.quantity;
-            let cost = (self.cost_gbp * proportion).round_dp(2);
+            let cost = round_pence(self.cost_gbp * proportion);
             self.quantity -= quantity;
             self.cost_gbp -= cost;
             log::debug!(
@@ -192,9 +193,10 @@ pub struct CgtReport {
 struct AcquisitionTracker {
     total_qty: Decimal,
     total_cost: Decimal,
-    same_day_reserved: Decimal,
     same_day_remaining: Decimal,
     bnb_remaining: Decimal,
+    /// Whether the day's unmatched remainder has been added to the pool.
+    pooled: bool,
 }
 
 impl AcquisitionTracker {
@@ -202,15 +204,13 @@ impl AcquisitionTracker {
         if self.total_qty.is_zero() {
             Decimal::ZERO
         } else {
-            (self.total_cost * qty / self.total_qty).round_dp(2)
+            round_pence(self.total_cost * qty / self.total_qty)
         }
     }
 
+    /// What neither a same-day nor a B&B disposal claimed.
     fn remaining_for_pool(&self) -> Decimal {
-        let same_day_used = self.same_day_reserved - self.same_day_remaining;
-        let bnb_originally = self.total_qty - self.same_day_reserved;
-        let bnb_used = bnb_originally - self.bnb_remaining;
-        self.total_qty - same_day_used - bnb_used
+        self.same_day_remaining + self.bnb_remaining
     }
 }
 
@@ -227,19 +227,13 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pool_history = PoolHistory::default();
     let mut current_year: Option<TaxYear> = None;
 
-    // Sort events by date, with disposals before acquisitions on the same day
-    let mut events = events;
-    events.sort_by(|a, b| {
-        match a.date().cmp(&b.date()) {
-            std::cmp::Ordering::Equal => {
-                // Disposals come before acquisitions on same day
-                let a_is_disposal = a.event_type == EventType::Disposal;
-                let b_is_disposal = b.event_type == EventType::Disposal;
-                b_is_disposal.cmp(&a_is_disposal)
-            }
-            other => other,
-        }
-    });
+    // Sterling is not a chargeable asset, so GBP income never enters a pool.
+    let mut events: Vec<TaxableEvent> = events
+        .into_iter()
+        .filter(|e| !e.asset.eq_ignore_ascii_case("GBP"))
+        .collect();
+    // By UK date, disposals before acquisitions on the same day (stable).
+    events.sort_by_key(|e| (e.date(), e.event_type != EventType::Disposal));
 
     // Build acquisition tracker: first pass records totals
     let mut acquisitions: HashMap<AcqKey, AcquisitionTracker> = HashMap::new();
@@ -259,51 +253,50 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
         if event.event_type == EventType::Disposal {
             let key = (event.date(), event.asset.clone());
             if let Some(tracker) = acquisitions.get_mut(&key) {
-                let available = tracker.total_qty - tracker.same_day_reserved;
+                let available = tracker.total_qty - tracker.same_day_remaining;
                 if available > Decimal::ZERO {
-                    tracker.same_day_reserved += event.quantity.min(available);
+                    tracker.same_day_remaining += event.quantity.min(available);
                 }
             }
         }
     }
-
-    // Initialize remaining amounts for matching
+    // Whatever same-day disposals did not reserve is open to B&B matching.
     for tracker in acquisitions.values_mut() {
-        tracker.same_day_remaining = tracker.same_day_reserved;
-        tracker.bnb_remaining = tracker.total_qty - tracker.same_day_reserved;
+        tracker.bnb_remaining = tracker.total_qty - tracker.same_day_remaining;
     }
 
     // Third pass: process all events
     for event in &events {
         let event_year = TaxYear::from_date(event.date());
 
-        // Snapshot at year boundary (before processing new year's first event)
+        // Snapshot every year-end passed since the last event, including
+        // idle years, which carry their holdings forward unchanged.
         if let Some(prev_year) = current_year {
-            if event_year > prev_year {
+            for year in prev_year.0..event_year.0 {
                 pool_history
                     .year_end_snapshots
-                    .push(snapshot_pools(prev_year, &pools));
+                    .push(snapshot_pools(TaxYear(year), &pools));
             }
         }
         current_year = Some(event_year);
 
         match event.event_type {
             // Acquisition events add to the pool (after matching)
+            // Same-day acquisitions are one acquisition (TCGA 1992 s105), so the
+            // day's unmatched remainder is pooled once, exactly -- splitting it
+            // per event and rounding each share left dust or shortfalls.
+            // Every same-day and earlier B&B claim is settled by now.
             EventType::Acquisition => {
                 let key = (event.date(), event.asset.clone());
-                if let Some(tracker) = acquisitions.get(&key) {
+                if let Some(tracker) = acquisitions.get_mut(&key).filter(|t| !t.pooled) {
+                    tracker.pooled = true;
                     let remaining = tracker.remaining_for_pool();
-                    if tracker.total_qty > Decimal::ZERO && remaining > Decimal::ZERO {
-                        // This acquisition's proportional share of what goes to pool
-                        let proportion = event.quantity / tracker.total_qty;
-                        let to_add = (remaining * proportion).round_dp(8);
-                        if to_add > Decimal::ZERO {
-                            let pool = pools
-                                .entry(event.asset.clone())
-                                .or_insert_with(|| Pool::new(event.asset.clone()));
-                            let cost = tracker.cost_for_qty(to_add);
-                            pool.add(to_add, cost);
-                        }
+                    if remaining > Decimal::ZERO {
+                        let cost = tracker.cost_for_qty(remaining);
+                        pools
+                            .entry(event.asset.clone())
+                            .or_insert_with(|| Pool::new(event.asset.clone()))
+                            .add(remaining, cost);
                     }
                 }
             }

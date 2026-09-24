@@ -1,3 +1,4 @@
+use crate::core::fmt::round_tax;
 use rust_decimal::Decimal;
 
 /// Aggregated capital-gains position for a set of disposals: gains netted
@@ -44,8 +45,9 @@ impl CgtSummary {
         }
     }
 
-    /// Estimated CGT for the taxable gain at the given rate, rounded to pence.
+    /// Estimated CGT for the taxable gain at the given rate, rounded down to
+    /// the penny as HMRC does.
     pub fn estimated_cgt(&self, rate: Decimal) -> Decimal {
-        (self.taxable_gain * rate).round_dp(2)
+        round_tax(self.taxable_gain * rate)
     }
 }
