@@ -415,3 +415,17 @@ fn no_gain_no_loss_report_value_uses_cost_basis_with_note() {
     assert_eq!(ngnl.value_gbp, "25000.00");
     assert_eq!(ngnl.value_gbp_note.as_deref(), Some(NGNL_VALUE_NOTE));
 }
+
+#[test]
+fn event_datetime_is_rendered_in_uk_local_time() {
+    // 23:30 UTC on 5 April 2024 is 00:30 BST on 6 April, in 2024/25.
+    let events = vec![TaxableEvent {
+        id: 1,
+        datetime: chrono::DateTime::parse_from_rfc3339("2024-04-05T23:30:00Z").unwrap(),
+        ..acq("2024-04-05", "BTC", dec!(1), dec!(1000))
+    }];
+    let cgt_report = calculate_cgt(events.clone());
+    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    assert_eq!(data.events[0].datetime, "2024-04-06T00:30:00+01:00");
+    assert_eq!(data.events[0].tax_year, "2024/25");
+}

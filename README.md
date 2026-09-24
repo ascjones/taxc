@@ -93,6 +93,8 @@ GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashbac
 }
 ```
 
+`datetime` may carry any UTC offset (a date-only or offset-less value is read as UTC). Every tax rule counts **UK calendar days**: the tax year, the same-day rule and the 30-day bed-and-breakfast window all use the date in Europe/London time. So `2024-04-05T23:30:00Z` — 00:30 BST on 6 April — falls in 2024/25. Report timestamps are shown in UK local time.
+
 ## HMRC Share Identification Rules
 
 Disposals are matched against acquisitions in order:

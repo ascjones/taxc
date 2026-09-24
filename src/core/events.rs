@@ -123,9 +123,9 @@ pub struct TaxableEvent {
 }
 
 impl TaxableEvent {
-    /// Get just the date portion for tax calculations
+    /// The UK calendar date of the event, which every tax rule keys on.
     pub fn date(&self) -> NaiveDate {
-        self.datetime.date_naive()
+        super::uk::uk_date(self.datetime)
     }
 
     pub fn total_cost_gbp(&self) -> Decimal {
@@ -282,6 +282,33 @@ mod tests {
             description: None,
         };
         assert_eq!(event.total_cost_gbp(), dec!(1000));
+    }
+
+    fn at(datetime: &str) -> TaxableEvent {
+        TaxableEvent {
+            datetime: DateTime::parse_from_rfc3339(datetime).unwrap(),
+            ..crate::core::events::builders::acq("2024-01-01", "BTC", dec!(1), dec!(1))
+        }
+    }
+
+    #[test]
+    fn date_uses_uk_local_date_in_summer_time() {
+        // 23:30 UTC on 5 April 2024 is 00:30 BST on 6 April: the new tax year.
+        let e = at("2024-04-05T23:30:00Z");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2024, 4, 6).unwrap());
+    }
+
+    #[test]
+    fn date_uses_uk_local_date_in_winter_time() {
+        let e = at("2024-01-15T23:30:00Z");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    }
+
+    #[test]
+    fn date_ignores_the_offset_the_instant_was_written_in() {
+        // 01:00 in Tokyo on 6 April 2025 is 17:00 BST on 5 April.
+        let e = at("2025-04-06T01:00:00+09:00");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2025, 4, 5).unwrap());
     }
 
     #[test]

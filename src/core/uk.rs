@@ -1,7 +1,24 @@
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate};
+use chrono_tz::Europe::London;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Serialize, Serializer};
+
+/// The UK calendar date of an instant.
+///
+/// Tax years, the same-day rule and the 30-day bed-and-breakfast window all
+/// count UK days, so the date must be taken in Europe/London time -- not in
+/// whatever offset the input happened to be written in. 23:30 UTC on
+/// 5 April in summer is 6 April in the UK.
+pub fn uk_date(datetime: DateTime<FixedOffset>) -> NaiveDate {
+    datetime.with_timezone(&London).date_naive()
+}
+
+/// An instant as RFC 3339 in UK local time, so its date prefix is the same
+/// UK date [`uk_date`] gives.
+pub fn uk_rfc3339(datetime: DateTime<FixedOffset>) -> String {
+    datetime.with_timezone(&London).to_rfc3339()
+}
 
 /// Tax band for income tax calculations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

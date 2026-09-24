@@ -12,6 +12,7 @@ use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
     DisposalRecord, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
+use crate::core::{uk_date, uk_rfc3339};
 use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
@@ -406,7 +407,7 @@ fn build_event_rows(
                 id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
                 account: e.account.clone(),
-                datetime: e.datetime.to_rfc3339(),
+                datetime: uk_rfc3339(e.datetime),
                 tax_year: TaxYear::from_date(e.date()).display(),
                 event_kind: match e.event_type {
                     EventType::Acquisition => "acquisition".to_string(),
@@ -619,8 +620,8 @@ fn build_transaction_rows(
 
             TransactionRow {
                 id: tx.id.clone(),
-                datetime: tx.datetime.to_rfc3339(),
-                tax_year: TaxYear::from_date(tx.datetime.date_naive()).display(),
+                datetime: uk_rfc3339(tx.datetime),
+                tax_year: TaxYear::from_date(uk_date(tx.datetime)).display(),
                 account: tx.account.clone(),
                 transaction_type,
                 tag: tx.tag,

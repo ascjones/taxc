@@ -1427,3 +1427,66 @@ fn cashback_acquisition_establishes_cost_basis() {
     assert_eq!(qty, Decimal::ZERO);
     assert_eq!(cost, Decimal::ZERO);
 }
+
+fn at(e: TaxableEvent, datetime: &str) -> TaxableEvent {
+    TaxableEvent {
+        datetime: chrono::DateTime::parse_from_rfc3339(datetime).unwrap(),
+        ..e
+    }
+}
+
+#[test]
+fn same_day_rule_uses_uk_calendar_day_not_utc_day() {
+    // Both instants fall on 2 June 2024 in the UK (BST), although the
+    // disposal is still 1 June in UTC. HMRC's "same day" is the UK day.
+    let events = vec![
+        acq("2024-01-01", "BTC", dec!(2), dec!(20000)),
+        at(
+            disp("2024-06-01", "BTC", dec!(1), dec!(30000)),
+            "2024-06-01T23:30:00Z",
+        ),
+        at(
+            acq("2024-06-02", "BTC", dec!(1), dec!(28000)),
+            "2024-06-02T00:10:00Z",
+        ),
+    ];
+    let report = calculate_cgt(events);
+    let components = &report.disposals[0].matching_components;
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].rule, MatchingRule::SameDay);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(28000));
+}
+
+#[test]
+fn matching_is_the_same_whatever_offset_the_instants_are_written_in() {
+    let utc = vec![
+        acq("2024-01-01", "BTC", dec!(2), dec!(20000)),
+        at(
+            disp("2024-06-01", "BTC", dec!(1), dec!(30000)),
+            "2024-06-01T23:30:00+00:00",
+        ),
+        at(
+            acq("2024-06-02", "BTC", dec!(1), dec!(28000)),
+            "2024-06-02T00:10:00+00:00",
+        ),
+    ];
+    let bst = vec![
+        acq("2024-01-01", "BTC", dec!(2), dec!(20000)),
+        at(
+            disp("2024-06-01", "BTC", dec!(1), dec!(30000)),
+            "2024-06-02T00:30:00+01:00",
+        ),
+        at(
+            acq("2024-06-02", "BTC", dec!(1), dec!(28000)),
+            "2024-06-02T01:10:00+01:00",
+        ),
+    ];
+    let a = calculate_cgt(utc);
+    let b = calculate_cgt(bst);
+    assert_eq!(a.disposals[0].date, b.disposals[0].date);
+    assert_eq!(
+        a.disposals[0].matching_components[0].rule,
+        b.disposals[0].matching_components[0].rule
+    );
+    assert_eq!(a.disposals[0].gain_gbp, b.disposals[0].gain_gbp);
+}

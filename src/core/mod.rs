@@ -18,5 +18,5 @@ pub use transactions::{
     document_to_events, read_transactions_json, transactions_to_events, ConversionOptions,
     TransactionError, Transactions,
 };
-pub use uk::{TaxBand, TaxYear};
+pub use uk::{uk_date, uk_rfc3339, TaxBand, TaxYear};
 pub use warnings::Warning;

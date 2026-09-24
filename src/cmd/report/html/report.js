@@ -438,8 +438,10 @@ function renderTransactionsTable(transactions) {
 
 function filterTransactions(transactions, filters) {
     return transactions.filter(tx => {
-        if (filters.dateFrom && tx.datetime < filters.dateFrom) return false;
-        if (filters.dateTo && tx.datetime > filters.dateTo + 'T23:59:59') return false;
+        // datetime is RFC 3339 in UK local time, so its first 10 chars are the
+        // UK date; compare dates, not strings with offsets and fractions.
+        if (filters.dateFrom && tx.datetime.slice(0, 10) < filters.dateFrom) return false;
+        if (filters.dateTo && tx.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
 
         if (filters.assets.size > 0 && !tx.amounts.some(a => filters.assets.has(a.asset))) {
@@ -992,8 +994,10 @@ function applyFilters() {
 
 function filterEvents(events, filters) {
     return events.filter(e => {
-        if (filters.dateFrom && e.datetime < filters.dateFrom) return false;
-        if (filters.dateTo && e.datetime > filters.dateTo + 'T23:59:59') return false;
+        // datetime is RFC 3339 in UK local time, so its first 10 chars are the
+        // UK date; compare dates, not strings with offsets and fractions.
+        if (filters.dateFrom && e.datetime.slice(0, 10) < filters.dateFrom) return false;
+        if (filters.dateTo && e.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
         if (filters.assets.size > 0 && !filters.assets.has(e.asset)) return false;
 
