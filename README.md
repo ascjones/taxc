@@ -25,6 +25,8 @@ Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`
 
 In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields remain numbers.
 
+When the selected range spans more than one tax year, each year is summarised on its own — with that year's AEA and rates, and losses netted only within the year — and the totals are the sums. The text output prints a block per year; the JSON carries the per-year figures in `years` and the sums at the top level, where `tax_year` reads e.g. `"2022/23 to 2024/25"` and a `*_rate_pct` is `null` if the years' rates differ. Use `-y` to select a single year.
+
 Salary is treated as PAYE-settled (already taxed at source): it is reported on its own line (`salary_income` in JSON) but excluded from the income tax estimate, since UK employers must operate PAYE even on salary paid in crypto. For the rare case of employment income received gross (non-RCA tokens, or an overseas employer with no UK presence), tag it `OtherIncome` instead.
 
 ### `taxc report`

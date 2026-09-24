@@ -114,6 +114,41 @@ pub fn summarize(
     }
 }
 
+/// Summarise each tax year the events and disposals fall in, in year order.
+///
+/// Each year gets its own AEA and rates; netting losses or applying one AEA
+/// across years would be wrong. When there is nothing to summarise, the
+/// `fallback` year is summarised so callers still get that year's allowances.
+pub fn summarize_by_year(
+    events: &[&TaxableEvent],
+    disposals: &[&DisposalRecord],
+    band: TaxBand,
+    fallback: TaxYear,
+) -> Vec<TaxSummary> {
+    let mut years: BTreeMap<TaxYear, (Vec<&TaxableEvent>, Vec<&DisposalRecord>)> = BTreeMap::new();
+    for &event in events {
+        years
+            .entry(TaxYear::from_date(event.date()))
+            .or_default()
+            .0
+            .push(event);
+    }
+    for &disposal in disposals {
+        years
+            .entry(TaxYear::from_date(disposal.date))
+            .or_default()
+            .1
+            .push(disposal);
+    }
+    if years.is_empty() {
+        years.insert(fallback, Default::default());
+    }
+    years
+        .into_iter()
+        .map(|(year, (events, disposals))| summarize(&events, &disposals, year, band))
+        .collect()
+}
+
 /// Warnings attached to one event: an unclassified tag, plus whatever CGT
 /// matching recorded on its disposal (deduplicated).
 pub fn event_warnings(event: &TaxableEvent, disposal: Option<&DisposalRecord>) -> Vec<Warning> {
@@ -192,6 +227,38 @@ mod tests {
             "insufficient-basis warning also carried: {warnings:?}"
         );
         assert!(event_warnings(&d, None).contains(&Warning::UnclassifiedEvent));
+    }
+
+    #[test]
+    fn summarize_by_year_applies_each_years_own_aea() {
+        // £10,000 gain in 2022/23 (AEA £12,300) and £8,000 in 2024/25
+        // (AEA £3,000). One AEA over both would be wrong either way.
+        let events = vec![
+            acq("2022-05-01", "BTC", dec!(1), dec!(1000)),
+            disp("2022-06-01", "BTC", dec!(1), dec!(11000)),
+            acq("2024-06-01", "BTC", dec!(1), dec!(1000)),
+            disp("2024-07-01", "BTC", dec!(1), dec!(9000)),
+        ];
+        let report = calculate_cgt(events.clone());
+        let refs: Vec<&TaxableEvent> = events.iter().collect();
+        let disposals: Vec<&DisposalRecord> = report.disposals.iter().collect();
+
+        let years = summarize_by_year(&refs, &disposals, TaxBand::Basic, TaxYear(2025));
+        assert_eq!(years.len(), 2);
+        assert_eq!(years[0].tax_year, TaxYear(2023));
+        assert_eq!(years[0].cgt.summary.aea, dec!(12300));
+        assert_eq!(years[0].cgt.estimated_cgt, dec!(0));
+        assert_eq!(years[1].tax_year, TaxYear(2025));
+        assert_eq!(years[1].cgt.summary.taxable_gain, dec!(5000));
+        assert_eq!(years[1].cgt.estimated_cgt, dec!(900.00));
+    }
+
+    #[test]
+    fn summarize_by_year_with_no_events_uses_fallback_year() {
+        let years = summarize_by_year(&[], &[], TaxBand::Basic, TaxYear(2025));
+        assert_eq!(years.len(), 1);
+        assert_eq!(years[0].tax_year, TaxYear(2025));
+        assert_eq!(years[0].estimated_total_tax, dec!(0));
     }
 
     #[test]

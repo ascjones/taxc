@@ -638,3 +638,55 @@ fn report_cashback_event_tagged() {
         .expect("Missing Cashback event");
     assert_eq!(cashback["event_kind"], "acquisition");
 }
+
+/// Without --year, a range spanning several tax years is summarised per year
+/// -- each with its own AEA and rates -- and the totals are the sums.
+#[test]
+fn summary_json_spanning_tax_years_sums_per_year_figures() {
+    let output = run_taxc(&["summary", "tests/data/two_tax_years.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    let years = json["years"].as_array().expect("years array");
+    assert_eq!(years.len(), 2);
+    assert_eq!(years[0]["tax_year"], "2022/23");
+    assert_eq!(years[0]["aea"], "12300.00");
+    assert_eq!(years[0]["estimated_cgt"], "0.00");
+    assert_eq!(years[1]["tax_year"], "2024/25");
+    assert_eq!(years[1]["aea"], "3000.00");
+    assert_eq!(years[1]["estimated_cgt"], "900.00");
+
+    assert_eq!(json["tax_year"], "2022/23 to 2024/25");
+    assert_eq!(json["gross_gains"], "18000.00");
+    assert_eq!(json["estimated_cgt"], "900.00");
+    assert_eq!(json["estimated_total_tax"], "900.00");
+    // Rates differ between the two years, so there is no single rate.
+    assert!(json["cgt_rate_pct"].is_null());
+}
+
+#[test]
+fn summary_json_single_tax_year_keeps_scalar_rate() {
+    let output = run_taxc(&[
+        "summary",
+        "tests/data/two_tax_years.json",
+        "--json",
+        "-y",
+        "2025",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["tax_year"], "2024/25");
+    assert_eq!(json["cgt_rate_pct"], 18);
+    assert_eq!(json["estimated_cgt"], "900.00");
+    assert_eq!(json["years"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn summary_text_spanning_tax_years_shows_each_year() {
+    let output = run_taxc(&["summary", "tests/data/two_tax_years.json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("TAX YEAR 2022/23"), "{stdout}");
+    assert!(stdout.contains("TAX YEAR 2024/25"), "{stdout}");
+    assert!(stdout.contains("TOTAL TAX LIABILITY: £900.00"), "{stdout}");
+}
