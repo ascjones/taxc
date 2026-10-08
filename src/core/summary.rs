@@ -18,9 +18,10 @@ pub struct CgtPosition {
     pub total_gain: Decimal,
     /// Gains netted against losses and reduced by the AEA.
     pub summary: CgtSummary,
-    /// CGT rate for the chosen band at the end of the tax year. In 2024/25
-    /// gains realised before 30 October 2024 are taxed at the earlier rate;
-    /// the estimates below account for that.
+    /// CGT rate for the chosen band at the end of the tax year -- a headline
+    /// figure only. In 2024/25 gains realised before 30 October 2024 were
+    /// taxed at the earlier rate, so `taxable_gain * rate` is not the estimate
+    /// there; use `estimated_cgt`.
     pub rate: Decimal,
     /// Estimated CGT for the chosen band.
     pub estimated_cgt: Decimal,
@@ -302,6 +303,26 @@ mod tests {
         assert_eq!(years[1].tax_year, TaxYear(2025));
         assert_eq!(years[1].cgt.summary.taxable_gain, dec!(5000));
         assert_eq!(years[1].cgt.estimated_cgt, dec!(900.00));
+    }
+
+    #[test]
+    fn summarize_rounds_tax_down_to_the_penny() {
+        // HMRC rounds tax down to the whole penny: 1000.3056 x 18% = 180.055008.
+        let events = vec![
+            acq("2024-11-01", "BTC", dec!(1), dec!(1000)),
+            disp("2024-12-01", "BTC", dec!(1), dec!(5000.3056)),
+        ];
+        let report = calculate_cgt(events.clone());
+        let refs: Vec<&TaxableEvent> = events.iter().collect();
+        let disposals: Vec<&DisposalRecord> = report.disposals.iter().collect();
+        let s = summarize(&refs, &disposals, TaxYear(2025), TaxBand::Basic);
+        assert_eq!(s.cgt.estimated_cgt, dec!(180.05));
+
+        // 1,000.07 of interest at 20% = 200.014 -> 200.01
+        let interest = [income("2024-07-01", Tag::Interest, dec!(1000.07))];
+        let refs: Vec<&TaxableEvent> = interest.iter().collect();
+        let s = summarize(&refs, &[], TaxYear(2025), TaxBand::Basic);
+        assert_eq!(s.income.estimated_income_tax, dec!(200.01));
     }
 
     #[test]

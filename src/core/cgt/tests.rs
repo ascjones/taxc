@@ -940,16 +940,13 @@ fn cgt_summary_nets_losses_against_gains() {
     assert_eq!(summary.net_gain_before_aea, dec!(800));
     // net (800) is below the AEA (3000) → nothing taxable
     assert_eq!(summary.taxable_gain, dec!(0));
-    assert_eq!(summary.estimated_cgt(dec!(0.20)), dec!(0));
 }
 
 #[test]
-fn cgt_summary_subtracts_aea_then_applies_rate() {
+fn cgt_summary_subtracts_aea() {
     let summary = CgtSummary::calculate([dec!(10000)], dec!(3000));
     assert_eq!(summary.net_gain_before_aea, dec!(10000));
     assert_eq!(summary.taxable_gain, dec!(7000)); // 10000 - 3000 AEA
-    assert_eq!(summary.estimated_cgt(dec!(0.20)), dec!(1400)); // 7000 * 20%
-    assert_eq!(summary.estimated_cgt(dec!(0.24)), dec!(1680)); // 7000 * 24%
 }
 
 #[test]
@@ -960,7 +957,6 @@ fn cgt_summary_net_loss_clamps_taxable_and_tax_to_zero() {
     assert_eq!(summary.in_year_losses, dec!(5000));
     assert_eq!(summary.net_gain_before_aea, dec!(-4000));
     assert_eq!(summary.taxable_gain, dec!(0));
-    assert_eq!(summary.estimated_cgt(dec!(0.24)), dec!(0));
 }
 
 // === Bug-probe tests: rounding drift, precision mismatch, B&B boundary ===
@@ -1264,13 +1260,6 @@ fn year_end_snapshots_cover_idle_tax_years() {
         report.pool_history.year_end_snapshots[1].pools[0].quantity,
         dec!(1)
     );
-}
-
-#[test]
-fn estimated_cgt_rounds_down_to_the_penny() {
-    // HMRC rounds tax down to the whole penny.
-    let summary = CgtSummary::calculate([dec!(4000.3056)], dec!(3000));
-    assert_eq!(summary.estimated_cgt(dec!(0.18)), dec!(180.05));
 }
 
 fn components(d: &DisposalRecord) -> Vec<(MatchingRule, Decimal, Decimal)> {

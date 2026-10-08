@@ -21,7 +21,7 @@ pub fn uk_rfc3339(datetime: DateTime<FixedOffset>) -> String {
 }
 
 /// First day of the 18%/24% CGT rates (Autumn Budget 2024).
-fn cgt_rate_change_2024() -> NaiveDate {
+pub fn cgt_rate_change_2024() -> NaiveDate {
     NaiveDate::from_ymd_opt(2024, 10, 30).expect("valid date")
 }
 
@@ -124,6 +124,11 @@ impl TaxYear {
         format!("{}/{:02}", self.0 - 1, self.0.rem_euclid(100))
     }
 
+    /// Whether CGT rates changed part-way through this tax year.
+    pub fn has_mid_year_cgt_rate_change(&self) -> bool {
+        *self == TaxYear::from_date(cgt_rate_change_2024())
+    }
+
     /// Get CGT annual exempt amount for this tax year
     pub fn cgt_exempt_amount(&self) -> Decimal {
         match self.0 {
@@ -159,9 +164,9 @@ impl TaxYear {
     /// Get CGT basic rate for this tax year (non-residential-property assets,
     /// e.g. crypto and shares).
     ///
-    /// Rates changed mid-year on 30 October 2024 (10% -> 18%); for 2024/25
-    /// this returns the post-change rate, so gains realised before that date
-    /// are over-estimated.
+    /// The rate in force at the end of the tax year. For 2024/25 gains realised
+    /// before 30 October 2024 were taxed at 10%; [`cgt_rate_on`] gives the
+    /// rate for a disposal date.
     pub fn cgt_basic_rate(&self) -> Decimal {
         match self.0 {
             // 2024/25 onwards: 18% (from 30 October 2024)
@@ -176,9 +181,9 @@ impl TaxYear {
     /// Get CGT higher rate for this tax year (non-residential-property assets,
     /// e.g. crypto and shares).
     ///
-    /// Rates changed mid-year on 30 October 2024 (20% -> 24%); for 2024/25
-    /// this returns the post-change rate, so gains realised before that date
-    /// are over-estimated.
+    /// The rate in force at the end of the tax year. For 2024/25 gains realised
+    /// before 30 October 2024 were taxed at 20%; [`cgt_rate_on`] gives the
+    /// rate for a disposal date.
     pub fn cgt_higher_rate(&self) -> Decimal {
         match self.0 {
             // 2024/25 onwards: 24% (from 30 October 2024)
@@ -298,8 +303,8 @@ mod tests {
 
     #[test]
     fn cgt_rates_2024_25_onwards() {
-        // 18%/24% apply from 30 October 2024; the tool uses them for the
-        // whole of 2024/25.
+        // The year-end rates; 2024/25 gains before 30 October 2024 use
+        // 10%/20% (see cgt_rate_changes_on_30_october_2024).
         for year in [2025, 2026, 2027] {
             let ty = TaxYear(year);
             assert_eq!(ty.cgt_basic_rate(), dec!(0.18));

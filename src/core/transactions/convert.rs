@@ -25,17 +25,15 @@ impl Transaction {
             });
         }
 
-        let ctx = EventContext {
-            id: &self.id,
-            datetime: self.datetime,
-            account: &self.account,
-            description: &self.description,
-            valuation: self.valuation.as_ref(),
-            fee: self.fee.as_ref(),
-            tag: self.tag,
-            registry,
-            exclude_unlinked,
-        };
+        if exclude_unlinked && self.is_unlinked_transfer() {
+            log::warn!(
+                "Skipping unlinked transfer: id={} ({:?})",
+                self.id,
+                self.details
+            );
+            return Ok(vec![]);
+        }
+        let ctx = self.context(registry);
 
         let (mut events, main_asset) = match &self.details {
             TransactionType::Trade { sold, bought } => {
@@ -57,12 +55,76 @@ impl Transaction {
             ),
         };
 
-        if !ctx.is_excluded_unlinked(&self.details) {
-            if let Some(disposal) = ctx.fee_disposal(main_asset)? {
-                events.push(disposal);
-            }
-        }
+        events.extend(ctx.fee_disposal(main_asset)?);
         Ok(events)
+    }
+
+    /// An untagged deposit or withdrawal of a chargeable asset with no linked
+    /// leg -- what `--exclude-unlinked` drops.
+    fn is_unlinked_transfer(&self) -> bool {
+        self.tag == Tag::Unclassified
+            && matches!(
+                &self.details,
+                TransactionType::Deposit { amount, linked_withdrawal: None }
+                    | TransactionType::Withdrawal { amount, linked_deposit: None }
+                    if !is_gbp(&amount.asset)
+            )
+    }
+
+    fn context<'a>(&'a self, registry: &'a AssetRegistry) -> EventContext<'a> {
+        EventContext {
+            id: &self.id,
+            datetime: self.datetime,
+            account: &self.account,
+            description: &self.description,
+            valuation: self.valuation.as_ref(),
+            fee: self.fee.as_ref(),
+            tag: self.tag,
+            registry,
+        }
+    }
+
+    /// The part of a linked withdrawal that did not arrive at the deposit, as
+    /// an unclassified disposal.
+    ///
+    /// Quantities exclude fees (a fee is its own outflow, disposed of by
+    /// `fee_disposal`), so the shortfall is simply sent minus received. Those
+    /// tokens left the user's control, so they must leave the pool; they are
+    /// flagged unclassified because their treatment is unknown.
+    pub(super) fn linked_transfer_shortfall(
+        &self,
+        deposited: Decimal,
+        registry: &AssetRegistry,
+    ) -> Result<Option<TaxableEvent>, TransactionError> {
+        let TransactionType::Withdrawal { amount, .. } = &self.details else {
+            return Ok(None);
+        };
+        let shortfall = amount.quantity - deposited;
+        if shortfall <= Decimal::ZERO || is_gbp(&amount.asset) {
+            return Ok(None);
+        }
+
+        // A total GBP valuation covers the whole amount sent: take its share.
+        let value_gbp = match &self.valuation {
+            Some(Valuation::ValueGbp(total)) => *total / amount.quantity * shortfall,
+            valuation => valuation_to_gbp(&self.id, valuation.as_ref(), &amount.asset, shortfall)?
+                .unwrap_or(Decimal::ZERO),
+        };
+        log::warn!(
+            "Linked withdrawal {} sent {} more {} than arrived; treated as an unclassified disposal",
+            self.id,
+            shortfall,
+            amount.asset
+        );
+        let ctx = self.context(registry);
+        Ok(Some(ctx.event(
+            EventType::Disposal,
+            Tag::Unclassified,
+            &amount.asset,
+            shortfall,
+            value_gbp,
+            None,
+        )))
     }
 }
 
@@ -78,7 +140,6 @@ struct EventContext<'a> {
     fee: Option<&'a Fee>,
     tag: Tag,
     registry: &'a AssetRegistry,
-    exclude_unlinked: bool,
 }
 
 impl EventContext<'_> {
@@ -146,18 +207,6 @@ impl EventContext<'_> {
             None => "Fee".to_string(),
         });
         Ok(Some(event))
-    }
-
-    /// Whether `--exclude-unlinked` drops this transaction entirely.
-    fn is_excluded_unlinked(&self, details: &TransactionType) -> bool {
-        self.exclude_unlinked
-            && self.tag == Tag::Unclassified
-            && matches!(
-                details,
-                TransactionType::Deposit { amount, linked_withdrawal: None }
-                    | TransactionType::Withdrawal { amount, linked_deposit: None }
-                    if !is_gbp(&amount.asset)
-            )
     }
 
     fn invalid_tag(&self, tx_type: &str) -> TransactionError {
@@ -363,8 +412,9 @@ impl EventContext<'_> {
         )])
     }
 
-    /// An untagged, unlinked deposit or withdrawal: either dropped, or kept
-    /// as an unclassified acquisition/disposal for the user to review.
+    /// An untagged, unlinked deposit or withdrawal, kept as an unclassified
+    /// acquisition/disposal for the user to review. (`--exclude-unlinked`
+    /// drops it earlier, in `to_taxable_events`.)
     fn unlinked_event(
         &self,
         amount: &Amount,
@@ -372,16 +422,6 @@ impl EventContext<'_> {
         tx_type: &str,
         treated_as: &str,
     ) -> Result<Vec<TaxableEvent>, TransactionError> {
-        if self.exclude_unlinked {
-            log::warn!(
-                "Skipping unlinked {}: id={} asset={}",
-                tx_type,
-                self.id,
-                amount.asset
-            );
-            return Ok(vec![]);
-        }
-
         let priced_asset = self.tx_price().map(|_| amount.asset.as_str());
         let fee_gbp = self.fee_gbp(priced_asset)?;
         let value_gbp =
@@ -403,59 +443,6 @@ impl EventContext<'_> {
             fee_gbp,
         )])
     }
-}
-
-/// The part of a linked withdrawal that neither arrived at the deposit nor
-/// was declared as a fee in the same asset, as an unclassified disposal.
-///
-/// Those tokens left the user's control, so they must leave the pool; they
-/// are flagged unclassified because their treatment is unknown.
-pub(super) fn linked_transfer_shortfall(
-    withdrawal: &Transaction,
-    deposited: Decimal,
-    registry: &AssetRegistry,
-) -> Result<Option<TaxableEvent>, TransactionError> {
-    let TransactionType::Withdrawal { amount, .. } = &withdrawal.details else {
-        return Ok(None);
-    };
-    let same_asset_fee = withdrawal
-        .fee
-        .as_ref()
-        .filter(|f| normalize_currency(&f.asset) == normalize_currency(&amount.asset))
-        .map_or(Decimal::ZERO, |f| f.amount);
-    let shortfall = amount.quantity - deposited - same_asset_fee;
-    if shortfall <= Decimal::ZERO || is_gbp(&amount.asset) {
-        return Ok(None);
-    }
-
-    let value_gbp = match &withdrawal.valuation {
-        Some(Valuation::Price(price)) => {
-            validate_price_base(&withdrawal.id, price, &amount.asset)?;
-            price.to_gbp(shortfall)?
-        }
-        Some(Valuation::ValueGbp(total)) => *total * shortfall / amount.quantity,
-        None => Decimal::ZERO,
-    };
-    log::warn!(
-        "Linked withdrawal {} sent {} more {} than arrived; treated as an unclassified disposal",
-        withdrawal.id,
-        shortfall,
-        amount.asset
-    );
-    Ok(Some(TaxableEvent {
-        id: UNASSIGNED_ID,
-        source_transaction_id: withdrawal.id.clone(),
-        account: withdrawal.account.clone(),
-        event_type: EventType::Disposal,
-        tag: Tag::Unclassified,
-        datetime: withdrawal.datetime,
-        asset: normalize_currency(&amount.asset),
-        asset_class: asset_class_for(registry, &amount.asset),
-        quantity: shortfall,
-        value_gbp,
-        fee_gbp: None,
-        description: withdrawal.description.clone(),
-    }))
 }
 
 fn fee_to_gbp_with_context(

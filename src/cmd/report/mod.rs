@@ -74,7 +74,12 @@ impl ReportCommand {
                 println!("HTML report written to: {}", output_path.display());
             } else {
                 let temp_path = write_private_temp(&html)?;
-                opener::open(&temp_path)?;
+                opener::open(&temp_path).with_context(|| {
+                    format!(
+                        "report written to {} but could not open a browser",
+                        temp_path.display()
+                    )
+                })?;
                 println!("Opened HTML report in browser: {}", temp_path.display());
             }
         }

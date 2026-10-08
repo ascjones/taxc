@@ -704,11 +704,15 @@ fn output_schema_types_warning_amounts_as_strings() {
     let output = run_taxc(&["schema", "output"]);
     assert!(output.status.success(), "Command failed: {:?}", output);
     let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let text = schema.to_string();
-    assert!(
-        !text.contains(r#""available":{"format":"double","type":"number"}"#),
-        "Warning.available still declared as a number"
-    );
+    let variants = schema["$defs"]["Warning"]["oneOf"]
+        .as_array()
+        .expect("Warning variants");
+    let insufficient = variants
+        .iter()
+        .find(|v| v["properties"]["type"]["const"] == "InsufficientCostBasis")
+        .expect("InsufficientCostBasis variant");
+    assert_eq!(insufficient["properties"]["available"]["type"], "string");
+    assert_eq!(insufficient["properties"]["required"]["type"], "string");
 
     let report = run_taxc(&[
         "report",
@@ -733,5 +737,34 @@ fn missing_input_file_error_names_the_path() {
     assert!(
         stderr.contains("tests/data/does-not-exist.json"),
         "{stderr}"
+    );
+}
+
+/// Rate fields are JSON numbers; unclassified disposals left out of the
+/// figures are counted rather than silently dropped.
+#[test]
+fn summary_json_rates_are_numbers_and_unclassified_disposals_are_counted() {
+    let output = run_taxc(&["summary", "tests/data/salary_cashback.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["dividend_rate_pct"].as_f64(), Some(8.75));
+    assert_eq!(json["unclassified_disposal_count"], 0);
+}
+
+/// An unclassified disposal is left out of the tax figures, and the summary
+/// says so instead of printing a silent zero.
+#[test]
+fn summary_flags_unclassified_disposals_it_excludes() {
+    let output = run_taxc(&["summary", "tests/data/unlinked_withdrawal.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["unclassified_disposal_count"], 1);
+    assert_eq!(json["disposal_count"], 0);
+
+    let output = run_taxc(&["summary", "tests/data/unlinked_withdrawal.json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("1 unclassified disposal(s) are excluded"),
+        "{stdout}"
     );
 }

@@ -101,7 +101,7 @@ pub fn transactions_to_events(
     for tx in transactions {
         events.extend(tx.to_taxable_events(registry, options.exclude_unlinked)?);
         if let Some(&qty) = deposited.get(tx.id.as_str()) {
-            events.extend(convert::linked_transfer_shortfall(tx, qty, registry)?);
+            events.extend(tx.linked_transfer_shortfall(qty, registry)?);
         }
     }
 

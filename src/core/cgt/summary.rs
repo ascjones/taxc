@@ -1,12 +1,11 @@
-use crate::core::fmt::round_tax;
 use rust_decimal::Decimal;
 
 /// Aggregated capital-gains position for a set of disposals: gains netted
 /// against in-year losses, then reduced by the Annual Exempt Amount (AEA).
 ///
 /// Pure domain math, independent of any tax band or output format. Callers
-/// supply the per-disposal gains and the year's AEA; `estimated_cgt` applies a
-/// rate to the taxable gain.
+/// supply the per-disposal gains and the year's AEA. The tax estimate lives in
+/// `core::summary`, because it depends on each gain's disposal date.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CgtSummary {
     /// Sum of positive gains only.
@@ -43,11 +42,5 @@ impl CgtSummary {
             aea,
             taxable_gain,
         }
-    }
-
-    /// Estimated CGT for the taxable gain at the given rate, rounded down to
-    /// the penny as HMRC does.
-    pub fn estimated_cgt(&self, rate: Decimal) -> Decimal {
-        round_tax(self.taxable_gain * rate)
     }
 }

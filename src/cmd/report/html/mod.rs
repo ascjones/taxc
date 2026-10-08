@@ -38,15 +38,46 @@ fn script_safe(json: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::script_safe;
+    use super::generate_html;
+    use crate::cmd::filter::EventFilter;
+    use crate::core::{calculate_cgt, read_transactions_json, transactions_to_events};
 
     #[test]
-    fn script_safe_escapes_markup_openers() {
-        let json = serde_json::to_string("</script><!--\u{2028}").unwrap();
-        let safe = script_safe(&json);
-        assert!(!safe.contains('<'));
-        assert!(!safe.contains('\u{2028}'));
-        let back: String = serde_json::from_str(&safe).unwrap();
-        assert_eq!(back, "</script><!--\u{2028}");
+    fn generate_html_keeps_hostile_strings_inside_the_data() {
+        let doc = r#"{"assets":[{"symbol":"BTC","asset_class":"Crypto"}],"transactions":[
+            {"id":"</script><!--","datetime":"2024-01-15T10:00:00Z","account":"k\u2028","type":"Trade",
+             "description":"</SCRIPT x><script>window.pwned = true</script>",
+             "sold":{"asset":"GBP","quantity":100},"bought":{"asset":"BTC","quantity":1}}]}"#;
+        let (txs, registry) = read_transactions_json(doc.as_bytes()).unwrap();
+        let events = transactions_to_events(&txs, &registry, Default::default()).unwrap();
+        let filter = EventFilter {
+            from: None,
+            to: None,
+            asset: None,
+            event_kind: None,
+        };
+        let html = generate_html(&txs, &events, &calculate_cgt(events.clone()), &filter).unwrap();
+
+        let lower = html.to_lowercase();
+        assert_eq!(
+            lower.matches("</script").count(),
+            1,
+            "only the template's own"
+        );
+        assert!(!html.contains("<!--"));
+        assert!(!html.contains('\u{2028}'));
+        // The strings survive intact inside the data.
+        let data_line = html
+            .lines()
+            .find(|l| l.starts_with("const DATA = "))
+            .unwrap();
+        let json = data_line
+            .trim_start_matches("const DATA = ")
+            .trim_end_matches(';');
+        let data: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            data["transactions"][0]["description"],
+            "</SCRIPT x><script>window.pwned = true</script>"
+        );
     }
 }

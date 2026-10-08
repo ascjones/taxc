@@ -529,3 +529,82 @@ fn summary_disposal_count_excludes_unclassified_like_taxc_summary() {
     let data = build_report_data(&[], &events, &cgt_report, &no_filter());
     assert_eq!(data.summary.disposal_count, 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn private_temp_report_is_unique_and_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let a = write_private_temp("<html>a</html>").unwrap();
+    let b = write_private_temp("<html>b</html>").unwrap();
+    assert_ne!(a, b, "each run gets its own file");
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "<html>a</html>");
+    let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let _ = std::fs::remove_file(a);
+    let _ = std::fs::remove_file(b);
+}
+
+const WITH_EVENTLESS: &str = r#"{
+  "assets": [
+    {"symbol": "BTC", "asset_class": "Crypto"},
+    {"symbol": "ETH", "asset_class": "Crypto"}
+  ],
+  "transactions": [
+    {"id": "gbp-in", "datetime": "2024-05-01T10:00:00Z", "account": "k", "type": "Deposit",
+     "amount": {"asset": "GBP", "quantity": 1000}},
+    {"id": "btc-buy", "datetime": "2024-05-02T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "GBP", "quantity": 1000}, "bought": {"asset": "BTC", "quantity": 1}},
+    {"id": "btc-out", "datetime": "2024-06-01T10:00:00Z", "account": "k", "type": "Withdrawal",
+     "amount": {"asset": "BTC", "quantity": 1}, "linked_deposit": "btc-in"},
+    {"id": "btc-in", "datetime": "2024-06-01T10:05:00Z", "account": "ledger", "type": "Deposit",
+     "amount": {"asset": "BTC", "quantity": 1}, "linked_withdrawal": "btc-out"},
+    {"id": "eth-buy", "datetime": "2024-06-02T10:00:00Z", "account": "k", "type": "Trade",
+     "sold": {"asset": "GBP", "quantity": 500}, "bought": {"asset": "ETH", "quantity": 1}}
+  ]
+}"#;
+
+fn shown_ids(filter: EventFilter) -> Vec<String> {
+    let (txs, events) = load(WITH_EVENTLESS);
+    let cgt_report = calculate_cgt(events.clone());
+    build_report_data(&txs, &events, &cgt_report, &filter)
+        .transactions
+        .into_iter()
+        .map(|t| t.id)
+        .collect()
+}
+
+#[test]
+fn eventless_transactions_follow_the_date_and_asset_filters() {
+    // The GBP deposit and the exact linked BTC pair produce no events.
+    assert_eq!(
+        shown_ids(no_filter()),
+        vec!["gbp-in", "btc-buy", "btc-out", "btc-in", "eth-buy"]
+    );
+    assert_eq!(
+        shown_ids(EventFilter {
+            asset: Some("BTC".to_string()),
+            ..no_filter()
+        }),
+        vec!["btc-buy", "btc-out", "btc-in"]
+    );
+    assert_eq!(
+        shown_ids(EventFilter {
+            from: chrono::NaiveDate::from_ymd_opt(2024, 6, 1),
+            ..no_filter()
+        }),
+        vec!["btc-out", "btc-in", "eth-buy"]
+    );
+}
+
+#[test]
+fn eventless_transactions_are_hidden_under_an_event_kind_filter() {
+    // An event-kind filter selects events; a transaction without any has none
+    // of that kind.
+    assert_eq!(
+        shown_ids(EventFilter {
+            event_kind: Some(EventKind::Acquisition),
+            ..no_filter()
+        }),
+        vec!["btc-buy", "eth-buy"]
+    );
+}

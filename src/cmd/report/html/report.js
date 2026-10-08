@@ -27,14 +27,18 @@ const sortState = {
 const GBP_FORMAT = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
 const QTY_FORMAT = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 8 });
 const COUNT_FORMAT = new Intl.NumberFormat('en-GB');
+// Timestamps are shown in UK time, the time every tax rule uses, wherever the
+// report is opened. Date-only values (YYYY-MM-DD) parse as UTC midnight, so
+// they are formatted in UTC to keep their calendar day.
 const DATETIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'Europe/London'
 });
-const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' });
+const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
 
 function formatCurrency(value) {
     return GBP_FORMAT.format(num(value));
@@ -273,7 +277,7 @@ function formatFee(fee) {
 /* ---- Sorting ---- */
 
 const EVENT_SORT_ACCESSORS = {
-    datetime: e => e.datetime,
+    datetime: e => Date.parse(e.datetime),
     tag: e => e.tag || '',
     quantity: e => num(e.quantity),
     asset: e => e.asset,
@@ -283,7 +287,7 @@ const EVENT_SORT_ACCESSORS = {
 };
 
 const TX_SORT_ACCESSORS = {
-    datetime: tx => tx.datetime,
+    datetime: tx => Date.parse(tx.datetime),
     type: tx => tx.transaction_type,
     tag: tx => tx.tag || '',
     account: tx => tx.account || '',
@@ -1091,9 +1095,10 @@ function calculateFilteredSummary(events) {
                     classTotals[cls].c += costs;
                     classTotals[cls].g += gain;
                 }
+                // Classified only, like the Tax Years chart and the Rust
+                // summary.disposal_count.
+                disposalCount++;
             }
-
-            disposalCount++;
         }
 
         if (e.warnings && e.warnings.length > 0) {

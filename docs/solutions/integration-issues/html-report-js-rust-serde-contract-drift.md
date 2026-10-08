@@ -153,3 +153,10 @@ const nav = event.target.closest('[data-nav-event], [data-nav-tx]');
 
 - GitHub #10 "HTML report: warnings not visible on main event table rows" — describes the user-visible warning-visibility symptom; the same overhaul also moved warning badges into expandable row cards with an amber event-arrow indicator on every warned row, so this issue is likely resolvable.
 - GitHub #11 "Improve HTML report UI" — tracking issue; several items (sortable columns, inline warning highlighting, empty states, tax-year view, matched-acquisition links) were addressed by the same overhaul (commit 72168b4).
+
+## Recurrence (2026-10, PR #33)
+
+A near-repeat surfaced in review: the Rust `summary.disposal_count` was redefined to count classified disposals only, while `calculateFilteredSummary` in report.js still counted every disposal and the Tax Years chart counted classified ones, so one report showed different disposal counts. Fixed by counting classified disposals in the JS too. Two further notes since this entry was written:
+
+- The schema-regeneration prevention item is now automated: CI regenerates `schema/*.json` and fails on any diff.
+- When a Rust producer changes a field's type or meaning (string to enum, a redefined count, UK-local timestamps), grep report.js for every consumer of that field. The recommended JS-vs-Rust aggregate equality browser test still does not exist and remains the cheapest guard against this class.
