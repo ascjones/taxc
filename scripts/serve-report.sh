@@ -9,7 +9,7 @@ case "${2:-start}" in
         # Kill any existing server on this port
         pkill -f "python3 -m http.server $PORT" 2>/dev/null || true
         cd "$REPORT_DIR" && python3 -m http.server "$PORT" &
-        echo "Server started at http://localhost:$PORT/tax-report.html"
+        echo "Server started at http://localhost:$PORT/taxc-report-preview.html"
         ;;
     stop)
         pkill -f "python3 -m http.server $PORT" 2>/dev/null
