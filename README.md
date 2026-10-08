@@ -23,17 +23,21 @@ All commands take an optional positional `FILE` (JSON); if omitted or `-`, input
 
 Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`; add `--json` for machine-readable output, `-t higher` for a different tax band.
 
-In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields remain numbers.
+In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields are numbers (`dividend_rate_pct` can be fractional, e.g. `8.75`); `dividend_allowance` is the money amount of the year's dividend allowance. `cgt_rate_pct` is `null` whenever no single rate explains `estimated_cgt` — the years summed apply different rates, or the year is 2024/25, whose rates changed on 30 October 2024. `estimated_cgt` is always authoritative.
+
+When the selected range spans more than one tax year, each year is summarised on its own — with that year's AEA and rates, and losses netted only within the year — and the totals are the sums. The text output prints a block per year; the JSON carries the per-year figures in `years` and the sums at the top level, where `tax_year` reads e.g. `"2022/23 to 2024/25"` and a `*_rate_pct` is `null` if the years' rates differ. Use `-y` to select a single year.
+
+Unclassified disposals (untagged withdrawals, unexplained transfer shortfalls) are left out of the figures. The text output ends with a note when there are any, and the JSON counts them in `unclassified_disposal_count`; run `taxc report` to review and classify them.
 
 Salary is treated as PAYE-settled (already taxed at source): it is reported on its own line (`salary_income` in JSON) but excluded from the income tax estimate, since UK employers must operate PAYE even on salary paid in crypto. For the rare case of employment income received gross (non-RCA tokens, or an overseas employer with no UK presence), tag it `OtherIncome` instead.
 
 ### `taxc report`
 
-Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data.
+Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data. Timestamps are in UK local time, quantities use the same 8-decimal rounding as `taxc pools`, and `summary.disposal_count` counts classified disposals (unclassified ones are in the `*_with_unclassified` totals). The CLI filters (`-y`, `--from`/`--to`, `-a`, `--event-kind`) also narrow the Transactions tab.
 
 ### `taxc pools`
 
-Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history.
+Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history. Every tax year from the first event to the last gets a snapshot, including years with no activity. Sterling is not a chargeable asset and never appears as a pool.
 
 Quantities render to at most 8 decimal places, rounded half away from zero — the same rule monetary amounts use. A quantity carrying more decimals is rounded, not truncated, so a non-zero balance below `0.00000001` shows as `0.00000001` rather than `0`.
 
@@ -51,7 +55,11 @@ JSON with top-level `assets` and `transactions` fields — run `taxc schema inpu
 
 An optional `tag` classifies a transaction for tax. Income tags (`Salary`, `OtherIncome`, `Dividend`, `Interest`, `StakingReward`, `AirdropIncome`) count toward the income tax estimate; other tags cover cashback, gifts, transfers, and no gain/no loss. `Cashback` is an ordinary acquisition at market value but **not** income — HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97).
 
-GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no `valuation` (the amount is the value); other assets require one to establish market value. Quantities must be positive and fees non-negative; violations are rejected with an error.
+GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashback` need no `valuation` (the amount is the value); other assets require one to establish market value. Quantities must be positive, and fees and `valuation` amounts non-negative; violations are rejected with an error.
+
+**Fees paid in crypto.** Following HMRC (CRYPTO22280), tokens spent on a fee are a disposal of those tokens at market value, and the fee's value is an allowable cost of the transaction it paid for. taxc therefore records a separate disposal of `fee.amount` of `fee.asset` alongside the transaction. **Every quantity excludes the fee**: `sold`, `bought` and `amount` are the amounts traded or moved, and the fee is a separate outflow recorded only in `fee`. So a buy of 1 ETH with a 0.01 ETH fee taken from it is `bought: 1` plus `fee: 0.01 ETH`, and a sale of 1 ETH that also cost 0.01 ETH is `sold: 1` plus that fee. Folding the fee into a quantity disposes of it twice. A GBP fee is an allowable cost only.
+
+**Linked transfers** (`linked_deposit`/`linked_withdrawal`) move one asset between your own accounts and are not disposals. Both legs must be the same asset, and the deposit cannot exceed the withdrawal. A fee on either leg is disposed of as above. Because quantities exclude fees, a transfer that arrived intact has equal quantities on both legs; any amount sent that did not arrive is recorded as an unclassified disposal and flagged for review, rather than staying in the pool.
 
 ### Example
 
@@ -93,6 +101,8 @@ GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashbac
 }
 ```
 
+`datetime` may carry any UTC offset (a date-only or offset-less value is read as UTC). Every tax rule counts **UK calendar days**: the tax year, the same-day rule and the 30-day bed-and-breakfast window all use the date in Europe/London time. So `2024-04-05T23:30:00Z` — 00:30 BST on 6 April — falls in 2024/25. Report timestamps are shown in UK local time.
+
 ## HMRC Share Identification Rules
 
 Disposals are matched against acquisitions in order:
@@ -100,6 +110,10 @@ Disposals are matched against acquisitions in order:
 1. **Same-Day Rule** — acquisitions on the same day
 2. **Bed & Breakfast Rule** — acquisitions within 30 days after the disposal
 3. **Section 104 Pool** — remaining shares from the pooled cost basis
+
+All acquisitions of an asset on one UK day are treated as a single acquisition (TCGA 1992 s105). Sterling is not a chargeable asset, so GBP never enters a pool. Estimated tax is rounded down to the penny, as HMRC does.
+
+Losses are netted against all gains in the same tax year. taxc does not model the connected-person rule (TCGA 1992 s18), under which a loss on a disposal to a connected person — typically a family gift — can only be set against gains on disposals to that same person; review such losses by hand.
 
 ## Tax Years Supported
 
@@ -110,14 +124,20 @@ CGT annual exempt amounts and rates (non-residential-property assets, e.g. crypt
 | 2024/25 onwards   | £3,000               | 18%        | 24%         |
 | 2023/24           | £6,000               | 10%        | 20%         |
 | 2016/17 – 2022/23 | £11,100 – £12,300    | 10%        | 20%         |
-| 2010/11 – 2015/16 | £11,000 – £11,100    | 18%        | 28%         |
+| 2010/11 – 2015/16 | £10,100 – £11,100    | 18%        | 28%         |
+| 2007/08 – 2009/10 | £9,200 – £10,100     | 18%        | 28%         |
 
 > **Note:** CGT rates changed mid-year on 30 October 2024 (10%/20% → 18%/24%).
-> Estimates for 2024/25 use the post-change rates throughout, so gains realised
-> before that date are over-estimated. Exempt amounts and rates for 2014/15 and
-> earlier are approximate.
+> For 2024/25 each gain is taxed at the rate in force on its disposal date, and
+> losses and the AEA are set against the 18%/24% gains first — the allocation
+> HMRC permits that gives the lowest liability. Rates before 2010/11 are
+> approximate.
 
-Income tax on miscellaneous income (e.g. staking rewards) uses flat 20%/40%/45% rates for basic, higher, and additional rate taxpayers.
+Income tax is a flat estimate by band:
+
+- **Dividends** are taxed at the dividend rates after the dividend allowance (£500 from 2024/25, £1,000 in 2023/24, £2,000 from 2018/19, £5,000 in 2016/17–2017/18). Rates are 8.75%/33.75%/39.35% for 2022/23–2025/26, 10.75%/35.75%/39.35% from 2026/27, and 7.5%/32.5%/38.1% for 2016/17–2021/22.
+- **Other income** (e.g. staking rewards, interest) is taxed at 20%/40%/45%. The personal allowance and personal savings allowance are not applied.
+- **Salary** is PAYE-settled and excluded, as above.
 
 ## Library
 

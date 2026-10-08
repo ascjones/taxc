@@ -4,20 +4,22 @@ pub mod html;
 
 pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values.";
 
-use super::filter::{EventFilter, FilterArgs};
+use super::filter::{EventFilter, EventKind, FilterArgs};
 use super::read_transactions_and_events;
-use crate::core::fmt::{iso_date, pence_string};
+use crate::core::fmt::{iso_date, pence_string, quantity_string};
 use crate::core::transactions::{Transaction, TransactionType};
 use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
-    DisposalRecord, EventType, Tag, TaxYear, TaxableEvent, Warning,
+    DisposalRecord, DisposalTotals, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
+use crate::core::{uk_date, uk_rfc3339};
+use anyhow::Context;
 use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -59,7 +61,7 @@ impl ReportCommand {
             let json = serde_json::to_string_pretty(&data)?;
 
             if let Some(ref output_path) = self.output {
-                std::fs::write(output_path, &json)?;
+                write_output(output_path, &json)?;
                 eprintln!("JSON report written to: {}", output_path.display());
             } else {
                 println!("{}", json);
@@ -68,19 +70,50 @@ impl ReportCommand {
             let html = html::generate_html(&transactions, &events, &cgt_report, &event_filter)?;
 
             if let Some(ref output_path) = self.output {
-                std::fs::write(output_path, &html)?;
+                write_output(output_path, &html)?;
                 println!("HTML report written to: {}", output_path.display());
             } else {
-                // Write to temp file and open in browser
-                let temp_path = std::env::temp_dir().join("taxc-report.html");
-                std::fs::write(&temp_path, &html)?;
-                opener::open(&temp_path)?;
+                let temp_path = write_private_temp(&html)?;
+                opener::open(&temp_path).with_context(|| {
+                    format!(
+                        "report written to {} but could not open a browser",
+                        temp_path.display()
+                    )
+                })?;
                 println!("Opened HTML report in browser: {}", temp_path.display());
             }
         }
 
         Ok(())
     }
+}
+
+fn write_output(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    std::fs::write(path, contents).with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Write the report to a new, uniquely named file only the user can read.
+///
+/// The report holds personal financial data and the temp directory may be
+/// shared (e.g. /tmp on Linux), so a fixed name would be readable by others
+/// and could be pre-created as a symlink by another user.
+fn write_private_temp(contents: &str) -> anyhow::Result<PathBuf> {
+    use std::io::Write;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let path =
+        std::env::temp_dir().join(format!("taxc-report-{}-{}.html", std::process::id(), nanos));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
+        .open(&path)
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    file.write_all(contents.as_bytes())?;
+    Ok(path)
 }
 
 /// Data structure for embedding in HTML as JSON
@@ -138,7 +171,7 @@ pub struct EventRow {
     pub tag: Tag,
     pub event_type: String,
     pub asset: String,
-    pub asset_class: String,
+    pub asset_class: AssetClass,
     pub quantity: String,
     pub value_gbp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,6 +228,8 @@ pub struct MatchingComponentRow {
 /// Aggregated acquisition details for a (date, asset) key
 #[derive(Default)]
 struct AcquisitionDetail {
+    /// The first acquisition's event id, for navigation.
+    event_id: usize,
     event_type: String,
     tax_year: String,
     quantity: Decimal,
@@ -247,11 +282,13 @@ pub(super) fn build_report_data(
     filter: &EventFilter,
 ) -> ReportData {
     let filtered_events: Vec<_> = filter.apply(events);
-    let acquisitions = acquisition_lookup(&filtered_events);
+    // Built from every event, so a match to an acquisition the filter hides
+    // (e.g. a B&B repurchase in the next tax year) still links to it.
+    let acquisitions = acquisition_lookup(events);
     let event_rows = build_event_rows(&filtered_events, cgt_report, &acquisitions);
 
     ReportData {
-        transactions: build_transaction_rows(transactions, &filtered_events),
+        transactions: build_transaction_rows(transactions, events, &filtered_events, filter),
         warnings: group_warnings(&event_rows),
         summary: build_summary(&filtered_events, &event_rows, cgt_report, filter),
         events: event_rows,
@@ -262,41 +299,64 @@ pub(super) fn build_report_data(
 /// matches can be linked back to the acquisition row they came from.
 /// Multiple acquisitions of one asset on one day are aggregated, and take
 /// the first event's id for navigation.
-struct AcquisitionLookup {
-    event_ids: HashMap<(NaiveDate, String), usize>,
-    details: HashMap<(NaiveDate, String), AcquisitionDetail>,
+type AcquisitionLookup = HashMap<(NaiveDate, String), AcquisitionDetail>;
+
+fn acquisition_lookup(events: &[TaxableEvent]) -> AcquisitionLookup {
+    let mut lookup = AcquisitionLookup::new();
+    for e in events
+        .iter()
+        .filter(|e| e.event_type == EventType::Acquisition)
+    {
+        let detail = lookup
+            .entry((e.date(), e.asset.clone()))
+            .or_insert_with(|| AcquisitionDetail {
+                event_id: e.id,
+                event_type: display_event_type(e.event_type, e.tag).to_string(),
+                tax_year: TaxYear::from_date(e.date()).display(),
+                description: e.description.clone().unwrap_or_default(),
+                quantity: Decimal::ZERO,
+                value_gbp: Decimal::ZERO,
+            });
+        detail.quantity += e.quantity;
+        detail.value_gbp += e.value_gbp;
+    }
+    lookup
 }
 
-fn acquisition_lookup(filtered_events: &[&TaxableEvent]) -> AcquisitionLookup {
-    let mut acquisition_event_index: HashMap<(NaiveDate, String), usize> = HashMap::new();
-    let mut acquisition_details: HashMap<(NaiveDate, String), AcquisitionDetail> = HashMap::new();
-
-    for e in filtered_events {
-        if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
-            let key = (e.date(), e.asset.clone());
-            acquisition_event_index.entry(key).or_insert(e.id);
-        }
-    }
-
-    for e in filtered_events {
-        if e.event_type == EventType::Acquisition && e.tag != Tag::Unclassified {
-            let key = (e.date(), e.asset.clone());
-            let detail = acquisition_details
-                .entry(key)
-                .or_insert_with(|| AcquisitionDetail {
-                    event_type: format_event_type(e.event_type, e.tag),
-                    tax_year: TaxYear::from_date(e.date()).display(),
-                    description: e.description.clone().unwrap_or_default(),
-                    ..Default::default()
-                });
-            detail.quantity += e.quantity;
-            detail.value_gbp += e.value_gbp;
-        }
-    }
-
-    AcquisitionLookup {
-        event_ids: acquisition_event_index,
-        details: acquisition_details,
+/// The CGT detail block for one disposal row.
+fn cgt_details(d: &DisposalRecord, acquisitions: &AcquisitionLookup) -> CgtDetails {
+    let rule = match d.matching_components.as_slice() {
+        [only] => only.rule.display().to_string(),
+        _ => "Mixed".to_string(),
+    };
+    let matching_components = d
+        .matching_components
+        .iter()
+        .map(|mc| {
+            let acq = mc
+                .matched_date
+                .and_then(|date| acquisitions.get(&(date, d.asset.clone())));
+            MatchingComponentRow {
+                rule: mc.rule.display().to_string(),
+                quantity: quantity_string(mc.quantity),
+                cost_gbp: pence_string(mc.cost),
+                matched_date: mc.matched_date.map(iso_date),
+                matched_event_id: acq.map(|a| a.event_id),
+                matched_event_type: acq.map(|a| a.event_type.clone()),
+                matched_tax_year: acq.map(|a| a.tax_year.clone()),
+                matched_asset: acq.map(|_| d.asset.clone()),
+                matched_original_qty: acq.map(|a| quantity_string(a.quantity)),
+                matched_original_value: acq.map(|a| pence_string(a.value_gbp)),
+                matched_description: acq.map(|a| a.description.clone()),
+            }
+        })
+        .collect();
+    CgtDetails {
+        proceeds_gbp: pence_string(d.proceeds_gbp),
+        cost_gbp: pence_string(d.allowable_cost_gbp),
+        gain_gbp: pence_string(d.gain_gbp),
+        rule,
+        matching_components,
     }
 }
 
@@ -305,89 +365,16 @@ fn build_event_rows(
     cgt_report: &CgtReport,
     acquisitions: &AcquisitionLookup,
 ) -> Vec<EventRow> {
-    // Build CGT lookup: prefer id, fallback to a composite key
-    let mut disposal_index = DisposalIndex::new(cgt_report);
+    let disposal_index = DisposalIndex::new(cgt_report);
 
     // Build events list with CGT details for disposals
     filtered_events
         .iter()
         .map(|e| {
-            // Look up CGT details for disposal events
-            let disposal = if e.event_type == EventType::Disposal {
-                disposal_index.find(e)
-            } else {
-                None
-            };
+            let disposal = disposal_index.find(e);
             let event_warnings = event_warnings(e, disposal);
 
-            let cgt = disposal.map(|d| {
-                // Determine primary matching rule
-                let rule = if d.matching_components.is_empty() {
-                    "Pool".to_string()
-                } else if d.matching_components.len() == 1 {
-                    d.matching_components[0].rule.display().to_string()
-                } else {
-                    "Mixed".to_string()
-                };
-
-                // Build matching components with acquisition details
-                let matching_components: Vec<MatchingComponentRow> = d
-                    .matching_components
-                    .iter()
-                    .map(|mc| {
-                        // Look up acquisition details for Same-Day and B&B matches
-                        let (
-                            matched_event_id,
-                            matched_event_type,
-                            matched_tax_year,
-                            matched_asset,
-                            matched_original_qty,
-                            matched_original_value,
-                            matched_description,
-                        ) = if let Some(date) = mc.matched_date {
-                            let key = (date, d.asset.clone());
-                            let event_id = acquisitions.event_ids.get(&key).copied();
-                            if let Some(detail) = acquisitions.details.get(&key) {
-                                (
-                                    event_id,
-                                    Some(detail.event_type.clone()),
-                                    Some(detail.tax_year.clone()),
-                                    Some(d.asset.clone()),
-                                    Some(detail.quantity.to_string()),
-                                    Some(pence_string(detail.value_gbp)),
-                                    Some(detail.description.clone()),
-                                )
-                            } else {
-                                (None, None, None, None, None, None, None)
-                            }
-                        } else {
-                            (None, None, None, None, None, None, None)
-                        };
-
-                        MatchingComponentRow {
-                            rule: mc.rule.display().to_string(),
-                            quantity: mc.quantity.to_string(),
-                            cost_gbp: pence_string(mc.cost),
-                            matched_date: mc.matched_date.map(iso_date),
-                            matched_event_id,
-                            matched_event_type,
-                            matched_tax_year,
-                            matched_asset,
-                            matched_original_qty,
-                            matched_original_value,
-                            matched_description,
-                        }
-                    })
-                    .collect();
-
-                CgtDetails {
-                    proceeds_gbp: pence_string(d.proceeds_gbp),
-                    cost_gbp: pence_string(d.allowable_cost_gbp),
-                    gain_gbp: pence_string(d.gain_gbp),
-                    rule,
-                    matching_components,
-                }
-            });
+            let cgt = disposal.map(|d| cgt_details(d, acquisitions));
 
             let fees_gbp = e.fee_gbp.map(pence_string).unwrap_or_default();
 
@@ -406,17 +393,14 @@ fn build_event_rows(
                 id: e.id,
                 source_transaction_id: e.source_transaction_id.clone(),
                 account: e.account.clone(),
-                datetime: e.datetime.to_rfc3339(),
+                datetime: uk_rfc3339(e.datetime),
                 tax_year: TaxYear::from_date(e.date()).display(),
-                event_kind: match e.event_type {
-                    EventType::Acquisition => "acquisition".to_string(),
-                    EventType::Disposal => "disposal".to_string(),
-                },
+                event_kind: EventKind::from(e.event_type).as_str().to_string(),
                 tag: e.tag,
-                event_type: format_event_type(e.event_type, e.tag),
+                event_type: display_event_type(e.event_type, e.tag).to_string(),
                 asset: e.asset.clone(),
-                asset_class: format_asset_class(&e.asset_class),
-                quantity: e.quantity.to_string(),
+                asset_class: e.asset_class,
+                quantity: quantity_string(e.quantity),
                 value_gbp,
                 value_gbp_note,
                 fees_gbp,
@@ -437,7 +421,7 @@ fn build_summary(
     // Build asset -> asset_class mapping from events
     let asset_class_map: HashMap<String, AssetClass> = filtered_events
         .iter()
-        .map(|e| (e.asset.clone(), e.asset_class.clone()))
+        .map(|e| (e.asset.clone(), e.asset_class))
         .collect();
 
     // Calculate summary from disposals that match the active filter.
@@ -454,27 +438,21 @@ fn build_summary(
         .filter(|d| !d.is_unclassified())
         .collect();
 
-    let total_proceeds: Decimal = classified_disposals.iter().map(|d| d.proceeds_gbp).sum();
-    let total_costs: Decimal = classified_disposals
-        .iter()
-        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-        .sum();
-    let total_gain: Decimal = classified_disposals.iter().map(|d| d.gain_gbp).sum();
-
-    // Per-asset-class totals (classified only)
-    let crypto =
-        sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Crypto);
-    let stocks = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Stock);
-    let fiat = sum_disposals_by_class(&classified_disposals, &asset_class_map, AssetClass::Fiat);
-
+    let classified: DisposalTotals = classified_disposals.iter().copied().collect();
+    let by_class = |class: AssetClass| {
+        let t: DisposalTotals = classified_disposals
+            .iter()
+            .copied()
+            .filter(|d| asset_class_map.get(&d.asset) == Some(&class))
+            .collect();
+        AssetClassTotals {
+            proceeds: pence_string(t.proceeds),
+            costs: pence_string(t.costs),
+            gain: pence_string(t.gain),
+        }
+    };
     // Totals including unclassified events
-    let total_proceeds_with_unclassified: Decimal =
-        filtered_disposals.iter().map(|d| d.proceeds_gbp).sum();
-    let total_costs_with_unclassified: Decimal = filtered_disposals
-        .iter()
-        .map(|d| d.allowable_cost_gbp + d.fees_gbp)
-        .sum();
-    let total_gain_with_unclassified: Decimal = filtered_disposals.iter().map(|d| d.gain_gbp).sum();
+    let with_unclassified: DisposalTotals = filtered_disposals.iter().copied().collect();
 
     // Warning counts
     let warning_count = event_rows.iter().filter(|e| !e.warnings.is_empty()).count();
@@ -510,39 +488,38 @@ fn build_summary(
             },
         );
 
-    // Collect unique tax years
-    let mut tax_years: Vec<String> = filtered_events
+    let tax_years: BTreeSet<TaxYear> = filtered_events
         .iter()
-        .map(|e| TaxYear::from_date(e.date()).display())
+        .map(|e| TaxYear::from_date(e.date()))
         .collect();
-    tax_years.sort();
-    tax_years.dedup();
-
-    // Collect unique assets
-    let mut assets: Vec<String> = filtered_events.iter().map(|e| e.asset.clone()).collect();
-    assets.sort();
-    assets.dedup();
+    let tax_years: Vec<String> = tax_years.iter().map(TaxYear::display).collect();
+    let assets: Vec<String> = filtered_events
+        .iter()
+        .map(|e| e.asset.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
 
     // Calculate date range from filtered events
     let min_date = filtered_events.iter().map(|e| e.date()).min();
     let max_date = filtered_events.iter().map(|e| e.date()).max();
 
-    let disposal_count = event_rows.iter().filter(|e| e.cgt.is_some()).count();
+    let disposal_count = classified_disposals.len();
     let income_count = filtered_events
         .iter()
         .filter(|e| e.event_type == EventType::Acquisition && e.tag.is_income())
         .count();
 
     Summary {
-        total_proceeds: pence_string(total_proceeds),
-        total_costs: pence_string(total_costs),
-        total_gain: pence_string(total_gain),
-        total_proceeds_with_unclassified: pence_string(total_proceeds_with_unclassified),
-        total_costs_with_unclassified: pence_string(total_costs_with_unclassified),
-        total_gain_with_unclassified: pence_string(total_gain_with_unclassified),
-        crypto,
-        stocks,
-        fiat,
+        total_proceeds: pence_string(classified.proceeds),
+        total_costs: pence_string(classified.costs),
+        total_gain: pence_string(classified.gain),
+        total_proceeds_with_unclassified: pence_string(with_unclassified.proceeds),
+        total_costs_with_unclassified: pence_string(with_unclassified.costs),
+        total_gain_with_unclassified: pence_string(with_unclassified.gain),
+        crypto: by_class(AssetClass::Crypto),
+        stocks: by_class(AssetClass::Stock),
+        fiat: by_class(AssetClass::Fiat),
         total_income: pence_string(total_income),
         total_dividend_income: pence_string(total_dividend_income),
         total_interest_income: pence_string(total_interest_income),
@@ -561,7 +538,9 @@ fn build_summary(
 
 fn build_transaction_rows(
     transactions: &[Transaction],
+    events: &[TaxableEvent],
     filtered_events: &[&TaxableEvent],
+    filter: &EventFilter,
 ) -> Vec<TransactionRow> {
     // Build transaction_id -> event_ids mapping
     let mut tx_event_map: HashMap<String, Vec<usize>> = HashMap::new();
@@ -571,56 +550,58 @@ fn build_transaction_rows(
             .or_default()
             .push(e.id);
     }
+    let has_events: HashSet<&str> = events
+        .iter()
+        .map(|e| e.source_transaction_id.as_str())
+        .collect();
+
+    // A transaction is shown when the filter keeps one of its events, or --
+    // for transactions with no taxable events (sterling moves, linked
+    // transfers) -- when it falls in the date range and involves the asset.
+    let shown = |tx: &&Transaction| {
+        if has_events.contains(tx.id.as_str()) {
+            return tx_event_map.contains_key(&tx.id);
+        }
+        filter.event_kind.is_none()
+            && filter.matches_date(uk_date(tx.datetime))
+            && transaction_assets(tx).any(|a| filter.matches_asset(a))
+    };
 
     // Build transaction rows
     transactions
         .iter()
+        .filter(shown)
         .map(|tx| {
+            let amount = |label: &str, a: &crate::core::transactions::Amount| TransactionAmount {
+                label: label.to_string(),
+                asset: a.asset.clone(),
+                quantity: quantity_string(a.quantity),
+            };
             let (transaction_type, amounts) = match &tx.details {
                 TransactionType::Trade { sold, bought } => (
-                    "Trade".to_string(),
-                    vec![
-                        TransactionAmount {
-                            label: "Sold".to_string(),
-                            asset: sold.asset.clone(),
-                            quantity: sold.quantity.to_string(),
-                        },
-                        TransactionAmount {
-                            label: "Bought".to_string(),
-                            asset: bought.asset.clone(),
-                            quantity: bought.quantity.to_string(),
-                        },
-                    ],
+                    "Trade",
+                    vec![amount("Sold", sold), amount("Bought", bought)],
                 ),
-                TransactionType::Deposit { amount, .. } => (
-                    "Deposit".to_string(),
-                    vec![TransactionAmount {
-                        label: "Amount".to_string(),
-                        asset: amount.asset.clone(),
-                        quantity: amount.quantity.to_string(),
-                    }],
-                ),
-                TransactionType::Withdrawal { amount, .. } => (
-                    "Withdrawal".to_string(),
-                    vec![TransactionAmount {
-                        label: "Amount".to_string(),
-                        asset: amount.asset.clone(),
-                        quantity: amount.quantity.to_string(),
-                    }],
-                ),
+                TransactionType::Deposit { amount: a, .. } => {
+                    ("Deposit", vec![amount("Amount", a)])
+                }
+                TransactionType::Withdrawal { amount: a, .. } => {
+                    ("Withdrawal", vec![amount("Amount", a)])
+                }
             };
+            let transaction_type = transaction_type.to_string();
 
             let fee = tx.fee.as_ref().map(|f| TransactionFee {
                 asset: f.asset.clone(),
-                amount: f.amount.to_string(),
+                amount: quantity_string(f.amount),
             });
 
             let event_ids = tx_event_map.get(&tx.id).cloned().unwrap_or_default();
 
             TransactionRow {
                 id: tx.id.clone(),
-                datetime: tx.datetime.to_rfc3339(),
-                tax_year: TaxYear::from_date(tx.datetime.date_naive()).display(),
+                datetime: uk_rfc3339(tx.datetime),
+                tax_year: TaxYear::from_date(uk_date(tx.datetime)).display(),
                 account: tx.account.clone(),
                 transaction_type,
                 tag: tx.tag,
@@ -633,42 +614,17 @@ fn build_transaction_rows(
         .collect()
 }
 
-fn sum_disposals_by_class(
-    disposals: &[&DisposalRecord],
-    asset_class_map: &HashMap<String, AssetClass>,
-    class: AssetClass,
-) -> AssetClassTotals {
-    let (proceeds, costs, gain) = disposals
-        .iter()
-        .filter(|d| asset_class_map.get(&d.asset) == Some(&class))
-        .fold(
-            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
-            |(proceeds, costs, gain), d| {
-                (
-                    proceeds + d.proceeds_gbp,
-                    costs + d.allowable_cost_gbp + d.fees_gbp,
-                    gain + d.gain_gbp,
-                )
-            },
-        );
-    AssetClassTotals {
-        proceeds: pence_string(proceeds),
-        costs: pence_string(costs),
-        gain: pence_string(gain),
-    }
-}
-
-fn format_event_type(event_type: EventType, tag: Tag) -> String {
-    display_event_type(event_type, tag).to_string()
-}
-
-fn format_asset_class(ac: &AssetClass) -> String {
-    match ac {
-        AssetClass::Crypto => "Crypto",
-        AssetClass::Stock => "Stock",
-        AssetClass::Fiat => "Fiat",
-    }
-    .to_string()
+/// Every asset a transaction moves, including its fee asset.
+fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
+    let moved = match &tx.details {
+        TransactionType::Trade { sold, bought } => vec![sold.asset.as_str(), bought.asset.as_str()],
+        TransactionType::Deposit { amount, .. } | TransactionType::Withdrawal { amount, .. } => {
+            vec![amount.asset.as_str()]
+        }
+    };
+    moved
+        .into_iter()
+        .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
 }
 
 /// Group event warnings into one record per distinct warning value, ordered

@@ -63,10 +63,10 @@ fn report_mixed_rules() {
 fn report_filter_by_asset() {
     let output = run_taxc(&[
         "report",
-        "tests/data/mixed_rules.json",
+        "tests/data/two_assets.json",
         "--json",
         "--asset",
-        "BTC",
+        "btc",
     ]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -80,6 +80,7 @@ fn report_filter_by_asset() {
         .and_then(|v| v.as_array())
         .expect("Missing events array");
 
+    // two_assets.json holds BTC and ETH, so the filter has something to drop.
     assert!(!events.is_empty(), "Expected filtered events");
     for e in events {
         assert_eq!(
@@ -88,6 +89,7 @@ fn report_filter_by_asset() {
             "Expected only BTC events"
         );
     }
+    assert_eq!(json["summary"]["assets"], serde_json::json!(["BTC"]));
 }
 
 /// Test JSON input format using summary command
@@ -476,15 +478,16 @@ fn pools_daily_json_output() {
 /// Test pools command with asset filter
 #[test]
 fn pools_filter_by_asset() {
-    let output = run_taxc(&["pools", "tests/data/mixed_rules.json", "-a", "BTC"]);
+    let output = run_taxc(&["pools", "tests/data/two_assets.json", "-a", "BTC"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify the command succeeded
     assert!(output.status.success(), "Command failed: {:?}", output);
 
-    // Should show BTC pools
-    assert!(stdout.contains("BTC"));
+    // two_assets.json holds BTC and ETH; only BTC may remain.
+    assert!(stdout.contains("BTC"), "{stdout}");
+    assert!(!stdout.contains("ETH"), "{stdout}");
 }
 
 /// Test pools command with year filter
@@ -524,9 +527,10 @@ fn pools_combined_filters() {
         serde_json::from_str(&stdout).expect("Failed to parse filtered pools JSON");
 
     let snapshots = json["year_end_snapshots"].as_array().unwrap();
-    // Should have exactly one snapshot for 2024/25
-    assert!(!snapshots.is_empty());
+    assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0]["tax_year"], "2024/25");
+    let pools = snapshots[0]["pools"].as_array().unwrap();
+    assert!(pools.iter().all(|p| p["asset"] == "BTC"), "{pools:?}");
 }
 
 #[test]
@@ -602,10 +606,12 @@ fn summary_salary_paye_cashback_not_income() {
         serde_json::from_str(&stdout).expect("Invalid JSON summary output");
 
     // Only the £200 dividend is in the estimate; salary stays visible and
-    // Cashback £50 must not be counted.
+    // Cashback £50 must not be counted. The dividend is inside the 2024/25
+    // £500 dividend allowance, so no income tax is due.
     assert_eq!(json["income"].as_str(), Some("200.00"));
     assert_eq!(json["salary_income"].as_str(), Some("1000.00"));
-    assert_eq!(json["estimated_income_tax"].as_str(), Some("40.00"));
+    assert_eq!(json["dividend_allowance"].as_str(), Some("500.00"));
+    assert_eq!(json["estimated_income_tax"].as_str(), Some("0.00"));
 }
 
 /// Default text output shows PAYE salary as its own auditable line
@@ -637,4 +643,128 @@ fn report_cashback_event_tagged() {
         .find(|e| e["tag"] == "Cashback")
         .expect("Missing Cashback event");
     assert_eq!(cashback["event_kind"], "acquisition");
+}
+
+/// Without --year, a range spanning several tax years is summarised per year
+/// -- each with its own AEA and rates -- and the totals are the sums.
+#[test]
+fn summary_json_spanning_tax_years_sums_per_year_figures() {
+    let output = run_taxc(&["summary", "tests/data/two_tax_years.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    let years = json["years"].as_array().expect("years array");
+    assert_eq!(years.len(), 2);
+    assert_eq!(years[0]["tax_year"], "2022/23");
+    assert_eq!(years[0]["aea"], "12300.00");
+    assert_eq!(years[0]["estimated_cgt"], "0.00");
+    assert_eq!(years[1]["tax_year"], "2024/25");
+    assert_eq!(years[1]["aea"], "3000.00");
+    assert_eq!(years[1]["estimated_cgt"], "900.00");
+
+    assert_eq!(json["tax_year"], "2022/23 to 2024/25");
+    assert_eq!(json["gross_gains"], "18000.00");
+    assert_eq!(json["estimated_cgt"], "900.00");
+    assert_eq!(json["estimated_total_tax"], "900.00");
+    // Rates differ between the two years, so there is no single rate.
+    assert!(json["cgt_rate_pct"].is_null());
+}
+
+#[test]
+fn summary_json_single_tax_year_keeps_scalar_rate() {
+    let output = run_taxc(&[
+        "summary",
+        "tests/data/two_tax_years.json",
+        "--json",
+        "-y",
+        "2025",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["tax_year"], "2024/25");
+    assert_eq!(json["cgt_rate_pct"], 18);
+    assert_eq!(json["estimated_cgt"], "900.00");
+    assert_eq!(json["years"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn summary_text_spanning_tax_years_shows_each_year() {
+    let output = run_taxc(&["summary", "tests/data/two_tax_years.json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("TAX YEAR 2022/23"), "{stdout}");
+    assert!(stdout.contains("TAX YEAR 2024/25"), "{stdout}");
+    assert!(stdout.contains("TOTAL TAX LIABILITY: £900.00"), "{stdout}");
+}
+
+/// The output schema must describe what `report --json` actually emits:
+/// warning amounts are decimal strings, not numbers.
+#[test]
+fn output_schema_types_warning_amounts_as_strings() {
+    let output = run_taxc(&["schema", "output"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let variants = schema["$defs"]["Warning"]["oneOf"]
+        .as_array()
+        .expect("Warning variants");
+    let insufficient = variants
+        .iter()
+        .find(|v| v["properties"]["type"]["const"] == "InsufficientCostBasis")
+        .expect("InsufficientCostBasis variant");
+    assert_eq!(insufficient["properties"]["available"]["type"], "string");
+    assert_eq!(insufficient["properties"]["required"]["type"], "string");
+
+    let report = run_taxc(&[
+        "report",
+        "--json",
+        "tests/data/insufficient_cost_basis.json",
+    ]);
+    let json: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    let warning = &json["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["warning"]["type"] == "InsufficientCostBasis")
+        .unwrap()["warning"];
+    assert!(warning["available"].is_string());
+}
+
+#[test]
+fn missing_input_file_error_names_the_path() {
+    let output = run_taxc(&["summary", "tests/data/does-not-exist.json"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("tests/data/does-not-exist.json"),
+        "{stderr}"
+    );
+}
+
+/// Rate fields are JSON numbers; unclassified disposals left out of the
+/// figures are counted rather than silently dropped.
+#[test]
+fn summary_json_rates_are_numbers_and_unclassified_disposals_are_counted() {
+    let output = run_taxc(&["summary", "tests/data/salary_cashback.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["dividend_rate_pct"].as_f64(), Some(8.75));
+    assert_eq!(json["unclassified_disposal_count"], 0);
+}
+
+/// An unclassified disposal is left out of the tax figures, and the summary
+/// says so instead of printing a silent zero.
+#[test]
+fn summary_flags_unclassified_disposals_it_excludes() {
+    let output = run_taxc(&["summary", "tests/data/unlinked_withdrawal.json", "--json"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["unclassified_disposal_count"], 1);
+    assert_eq!(json["disposal_count"], 0);
+
+    let output = run_taxc(&["summary", "tests/data/unlinked_withdrawal.json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("1 unclassified disposal(s) are excluded"),
+        "{stdout}"
+    );
 }

@@ -18,6 +18,12 @@ pub fn round_pence(amount: Decimal) -> Decimal {
     amount.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
 }
 
+/// Round a tax liability down to the penny, as HMRC does. Amounts that are
+/// not tax (proceeds, costs, gains) use [`round_pence`].
+pub fn round_tax(amount: Decimal) -> Decimal {
+    amount.round_dp_with_strategy(2, RoundingStrategy::ToZero)
+}
+
 /// Render a monetary amount as a plain 2dp string (no currency symbol).
 pub fn pence_string(amount: Decimal) -> String {
     format!("{:.2}", round_pence(amount))

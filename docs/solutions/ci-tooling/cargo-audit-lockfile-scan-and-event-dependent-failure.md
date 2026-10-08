@@ -70,7 +70,7 @@ ignore = [
     #     only features = ["serde"], so rkyv is never compiled -- confirmed by
     #     `cargo tree -i rkyv -e all --target all` reporting "nothing to print".
     #   * The advisory requires deserialising untrusted archives through
-    #     rkyv::access or rkyv::from_bytes. taxc reads CSV and JSON only.
+    #     rkyv::access or rkyv::from_bytes. taxc reads JSON only.
     #
     # Remove once rust_decimal depends on rkyv >= 0.8.17.
     "RUSTSEC-2026-0235",

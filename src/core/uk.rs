@@ -1,7 +1,46 @@
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate};
+use chrono_tz::Europe::London;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Serialize, Serializer};
+
+/// The UK calendar date of an instant.
+///
+/// Tax years, the same-day rule and the 30-day bed-and-breakfast window all
+/// count UK days, so the date must be taken in Europe/London time -- not in
+/// whatever offset the input happened to be written in. 23:30 UTC on
+/// 5 April in summer is 6 April in the UK.
+pub fn uk_date(datetime: DateTime<FixedOffset>) -> NaiveDate {
+    datetime.with_timezone(&London).date_naive()
+}
+
+/// An instant as RFC 3339 in UK local time, so its date prefix is the same
+/// UK date [`uk_date`] gives.
+pub fn uk_rfc3339(datetime: DateTime<FixedOffset>) -> String {
+    datetime.with_timezone(&London).to_rfc3339()
+}
+
+/// First day of the 18%/24% CGT rates (Autumn Budget 2024).
+pub fn cgt_rate_change_2024() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2024, 10, 30).expect("valid date")
+}
+
+/// CGT rate for a gain realised on `date` (non-residential-property assets).
+///
+/// Within 2024/25 the rate depends on the date: gains before 30 October 2024
+/// are taxed at 10%/20%, gains from that date at 18%/24%.
+pub fn cgt_rate_on(date: NaiveDate, band: TaxBand) -> Decimal {
+    let year = TaxYear::from_date(date);
+    let (basic, higher) = if year == TaxYear(2025) && date < cgt_rate_change_2024() {
+        (dec!(0.10), dec!(0.20))
+    } else {
+        (year.cgt_basic_rate(), year.cgt_higher_rate())
+    };
+    match band {
+        TaxBand::Basic => basic,
+        TaxBand::Higher | TaxBand::Additional => higher,
+    }
+}
 
 /// Tax band for income tax calculations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -85,6 +124,11 @@ impl TaxYear {
         format!("{}/{:02}", self.0 - 1, self.0.rem_euclid(100))
     }
 
+    /// Whether CGT rates changed part-way through this tax year.
+    pub fn has_mid_year_cgt_rate_change(&self) -> bool {
+        *self == TaxYear::from_date(cgt_rate_change_2024())
+    }
+
     /// Get CGT annual exempt amount for this tax year
     pub fn cgt_exempt_amount(&self) -> Decimal {
         match self.0 {
@@ -102,17 +146,27 @@ impl TaxYear {
             2018 => dec!(11300),
             // 2015/16 and 2016/17: £11,100
             2016..=2017 => dec!(11100),
-            // 2014/15: £11,000 (approximate for earlier years)
-            _ => dec!(11000),
+            // 2014/15: £11,000
+            2015 => dec!(11000),
+            // 2013/14: £10,900
+            2014 => dec!(10900),
+            // 2011/12 and 2012/13: £10,600
+            2012..=2013 => dec!(10600),
+            // 2009/10 and 2010/11: £10,100
+            2010..=2011 => dec!(10100),
+            // 2008/09: £9,600
+            2009 => dec!(9600),
+            // 2007/08: £9,200 (used for earlier years too, as an approximation)
+            _ => dec!(9200),
         }
     }
 
     /// Get CGT basic rate for this tax year (non-residential-property assets,
     /// e.g. crypto and shares).
     ///
-    /// Rates changed mid-year on 30 October 2024 (10% -> 18%); for 2024/25
-    /// this returns the post-change rate, so gains realised before that date
-    /// are over-estimated.
+    /// The rate in force at the end of the tax year. For 2024/25 gains realised
+    /// before 30 October 2024 were taxed at 10%; [`cgt_rate_on`] gives the
+    /// rate for a disposal date.
     pub fn cgt_basic_rate(&self) -> Decimal {
         match self.0 {
             // 2024/25 onwards: 18% (from 30 October 2024)
@@ -127,9 +181,9 @@ impl TaxYear {
     /// Get CGT higher rate for this tax year (non-residential-property assets,
     /// e.g. crypto and shares).
     ///
-    /// Rates changed mid-year on 30 October 2024 (20% -> 24%); for 2024/25
-    /// this returns the post-change rate, so gains realised before that date
-    /// are over-estimated.
+    /// The rate in force at the end of the tax year. For 2024/25 gains realised
+    /// before 30 October 2024 were taxed at 20%; [`cgt_rate_on`] gives the
+    /// rate for a disposal date.
     pub fn cgt_higher_rate(&self) -> Decimal {
         match self.0 {
             // 2024/25 onwards: 24% (from 30 October 2024)
@@ -138,6 +192,38 @@ impl TaxYear {
             2017..=2024 => dec!(0.20),
             // 2010/11 to 2015/16: 28% (approximate for earlier years)
             _ => dec!(0.28),
+        }
+    }
+}
+
+impl TaxYear {
+    /// Dividend tax rate for this tax year and band.
+    pub fn dividend_rate(&self, band: TaxBand) -> Decimal {
+        let (basic, higher, additional) = match self.0 {
+            // 2026/27 onwards: ordinary and upper rates up 2 points
+            2027.. => (dec!(0.1075), dec!(0.3575), dec!(0.3935)),
+            // 2022/23 to 2025/26
+            2023..=2026 => (dec!(0.0875), dec!(0.3375), dec!(0.3935)),
+            // 2016/17 to 2021/22
+            2017..=2022 => (dec!(0.075), dec!(0.325), dec!(0.381)),
+            // Before 2016/17: the effective rates after the 10% tax credit
+            _ => (dec!(0), dec!(0.25), dec!(0.306)),
+        };
+        match band {
+            TaxBand::Basic => basic,
+            TaxBand::Higher => higher,
+            TaxBand::Additional => additional,
+        }
+    }
+
+    /// Dividend allowance: dividends up to this amount are taxed at 0%.
+    pub fn dividend_allowance(&self) -> Decimal {
+        match self.0 {
+            2025.. => dec!(500),
+            2024 => dec!(1000),
+            2019..=2023 => dec!(2000),
+            2017..=2018 => dec!(5000),
+            _ => dec!(0),
         }
     }
 }
@@ -163,27 +249,6 @@ mod tests {
     fn tax_year_from_date_on_april_6() {
         // 6 April 2024 is in 2024/25 tax year
         let date = NaiveDate::from_ymd_opt(2024, 4, 6).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2025));
-    }
-
-    #[test]
-    fn tax_year_from_date_after_april_6() {
-        // 7 April 2024 is in 2024/25 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 4, 7).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2025));
-    }
-
-    #[test]
-    fn tax_year_from_date_january() {
-        // 15 January 2024 is in 2023/24 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
-        assert_eq!(TaxYear::from_date(date), TaxYear(2024));
-    }
-
-    #[test]
-    fn tax_year_from_date_december() {
-        // 31 December 2024 is in 2024/25 tax year
-        let date = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
         assert_eq!(TaxYear::from_date(date), TaxYear(2025));
     }
 
@@ -227,12 +292,19 @@ mod tests {
         assert_eq!(TaxYear(2017).cgt_exempt_amount(), dec!(11100));
         assert_eq!(TaxYear(2016).cgt_exempt_amount(), dec!(11100));
         assert_eq!(TaxYear(2015).cgt_exempt_amount(), dec!(11000));
+        assert_eq!(TaxYear(2014).cgt_exempt_amount(), dec!(10900));
+        assert_eq!(TaxYear(2013).cgt_exempt_amount(), dec!(10600));
+        assert_eq!(TaxYear(2012).cgt_exempt_amount(), dec!(10600));
+        assert_eq!(TaxYear(2011).cgt_exempt_amount(), dec!(10100));
+        assert_eq!(TaxYear(2010).cgt_exempt_amount(), dec!(10100));
+        assert_eq!(TaxYear(2009).cgt_exempt_amount(), dec!(9600));
+        assert_eq!(TaxYear(2008).cgt_exempt_amount(), dec!(9200));
     }
 
     #[test]
     fn cgt_rates_2024_25_onwards() {
-        // 18%/24% apply from 30 October 2024; the tool uses them for the
-        // whole of 2024/25.
+        // The year-end rates; 2024/25 gains before 30 October 2024 use
+        // 10%/20% (see cgt_rate_changes_on_30_october_2024).
         for year in [2025, 2026, 2027] {
             let ty = TaxYear(year);
             assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
@@ -256,6 +328,51 @@ mod tests {
             assert_eq!(ty.cgt_basic_rate(), dec!(0.18));
             assert_eq!(ty.cgt_higher_rate(), dec!(0.28));
         }
+    }
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn cgt_rate_changes_on_30_october_2024() {
+        assert_eq!(cgt_rate_on(d(2024, 10, 29), TaxBand::Basic), dec!(0.10));
+        assert_eq!(cgt_rate_on(d(2024, 10, 29), TaxBand::Higher), dec!(0.20));
+        assert_eq!(cgt_rate_on(d(2024, 10, 30), TaxBand::Basic), dec!(0.18));
+        assert_eq!(
+            cgt_rate_on(d(2024, 10, 30), TaxBand::Additional),
+            dec!(0.24)
+        );
+        assert_eq!(cgt_rate_on(d(2021, 6, 1), TaxBand::Higher), dec!(0.20));
+        assert_eq!(cgt_rate_on(d(2015, 6, 1), TaxBand::Higher), dec!(0.28));
+    }
+
+    #[test]
+    fn dividend_rates_by_year_and_band() {
+        assert_eq!(TaxYear(2027).dividend_rate(TaxBand::Basic), dec!(0.1075));
+        assert_eq!(TaxYear(2027).dividend_rate(TaxBand::Higher), dec!(0.3575));
+        assert_eq!(
+            TaxYear(2027).dividend_rate(TaxBand::Additional),
+            dec!(0.3935)
+        );
+        assert_eq!(TaxYear(2025).dividend_rate(TaxBand::Basic), dec!(0.0875));
+        assert_eq!(TaxYear(2023).dividend_rate(TaxBand::Higher), dec!(0.3375));
+        assert_eq!(TaxYear(2022).dividend_rate(TaxBand::Basic), dec!(0.075));
+        assert_eq!(
+            TaxYear(2017).dividend_rate(TaxBand::Additional),
+            dec!(0.381)
+        );
+    }
+
+    #[test]
+    fn dividend_allowance_by_year() {
+        assert_eq!(TaxYear(2026).dividend_allowance(), dec!(500));
+        assert_eq!(TaxYear(2025).dividend_allowance(), dec!(500));
+        assert_eq!(TaxYear(2024).dividend_allowance(), dec!(1000));
+        assert_eq!(TaxYear(2023).dividend_allowance(), dec!(2000));
+        assert_eq!(TaxYear(2019).dividend_allowance(), dec!(2000));
+        assert_eq!(TaxYear(2018).dividend_allowance(), dec!(5000));
+        assert_eq!(TaxYear(2017).dividend_allowance(), dec!(5000));
     }
 
     #[test]

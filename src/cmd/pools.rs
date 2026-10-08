@@ -3,10 +3,8 @@
 use super::filter::{EventFilter, FilterArgs};
 use super::format::format_gbp;
 use super::read_events;
-use crate::core::fmt::{iso_date, quantity_string};
-use crate::core::{
-    calculate_cgt, display_event_type, PoolHistoryEntry, PoolState, YearEndSnapshot,
-};
+use crate::core::fmt::{iso_date, quantity_string, round_pence};
+use crate::core::{calculate_cgt, display_event_type, PoolHistoryEntry, YearEndSnapshot};
 use clap::Args;
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -61,12 +59,7 @@ impl PoolsCommand {
                 .entries
                 .iter()
                 .filter(|entry| event_filter.matches_date(entry.date))
-                .filter(|entry| {
-                    event_filter
-                        .asset
-                        .as_ref()
-                        .is_none_or(|a| entry.asset.eq_ignore_ascii_case(a))
-                })
+                .filter(|entry| event_filter.matches_asset(&entry.asset))
                 .filter(|entry| {
                     event_filter
                         .event_kind
@@ -93,7 +86,7 @@ impl PoolsCommand {
         Ok(())
     }
 
-    fn print_year_end(&self, snapshots: &[YearEndSnapshotView], filter: &EventFilter) {
+    fn print_year_end(&self, snapshots: &[YearEndSnapshot], filter: &EventFilter) {
         let scope = filter.scope_label();
         if snapshots.is_empty() {
             println!("No pool balances found matching filters ({})", scope);
@@ -105,13 +98,7 @@ impl PoolsCommand {
         println!();
 
         for snapshot in snapshots {
-            println!("Tax Year {}", snapshot.tax_year);
-            if snapshot.pools.is_empty() {
-                println!("  (no pools)");
-                println!();
-                continue;
-            }
-
+            println!("Tax Year {}", snapshot.tax_year.display());
             let mut builder = Builder::with_capacity(snapshot.pools.len() + 1, 4);
             builder.push_record(["Asset", "Quantity", "Cost (GBP)", "Cost Basis"]);
             for pool in &snapshot.pools {
@@ -123,12 +110,7 @@ impl PoolsCommand {
                 ]);
             }
 
-            let table = builder
-                .build()
-                .with(Style::rounded())
-                .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
-                .to_string();
-            println!("{}", table);
+            println!("{}", render_table(builder));
             println!();
         }
     }
@@ -163,72 +145,64 @@ impl PoolsCommand {
             ]);
         }
 
-        let table = builder
-            .build()
-            .with(Style::rounded())
-            .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
-            .to_string();
-        println!("{}", table);
+        println!("{}", render_table(builder));
     }
 
-    fn print_json_year_end(&self, snapshots: &[YearEndSnapshotView]) -> anyhow::Result<()> {
+    fn print_json_year_end(&self, snapshots: &[YearEndSnapshot]) -> anyhow::Result<()> {
         let output = YearEndOutput {
-            year_end_snapshots: snapshots.to_vec(),
+            year_end_snapshots: snapshots,
         };
-
         println!("{}", serde_json::to_string_pretty(&output)?);
         Ok(())
     }
 
     fn print_json_daily(&self, entries: &[&PoolHistoryEntry]) -> anyhow::Result<()> {
-        let output = DailyOutput {
-            entries: entries.iter().cloned().cloned().collect(),
-        };
-
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&DailyOutput { entries })?
+        );
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct YearEndSnapshotView {
-    tax_year: String,
-    pools: Vec<PoolState>,
+#[derive(Serialize)]
+struct YearEndOutput<'a> {
+    year_end_snapshots: &'a [YearEndSnapshot],
 }
 
-#[derive(Debug, Serialize)]
-struct YearEndOutput {
-    year_end_snapshots: Vec<YearEndSnapshotView>,
+#[derive(Serialize)]
+struct DailyOutput<'a, 'b> {
+    entries: &'a [&'b PoolHistoryEntry],
 }
 
-#[derive(Debug, Serialize)]
-struct DailyOutput {
-    entries: Vec<PoolHistoryEntry>,
-}
-
+/// Year-end snapshots within the date range, with only the filtered assets;
+/// snapshots left with no pools are dropped.
 fn filter_year_end_snapshots(
     snapshots: &[YearEndSnapshot],
     filter: &EventFilter,
-) -> Vec<YearEndSnapshotView> {
+) -> Vec<YearEndSnapshot> {
     snapshots
         .iter()
         .filter(|snapshot| filter.matches_date(snapshot.tax_year.end_date()))
-        .map(|snapshot| YearEndSnapshotView {
-            tax_year: snapshot.tax_year.display(),
+        .map(|snapshot| YearEndSnapshot {
+            tax_year: snapshot.tax_year,
             pools: snapshot
                 .pools
                 .iter()
-                .filter(|p| {
-                    filter
-                        .asset
-                        .as_ref()
-                        .is_none_or(|a| p.asset.eq_ignore_ascii_case(a))
-                })
+                .filter(|p| filter.matches_asset(&p.asset))
                 .cloned()
                 .collect(),
         })
         .filter(|snapshot| !snapshot.pools.is_empty())
         .collect()
+}
+
+fn render_table(builder: Builder) -> String {
+    builder
+        .build()
+        .with(Style::rounded())
+        .with(Modify::new(Rows::new(1..)).with(Alignment::right()))
+        .to_string()
 }
 
 fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
@@ -238,6 +212,6 @@ fn cost_basis(quantity: Decimal, cost_gbp: Decimal) -> Decimal {
     if quantity.is_zero() {
         Decimal::ZERO
     } else {
-        (cost_gbp / quantity).round_dp(2)
+        round_pence(cost_gbp / quantity)
     }
 }

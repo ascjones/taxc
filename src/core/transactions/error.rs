@@ -8,6 +8,20 @@ pub enum TransactionError {
     LinkedTransactionTypeMismatch { id: String, linked_id: String },
     #[error("linked transaction is not reciprocal: {id} -> {linked_id}")]
     LinkedTransactionNotReciprocal { id: String, linked_id: String },
+    #[error(
+        "linked transfer moves different assets: {id} ({asset}) -> {linked_id} ({linked_asset})"
+    )]
+    LinkedTransactionAssetMismatch {
+        id: String,
+        asset: String,
+        linked_id: String,
+        linked_asset: String,
+    },
+    #[error("linked deposit {deposit_id} receives more than withdrawal {withdrawal_id} sent")]
+    LinkedDepositExceedsWithdrawal {
+        withdrawal_id: String,
+        deposit_id: String,
+    },
     #[error("valuation required when neither side is GBP: {id}")]
     MissingTradeValuation { id: String },
     #[error("valuation required for {tag} {tx_type}: {id}")]
@@ -46,6 +60,8 @@ pub enum TransactionError {
     InvalidDatetime(String),
     #[error("quantity must be positive for {asset}: {id}")]
     NonPositiveQuantity { id: String, asset: String },
+    #[error("valuation cannot be negative: {id}")]
+    NegativeValuation { id: String },
     #[error("fee amount cannot be negative: {id}")]
     NegativeFeeAmount { id: String },
     #[error("undefined asset symbol: {symbol}")]

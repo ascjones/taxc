@@ -27,18 +27,21 @@ const sortState = {
 const GBP_FORMAT = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
 const QTY_FORMAT = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 8 });
 const COUNT_FORMAT = new Intl.NumberFormat('en-GB');
+// Timestamps are shown in UK time, the time every tax rule uses, wherever the
+// report is opened. Date-only values (YYYY-MM-DD) parse as UTC midnight, so
+// they are formatted in UTC to keep their calendar day.
 const DATETIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'Europe/London'
 });
-const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' });
+const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
 
 function formatCurrency(value) {
-    const num = parseFloat(value) || 0;
-    return GBP_FORMAT.format(num);
+    return GBP_FORMAT.format(num(value));
 }
 
 function formatCount(value) {
@@ -58,8 +61,7 @@ function formatDateTime(datetime) {
 }
 
 function formatQuantity(qty) {
-    const num = parseFloat(qty) || 0;
-    return QTY_FORMAT.format(num);
+    return QTY_FORMAT.format(num(qty));
 }
 
 function formatRuleBadge(rule) {
@@ -90,11 +92,12 @@ function formatEventType(eventKind, warnings) {
     return `<span class="event-arrow ${cls}${warn}">${arrow}<small>${label}</small></span>`;
 }
 
+// Money and quantity fields arrive as decimal strings.
+const num = v => parseFloat(v) || 0;
+
 // Warnings are serialized internally tagged: {"type": "UnclassifiedEvent", ...fields}.
 function warningTypeName(warning) {
-    if (!warning) return '';
-    if (typeof warning === 'string') return warning;
-    return warning.type || '';
+    return warning ? warning.type : '';
 }
 
 function hasWarningType(warnings, warningType) {
@@ -102,12 +105,10 @@ function hasWarningType(warnings, warningType) {
 }
 
 function formatWarningDisplay(w) {
-    if (typeof w === 'string') return w;
     const type = warningTypeName(w);
     if (type === 'UnclassifiedEvent') return 'Unclassified';
     if (type === 'InsufficientCostBasis') {
-        if (w.available == null) return 'Insufficient Cost Basis';
-        if (parseFloat(w.available) === 0) return 'No Cost Basis';
+        if (num(w.available) === 0) return 'No Cost Basis';
         return `Insufficient Cost Basis (${w.available}/${w.required})`;
     }
     return type;
@@ -148,12 +149,26 @@ function formatGainCell(e) {
 }
 
 function navigateToRow(tab, tbodyId, dataAttr, id, attempt = 0) {
+    const inReport = tab === 'events'
+        ? DATA.events.some(e => e.id === id)
+        : DATA.transactions.some(t => t.id === id);
+    if (!inReport) {
+        showNotice('That row is outside this report\'s filter (--year, --from/--to, --asset).');
+        return;
+    }
     switchTab(tab);
     ensureRowRendered(tab, id);
     setTimeout(() => {
         const row = document.querySelector(`#${tbodyId} tr[data-${dataAttr}="${CSS.escape(String(id))}"]`);
         if (!row) {
-            // The target may not exist in the current filtered view.
+            if (attempt === 1) {
+                // Hidden by the on-page filters: show everything, then retry.
+                selectPreset('all', true);
+                selectedAssets.clear();
+                renderAssetPills();
+                document.querySelectorAll('.filter-dd-panel input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+                applyFilters();
+            }
             if (attempt < 3) navigateToRow(tab, tbodyId, dataAttr, id, attempt + 1);
             return;
         }
@@ -162,6 +177,22 @@ function navigateToRow(tab, tbodyId, dataAttr, id, attempt = 0) {
         void row.offsetWidth;
         row.classList.add('row-highlight');
     }, 50);
+}
+
+function showNotice(message) {
+    let el = document.getElementById('notice');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'notice';
+        el.setAttribute('role', 'status');
+        el.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
+            'background:#333;color:#fff;padding:8px 14px;border-radius:6px;z-index:1000;font-size:13px';
+        document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.hidden = false;
+    clearTimeout(showNotice.timer);
+    showNotice.timer = setTimeout(() => { el.hidden = true; }, 4000);
 }
 
 function navigateToEvent(eventId) {
@@ -233,7 +264,7 @@ function formatAmounts(amounts) {
             + `</div>`;
     }
     const a = amounts[0];
-    const prefix = a.label === 'Bought' || a.label === 'In' ? '+' : a.label === 'Sold' || a.label === 'Out' ? '−' : '';
+    const prefix = a.label === 'Bought' ? '+' : a.label === 'Sold' ? '−' : '';
     const cls = prefix === '+' ? 'tx-amount-in' : prefix === '−' ? 'tx-amount-out' : '';
     return `<div class="tx-amount-line"><span class="${cls}">${prefix}${formatQuantity(a.quantity)} ${escapeHtml(a.asset)}</span></div>`;
 }
@@ -246,17 +277,17 @@ function formatFee(fee) {
 /* ---- Sorting ---- */
 
 const EVENT_SORT_ACCESSORS = {
-    datetime: e => e.datetime,
+    datetime: e => Date.parse(e.datetime),
     tag: e => e.tag || '',
-    quantity: e => parseFloat(e.quantity) || 0,
+    quantity: e => num(e.quantity),
     asset: e => e.asset,
-    value: e => parseFloat(e.value_gbp) || 0,
-    gain: e => (e.cgt ? parseFloat(e.cgt.gain_gbp) || 0 : null),
+    value: e => num(e.value_gbp),
+    gain: e => (e.cgt ? num(e.cgt.gain_gbp) : null),
     account: e => e.account || '',
 };
 
 const TX_SORT_ACCESSORS = {
-    datetime: tx => tx.datetime,
+    datetime: tx => Date.parse(tx.datetime),
     type: tx => tx.transaction_type,
     tag: tx => tx.tag || '',
     account: tx => tx.account || '',
@@ -438,8 +469,10 @@ function renderTransactionsTable(transactions) {
 
 function filterTransactions(transactions, filters) {
     return transactions.filter(tx => {
-        if (filters.dateFrom && tx.datetime < filters.dateFrom) return false;
-        if (filters.dateTo && tx.datetime > filters.dateTo + 'T23:59:59') return false;
+        // datetime is RFC 3339 in UK local time, so its first 10 chars are the
+        // UK date; compare dates, not strings with offsets and fractions.
+        if (filters.dateFrom && tx.datetime.slice(0, 10) < filters.dateFrom) return false;
+        if (filters.dateTo && tx.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
 
         if (filters.assets.size > 0 && !tx.amounts.some(a => filters.assets.has(a.asset))) {
@@ -491,7 +524,7 @@ function buildEventRow(e) {
         + `<td>${escapeHtml(e.account || '')}</td>`
         + `</tr>`;
 
-    const fees = parseFloat(e.fees_gbp) || 0;
+    const fees = num(e.fees_gbp);
     const fields = cardField('Description', escapeHtml(e.description || ''))
         + cardField('Note', escapeHtml(e.value_gbp_note || ''))
         + cardField('Event Type', escapeHtml(e.event_type))
@@ -992,8 +1025,10 @@ function applyFilters() {
 
 function filterEvents(events, filters) {
     return events.filter(e => {
-        if (filters.dateFrom && e.datetime < filters.dateFrom) return false;
-        if (filters.dateTo && e.datetime > filters.dateTo + 'T23:59:59') return false;
+        // datetime is RFC 3339 in UK local time, so its first 10 chars are the
+        // UK date; compare dates, not strings with offsets and fractions.
+        if (filters.dateFrom && e.datetime.slice(0, 10) < filters.dateFrom) return false;
+        if (filters.dateTo && e.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && e.tax_year !== filters.taxYear) return false;
         if (filters.assets.size > 0 && !filters.assets.has(e.asset)) return false;
 
@@ -1038,11 +1073,11 @@ function calculateFilteredSummary(events) {
 
     events.forEach(e => {
         if (e.cgt) {
-            const proceeds = parseFloat(e.cgt.proceeds_gbp) || 0;
+            const proceeds = num(e.cgt.proceeds_gbp);
             // Costs include disposal fees so Proceeds − Costs = Gain,
             // matching the Rust-side Summary totals.
-            const costs = (parseFloat(e.cgt.cost_gbp) || 0) + (parseFloat(e.fees_gbp) || 0);
-            const gain = parseFloat(e.cgt.gain_gbp) || 0;
+            const costs = num(e.cgt.cost_gbp) + num(e.fees_gbp);
+            const gain = num(e.cgt.gain_gbp);
             const isUnclassified = hasWarningType(e.warnings, 'UnclassifiedEvent');
 
             totalProceedsWithUnclassified += proceeds;
@@ -1060,9 +1095,10 @@ function calculateFilteredSummary(events) {
                     classTotals[cls].c += costs;
                     classTotals[cls].g += gain;
                 }
+                // Classified only, like the Tax Years chart and the Rust
+                // summary.disposal_count.
+                disposalCount++;
             }
-
-            disposalCount++;
         }
 
         if (e.warnings && e.warnings.length > 0) {
@@ -1073,7 +1109,7 @@ function calculateFilteredSummary(events) {
         }
 
         const tag = (e.tag || '').toLowerCase();
-        const valueGbp = parseFloat(e.value_gbp) || 0;
+        const valueGbp = num(e.value_gbp);
 
         if (INCOME_TAGS.has(tag) && e.event_kind === 'acquisition') {
             totalIncome += valueGbp;
@@ -1177,13 +1213,13 @@ function renderTaxYearChart() {
         const b = byYear.get(e.tax_year);
         if (!b) return;
         if (e.cgt && !hasWarningType(e.warnings, 'UnclassifiedEvent')) {
-            b.gain += parseFloat(e.cgt.gain_gbp) || 0;
-            b.proceeds += parseFloat(e.cgt.proceeds_gbp) || 0;
-            b.costs += (parseFloat(e.cgt.cost_gbp) || 0) + (parseFloat(e.fees_gbp) || 0);
+            b.gain += num(e.cgt.gain_gbp);
+            b.proceeds += num(e.cgt.proceeds_gbp);
+            b.costs += num(e.cgt.cost_gbp) + num(e.fees_gbp);
             b.disposals++;
         }
         if (e.event_kind === 'acquisition' && INCOME_TAGS.has((e.tag || '').toLowerCase())) {
-            b.income += parseFloat(e.value_gbp) || 0;
+            b.income += num(e.value_gbp);
         }
     });
 

@@ -19,7 +19,60 @@ impl Transaction {
         registry: &AssetRegistry,
         exclude_unlinked: bool,
     ) -> Result<Vec<TaxableEvent>, TransactionError> {
-        let ctx = EventContext {
+        if matches!(self.valuation, Some(Valuation::ValueGbp(v)) if v < Decimal::ZERO) {
+            return Err(TransactionError::NegativeValuation {
+                id: self.id.clone(),
+            });
+        }
+
+        if exclude_unlinked && self.is_unlinked_transfer() {
+            log::warn!(
+                "Skipping unlinked transfer: id={} ({:?})",
+                self.id,
+                self.details
+            );
+            return Ok(vec![]);
+        }
+        let ctx = self.context(registry);
+
+        let (mut events, main_asset) = match &self.details {
+            TransactionType::Trade { sold, bought } => {
+                (ctx.trade_events(sold, bought)?, bought.asset.as_str())
+            }
+            TransactionType::Deposit {
+                amount,
+                linked_withdrawal,
+            } => (
+                ctx.deposit_events(amount, linked_withdrawal.as_deref())?,
+                amount.asset.as_str(),
+            ),
+            TransactionType::Withdrawal {
+                amount,
+                linked_deposit,
+            } => (
+                ctx.withdrawal_events(amount, linked_deposit.as_deref())?,
+                amount.asset.as_str(),
+            ),
+        };
+
+        events.extend(ctx.fee_disposal(main_asset)?);
+        Ok(events)
+    }
+
+    /// An untagged deposit or withdrawal of a chargeable asset with no linked
+    /// leg -- what `--exclude-unlinked` drops.
+    fn is_unlinked_transfer(&self) -> bool {
+        self.tag == Tag::Unclassified
+            && matches!(
+                &self.details,
+                TransactionType::Deposit { amount, linked_withdrawal: None }
+                    | TransactionType::Withdrawal { amount, linked_deposit: None }
+                    if !is_gbp(&amount.asset)
+            )
+    }
+
+    fn context<'a>(&'a self, registry: &'a AssetRegistry) -> EventContext<'a> {
+        EventContext {
             id: &self.id,
             datetime: self.datetime,
             account: &self.account,
@@ -28,20 +81,50 @@ impl Transaction {
             fee: self.fee.as_ref(),
             tag: self.tag,
             registry,
-            exclude_unlinked,
-        };
-
-        match &self.details {
-            TransactionType::Trade { sold, bought } => ctx.trade_events(sold, bought),
-            TransactionType::Deposit {
-                amount,
-                linked_withdrawal,
-            } => ctx.deposit_events(amount, linked_withdrawal.as_deref()),
-            TransactionType::Withdrawal {
-                amount,
-                linked_deposit,
-            } => ctx.withdrawal_events(amount, linked_deposit.as_deref()),
         }
+    }
+
+    /// The part of a linked withdrawal that did not arrive at the deposit, as
+    /// an unclassified disposal.
+    ///
+    /// Quantities exclude fees (a fee is its own outflow, disposed of by
+    /// `fee_disposal`), so the shortfall is simply sent minus received. Those
+    /// tokens left the user's control, so they must leave the pool; they are
+    /// flagged unclassified because their treatment is unknown.
+    pub(super) fn linked_transfer_shortfall(
+        &self,
+        deposited: Decimal,
+        registry: &AssetRegistry,
+    ) -> Result<Option<TaxableEvent>, TransactionError> {
+        let TransactionType::Withdrawal { amount, .. } = &self.details else {
+            return Ok(None);
+        };
+        let shortfall = amount.quantity - deposited;
+        if shortfall <= Decimal::ZERO || is_gbp(&amount.asset) {
+            return Ok(None);
+        }
+
+        // A total GBP valuation covers the whole amount sent: take its share.
+        let value_gbp = match &self.valuation {
+            Some(Valuation::ValueGbp(total)) => *total / amount.quantity * shortfall,
+            valuation => valuation_to_gbp(&self.id, valuation.as_ref(), &amount.asset, shortfall)?
+                .unwrap_or(Decimal::ZERO),
+        };
+        log::warn!(
+            "Linked withdrawal {} sent {} more {} than arrived; treated as an unclassified disposal",
+            self.id,
+            shortfall,
+            amount.asset
+        );
+        let ctx = self.context(registry);
+        Ok(Some(ctx.event(
+            EventType::Disposal,
+            Tag::Unclassified,
+            &amount.asset,
+            shortfall,
+            value_gbp,
+            None,
+        )))
     }
 }
 
@@ -57,7 +140,6 @@ struct EventContext<'a> {
     fee: Option<&'a Fee>,
     tag: Tag,
     registry: &'a AssetRegistry,
-    exclude_unlinked: bool,
 }
 
 impl EventContext<'_> {
@@ -95,20 +177,42 @@ impl EventContext<'_> {
     /// Convert the transaction fee to GBP, if there is one. `priced_asset`
     /// names the asset the transaction price refers to, when it applies.
     fn fee_gbp(&self, priced_asset: Option<&str>) -> Result<Option<Decimal>, TransactionError> {
-        match self.fee {
-            Some(f) => Ok(Some(fee_to_gbp_with_context(
-                f,
-                priced_asset,
-                self.tx_price(),
-            )?)),
-            None => Ok(None),
-        }
+        self.fee
+            .map(|f| fee_to_gbp_with_context(f, priced_asset, self.tx_price()))
+            .transpose()
+    }
+
+    /// Tokens spent on a fee are themselves disposed of (HMRC CRYPTO22280),
+    /// at their market value. The fee's value stays an allowable cost of the
+    /// transaction it paid for; this event records the fee tokens leaving the
+    /// pool. A sterling fee disposes of nothing chargeable.
+    fn fee_disposal(&self, main_asset: &str) -> Result<Option<TaxableEvent>, TransactionError> {
+        let Some(fee) = self
+            .fee
+            .filter(|f| !is_gbp(&f.asset) && !f.amount.is_zero())
+        else {
+            return Ok(None);
+        };
+        let value_gbp = fee_to_gbp_with_context(fee, Some(main_asset), self.tx_price())?;
+        let mut event = self.event(
+            EventType::Disposal,
+            Tag::Trade,
+            &fee.asset,
+            fee.amount,
+            value_gbp,
+            None,
+        );
+        event.description = Some(match self.description {
+            Some(d) => format!("Fee: {d}"),
+            None => "Fee".to_string(),
+        });
+        Ok(Some(event))
     }
 
     fn invalid_tag(&self, tx_type: &str) -> TransactionError {
         TransactionError::InvalidTagForType {
             id: self.id.to_string(),
-            tag: tag_name(self.tag).to_string(),
+            tag: format!("{:?}", self.tag),
             tx_type: tx_type.to_string(),
         }
     }
@@ -135,18 +239,11 @@ impl EventContext<'_> {
                 bought.quantity
             }
         } else {
-            match self.valuation {
-                Some(Valuation::Price(price)) => {
-                    validate_price_base(self.id, price, &bought.asset)?;
-                    price.to_gbp(bought.quantity)?
-                }
-                Some(Valuation::ValueGbp(value_gbp)) => *value_gbp,
-                None => {
-                    return Err(TransactionError::MissingTradeValuation {
-                        id: self.id.to_string(),
-                    })
-                }
-            }
+            valuation_to_gbp(self.id, self.valuation, &bought.asset, bought.quantity)?.ok_or_else(
+                || TransactionError::MissingTradeValuation {
+                    id: self.id.to_string(),
+                },
+            )?
         };
 
         let has_disposal = !is_gbp(&sold.asset);
@@ -210,7 +307,7 @@ impl EventContext<'_> {
                 if self.valuation.is_some() {
                     return Err(TransactionError::GbpIncomeValuationNotAllowed {
                         id: self.id.to_string(),
-                        tag: tag_name(self.tag).to_string(),
+                        tag: format!("{:?}", self.tag),
                     });
                 }
                 amount.quantity
@@ -285,6 +382,10 @@ impl EventContext<'_> {
         if !matches!(self.tag, Tag::Gift | Tag::NoGainNoLoss) {
             return Err(self.invalid_tag("withdrawal"));
         }
+        // Sterling is not a chargeable asset (TCGA 1992 s21(4)).
+        if is_gbp(&amount.asset) {
+            return Ok(vec![]);
+        }
 
         // A no gain/no loss transfer may omit its valuation; a gift may not.
         let value_gbp = if self.tag == Tag::NoGainNoLoss {
@@ -311,8 +412,9 @@ impl EventContext<'_> {
         )])
     }
 
-    /// An untagged, unlinked deposit or withdrawal: either dropped, or kept
-    /// as an unclassified acquisition/disposal for the user to review.
+    /// An untagged, unlinked deposit or withdrawal, kept as an unclassified
+    /// acquisition/disposal for the user to review. (`--exclude-unlinked`
+    /// drops it earlier, in `to_taxable_events`.)
     fn unlinked_event(
         &self,
         amount: &Amount,
@@ -320,16 +422,6 @@ impl EventContext<'_> {
         tx_type: &str,
         treated_as: &str,
     ) -> Result<Vec<TaxableEvent>, TransactionError> {
-        if self.exclude_unlinked {
-            log::warn!(
-                "Skipping unlinked {}: id={} asset={}",
-                tx_type,
-                self.id,
-                amount.asset
-            );
-            return Ok(vec![]);
-        }
-
         let priced_asset = self.tx_price().map(|_| amount.asset.as_str());
         let fee_gbp = self.fee_gbp(priced_asset)?;
         let value_gbp =
@@ -370,8 +462,7 @@ fn fee_to_gbp_with_context(
 
     // Use transaction price if fee asset matches the priced asset.
     if let (Some(asset), Some(price)) = (priced_asset, tx_price) {
-        let fee_asset_normalized = normalize_currency(&fee.asset);
-        if fee_asset_normalized == normalize_currency(asset) {
+        if fee.asset.eq_ignore_ascii_case(asset) {
             return price.to_gbp(fee.amount);
         }
     }
@@ -380,23 +471,6 @@ fn fee_to_gbp_with_context(
     Err(TransactionError::MissingFeePrice {
         asset: fee.asset.clone(),
     })
-}
-
-fn tag_name(tag: Tag) -> &'static str {
-    match tag {
-        Tag::Unclassified => "Unclassified",
-        Tag::Trade => "Trade",
-        Tag::StakingReward => "StakingReward",
-        Tag::Salary => "Salary",
-        Tag::OtherIncome => "OtherIncome",
-        Tag::Airdrop => "Airdrop",
-        Tag::AirdropIncome => "AirdropIncome",
-        Tag::Dividend => "Dividend",
-        Tag::Interest => "Interest",
-        Tag::Gift => "Gift",
-        Tag::Cashback => "Cashback",
-        Tag::NoGainNoLoss => "NoGainNoLoss",
-    }
 }
 
 /// Resolve a valuation to GBP, or `None` when the transaction carries none.
@@ -428,7 +502,7 @@ fn valuation_to_gbp_required(
     valuation_to_gbp(id, valuation, expected_asset, quantity)?.ok_or_else(|| {
         TransactionError::MissingTaggedValuation {
             id: id.to_string(),
-            tag: tag_name(tag).to_string(),
+            tag: format!("{tag:?}"),
             tx_type: tx_type.to_string(),
         }
     })

@@ -120,10 +120,11 @@ pub struct TaxResults {
 /// `options`, without calculating anything. Returns the first rejection the
 /// CLI would report.
 pub fn validate(document: &Transactions, options: &CalculationOptions) -> Result<(), Error> {
-    document_to_events(document.clone(), conversion_options(options))?;
+    // Same order as `calculate`, so both report the same first rejection.
     if let Some(year) = options.tax_year {
         check_tax_year(year)?;
     }
+    document_to_events(document.clone(), conversion_options(options))?;
     Ok(())
 }
 
@@ -172,7 +173,7 @@ fn summarize_year(
     year: TaxYear,
     band: TaxBand,
 ) -> TaxYearResults {
-    let in_year = |date: chrono::NaiveDate| date >= year.start_date() && date <= year.end_date();
+    let in_year = |date: chrono::NaiveDate| TaxYear::from_date(date) == year;
     let year_events: Vec<&TaxableEvent> = events.iter().filter(|e| in_year(e.date())).collect();
     let disposals: Vec<&DisposalRecord> = cgt
         .disposals
@@ -181,14 +182,10 @@ fn summarize_year(
         .collect();
     let summary = summarize(&year_events, &disposals, year, band);
 
-    let mut disposal_index = core::DisposalIndex::new(cgt);
+    let disposal_index = core::DisposalIndex::new(cgt);
     let mut warnings = Vec::new();
     for event in &year_events {
-        let disposal = if event.event_type == results::EventType::Disposal {
-            disposal_index.find(event)
-        } else {
-            None
-        };
+        let disposal = disposal_index.find(event);
         warnings.extend(
             event_warnings(event, disposal)
                 .into_iter()

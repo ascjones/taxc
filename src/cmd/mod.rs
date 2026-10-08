@@ -7,6 +7,7 @@ pub mod summary;
 
 use crate::core::transactions::Transaction;
 use crate::core::{self, ConversionOptions, TaxableEvent};
+use anyhow::Context;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
@@ -26,7 +27,7 @@ pub fn read_transactions_and_events(
     let (transactions, registry) = if path.as_os_str() == "-" {
         read_json_from_stdin()?
     } else {
-        let file = File::open(path)?;
+        let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
         let reader = BufReader::new(file);
         core::read_transactions_json(reader)?
     };

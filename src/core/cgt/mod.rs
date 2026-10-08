@@ -1,11 +1,12 @@
 use super::events::{EventType, Tag, TaxableEvent};
+use super::fmt::round_pence;
 use super::fmt::{iso_date, pence_string, quantity_string};
 use super::uk::TaxYear;
 use super::warnings::Warning;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 fn serialize_date<S: Serializer>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&iso_date(*date))
@@ -138,7 +139,7 @@ impl Pool {
         } else {
             // Partial disposal - proportional cost
             let proportion = quantity / self.quantity;
-            let cost = (self.cost_gbp * proportion).round_dp(2);
+            let cost = round_pence(self.cost_gbp * proportion);
             self.quantity -= quantity;
             self.cost_gbp -= cost;
             log::debug!(
@@ -180,6 +181,27 @@ impl DisposalRecord {
     }
 }
 
+/// Proceeds, allowable costs (including disposal fees) and gain summed over
+/// a set of disposals.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisposalTotals {
+    pub proceeds: Decimal,
+    pub costs: Decimal,
+    pub gain: Decimal,
+}
+
+impl<'a> FromIterator<&'a DisposalRecord> for DisposalTotals {
+    fn from_iter<I: IntoIterator<Item = &'a DisposalRecord>>(disposals: I) -> Self {
+        disposals
+            .into_iter()
+            .fold(Self::default(), |t, d| DisposalTotals {
+                proceeds: t.proceeds + d.proceeds_gbp,
+                costs: t.costs + d.allowable_cost_gbp + d.fees_gbp,
+                gain: t.gain + d.gain_gbp,
+            })
+    }
+}
+
 /// CGT report containing all disposals
 #[derive(Debug)]
 pub struct CgtReport {
@@ -192,9 +214,10 @@ pub struct CgtReport {
 struct AcquisitionTracker {
     total_qty: Decimal,
     total_cost: Decimal,
-    same_day_reserved: Decimal,
     same_day_remaining: Decimal,
     bnb_remaining: Decimal,
+    /// Whether the day's unmatched remainder has been added to the pool.
+    pooled: bool,
 }
 
 impl AcquisitionTracker {
@@ -202,15 +225,13 @@ impl AcquisitionTracker {
         if self.total_qty.is_zero() {
             Decimal::ZERO
         } else {
-            (self.total_cost * qty / self.total_qty).round_dp(2)
+            round_pence(self.total_cost * qty / self.total_qty)
         }
     }
 
+    /// What neither a same-day nor a B&B disposal claimed.
     fn remaining_for_pool(&self) -> Decimal {
-        let same_day_used = self.same_day_reserved - self.same_day_remaining;
-        let bnb_originally = self.total_qty - self.same_day_reserved;
-        let bnb_used = bnb_originally - self.bnb_remaining;
-        self.total_qty - same_day_used - bnb_used
+        self.same_day_remaining + self.bnb_remaining
     }
 }
 
@@ -227,19 +248,13 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pool_history = PoolHistory::default();
     let mut current_year: Option<TaxYear> = None;
 
-    // Sort events by date, with disposals before acquisitions on the same day
-    let mut events = events;
-    events.sort_by(|a, b| {
-        match a.date().cmp(&b.date()) {
-            std::cmp::Ordering::Equal => {
-                // Disposals come before acquisitions on same day
-                let a_is_disposal = a.event_type == EventType::Disposal;
-                let b_is_disposal = b.event_type == EventType::Disposal;
-                b_is_disposal.cmp(&a_is_disposal)
-            }
-            other => other,
-        }
-    });
+    // Sterling is not a chargeable asset, so GBP income never enters a pool.
+    let mut events: Vec<TaxableEvent> = events
+        .into_iter()
+        .filter(|e| !e.asset.eq_ignore_ascii_case("GBP"))
+        .collect();
+    // By UK date, disposals before acquisitions on the same day (stable).
+    events.sort_by_key(|e| (e.date(), e.event_type != EventType::Disposal));
 
     // Build acquisition tracker: first pass records totals
     let mut acquisitions: HashMap<AcqKey, AcquisitionTracker> = HashMap::new();
@@ -259,51 +274,50 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
         if event.event_type == EventType::Disposal {
             let key = (event.date(), event.asset.clone());
             if let Some(tracker) = acquisitions.get_mut(&key) {
-                let available = tracker.total_qty - tracker.same_day_reserved;
+                let available = tracker.total_qty - tracker.same_day_remaining;
                 if available > Decimal::ZERO {
-                    tracker.same_day_reserved += event.quantity.min(available);
+                    tracker.same_day_remaining += event.quantity.min(available);
                 }
             }
         }
     }
-
-    // Initialize remaining amounts for matching
+    // Whatever same-day disposals did not reserve is open to B&B matching.
     for tracker in acquisitions.values_mut() {
-        tracker.same_day_remaining = tracker.same_day_reserved;
-        tracker.bnb_remaining = tracker.total_qty - tracker.same_day_reserved;
+        tracker.bnb_remaining = tracker.total_qty - tracker.same_day_remaining;
     }
 
     // Third pass: process all events
     for event in &events {
         let event_year = TaxYear::from_date(event.date());
 
-        // Snapshot at year boundary (before processing new year's first event)
+        // Snapshot every year-end passed since the last event, including
+        // idle years, which carry their holdings forward unchanged.
         if let Some(prev_year) = current_year {
-            if event_year > prev_year {
+            for year in prev_year.0..event_year.0 {
                 pool_history
                     .year_end_snapshots
-                    .push(snapshot_pools(prev_year, &pools));
+                    .push(snapshot_pools(TaxYear(year), &pools));
             }
         }
         current_year = Some(event_year);
 
         match event.event_type {
             // Acquisition events add to the pool (after matching)
+            // Same-day acquisitions are one acquisition (TCGA 1992 s105), so the
+            // day's unmatched remainder is pooled once, exactly -- splitting it
+            // per event and rounding each share left dust or shortfalls.
+            // Every same-day and earlier B&B claim is settled by now.
             EventType::Acquisition => {
                 let key = (event.date(), event.asset.clone());
-                if let Some(tracker) = acquisitions.get(&key) {
+                if let Some(tracker) = acquisitions.get_mut(&key).filter(|t| !t.pooled) {
+                    tracker.pooled = true;
                     let remaining = tracker.remaining_for_pool();
-                    if tracker.total_qty > Decimal::ZERO && remaining > Decimal::ZERO {
-                        // This acquisition's proportional share of what goes to pool
-                        let proportion = event.quantity / tracker.total_qty;
-                        let to_add = (remaining * proportion).round_dp(8);
-                        if to_add > Decimal::ZERO {
-                            let pool = pools
-                                .entry(event.asset.clone())
-                                .or_insert_with(|| Pool::new(event.asset.clone()));
-                            let cost = tracker.cost_for_qty(to_add);
-                            pool.add(to_add, cost);
-                        }
+                    if remaining > Decimal::ZERO {
+                        let cost = tracker.cost_for_qty(remaining);
+                        pools
+                            .entry(event.asset.clone())
+                            .or_insert_with(|| Pool::new(event.asset.clone()))
+                            .add(remaining, cost);
                     }
                 }
             }
@@ -346,153 +360,90 @@ fn process_disposal(
     acquisitions: &mut HashMap<AcqKey, AcquisitionTracker>,
     pools: &mut HashMap<String, Pool>,
 ) -> DisposalRecord {
-    let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
+    let date = event.date();
+    let mut remaining = event.quantity;
+    let mut components = Vec::new();
 
-    let mut remaining_to_match = event.quantity;
-    let mut total_allowable_cost = Decimal::ZERO;
-    let mut same_day_match: Option<(Decimal, Decimal)> = None;
-    let mut bnb_matches: Vec<(NaiveDate, Decimal, Decimal)> = Vec::new();
-    let mut pool_match: Option<(Decimal, Decimal)> = None;
-
-    // 1. Same-day rule: match with same-day acquisitions.
-    // See HMRC CG51560 for the ordering of identification rules.
+    // Identification order (HMRC CG51560): same day, then the next 30 days
+    // (bed and breakfast), then the Section 104 pool.
     // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-    let key = (event.date(), event.asset.clone());
-    if let Some(tracker) = acquisitions.get_mut(&key) {
-        if tracker.same_day_remaining > Decimal::ZERO {
-            let match_qty = remaining_to_match.min(tracker.same_day_remaining);
-            let cost = tracker.cost_for_qty(match_qty);
-            total_allowable_cost += cost;
-            same_day_match = Some((match_qty, cost));
-            remaining_to_match -= match_qty;
-            tracker.same_day_remaining -= match_qty;
-            log::debug!(
-                "Same-day match: {} {} at cost {}",
-                match_qty,
-                event.asset,
-                cost
-            );
+    let same_day = std::iter::once((MatchingRule::SameDay, date));
+    let bnb = (1..=30).map(|days| (MatchingRule::BedAndBreakfast, date + Duration::days(days)));
+    for (rule, acq_date) in same_day.chain(bnb) {
+        if remaining <= Decimal::ZERO {
+            break;
         }
+        let Some(tracker) = acquisitions.get_mut(&(acq_date, event.asset.clone())) else {
+            continue;
+        };
+        let available = match rule {
+            MatchingRule::SameDay => &mut tracker.same_day_remaining,
+            _ => &mut tracker.bnb_remaining,
+        };
+        let quantity = remaining.min(*available);
+        if quantity <= Decimal::ZERO {
+            continue;
+        }
+        *available -= quantity;
+        remaining -= quantity;
+        let cost = tracker.cost_for_qty(quantity);
+        log::debug!(
+            "{rule} match: {quantity} {} on {acq_date} at cost {cost}",
+            event.asset
+        );
+        components.push(MatchingComponent {
+            rule,
+            quantity,
+            cost,
+            matched_date: Some(acq_date),
+        });
     }
 
-    // 2. Bed & breakfast rule: match with acquisitions in next 30 days.
-    // See HMRC CG51560 for the 30-day rule and worked examples.
-    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-    if remaining_to_match > Decimal::ZERO {
-        for days_ahead in 1..=30 {
-            if remaining_to_match <= Decimal::ZERO {
-                break;
-            }
-            let future_date = event.date() + Duration::days(days_ahead);
-            let future_key = (future_date, event.asset.clone());
-            if let Some(tracker) = acquisitions.get_mut(&future_key) {
-                if tracker.bnb_remaining > Decimal::ZERO {
-                    let match_qty = remaining_to_match.min(tracker.bnb_remaining);
-                    let cost = tracker.cost_for_qty(match_qty);
-                    total_allowable_cost += cost;
-                    bnb_matches.push((future_date, match_qty, cost));
-                    remaining_to_match -= match_qty;
-                    tracker.bnb_remaining -= match_qty;
-                    log::debug!(
-                        "B&B match: {} {} on {} at cost {}",
-                        match_qty,
-                        event.asset,
-                        future_date,
-                        cost
-                    );
-                }
-            }
-        }
+    let mut warnings = Vec::new();
+    if event.tag == Tag::Unclassified {
+        warnings.push(Warning::UnclassifiedEvent);
     }
-
-    // 3. Section 104 pool: match remaining from pool.
-    // See HMRC CG51560 for the final matching step.
-    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51560
-    // Track pool state before removal for insufficient pool warning
-    let pool_qty_before = pools
-        .get(&event.asset)
-        .map(|p| p.quantity)
-        .unwrap_or(Decimal::ZERO);
-    let insufficient_pool =
-        remaining_to_match > Decimal::ZERO && remaining_to_match > pool_qty_before;
-
-    if remaining_to_match > Decimal::ZERO {
+    if remaining > Decimal::ZERO {
         let pool = pools
             .entry(event.asset.clone())
             .or_insert_with(|| Pool::new(event.asset.clone()));
-        let pool_cost = pool.remove(remaining_to_match);
-        total_allowable_cost += pool_cost;
-        pool_match = Some((remaining_to_match, pool_cost));
-        log::debug!(
-            "Pool match: {} {} at cost {}",
-            remaining_to_match,
-            event.asset,
-            pool_cost
-        );
-    }
-
-    // No gain/no loss: deemed proceeds = allowable cost + fees
-    let (proceeds, gain) = if event.tag == Tag::NoGainNoLoss {
-        (total_allowable_cost + fees, Decimal::ZERO)
-    } else {
-        (
-            event.value_gbp,
-            event.value_gbp - total_allowable_cost - fees,
-        )
-    };
-
-    // Build matching components for detailed reporting
-    let mut matching_components = Vec::new();
-    if let Some((qty, cost)) = same_day_match {
-        matching_components.push(MatchingComponent {
-            rule: MatchingRule::SameDay,
-            quantity: qty,
-            cost,
-            matched_date: Some(event.date()),
-        });
-    }
-    for (date, qty, cost) in &bnb_matches {
-        matching_components.push(MatchingComponent {
-            rule: MatchingRule::BedAndBreakfast,
-            quantity: *qty,
-            cost: *cost,
-            matched_date: Some(*date),
-        });
-    }
-    if let Some((qty, cost)) = pool_match {
-        matching_components.push(MatchingComponent {
+        // Short of the pool (including an empty one: no cost basis at all).
+        if remaining > pool.quantity {
+            warnings.push(Warning::InsufficientCostBasis {
+                available: pool.quantity,
+                required: remaining,
+            });
+        }
+        let cost = pool.remove(remaining);
+        log::debug!("Pool match: {remaining} {} at cost {cost}", event.asset);
+        components.push(MatchingComponent {
             rule: MatchingRule::Pool,
-            quantity: qty,
+            quantity: remaining,
             cost,
             matched_date: None,
         });
     }
 
-    // Build warnings
-    let mut warnings = Vec::new();
-    if event.tag == Tag::Unclassified {
-        warnings.push(Warning::UnclassifiedEvent);
-    }
-    // Insufficient cost basis: pool didn't have enough to cover the disposal
-    // This includes the "no cost basis" case when available = 0
-    if insufficient_pool {
-        warnings.push(Warning::InsufficientCostBasis {
-            available: pool_qty_before,
-            required: remaining_to_match,
-        });
-    }
+    let allowable_cost: Decimal = components.iter().map(|c| c.cost).sum();
+    let fees = event.fee_gbp.unwrap_or(Decimal::ZERO);
+    // No gain/no loss: deemed proceeds = allowable cost + fees.
+    let (proceeds, gain) = if event.tag == Tag::NoGainNoLoss {
+        (allowable_cost + fees, Decimal::ZERO)
+    } else {
+        (event.value_gbp, event.value_gbp - allowable_cost - fees)
+    };
 
     DisposalRecord {
         id: event.id,
         datetime: event.datetime,
-        date: event.date(),
+        date,
         asset: event.asset.clone(),
         quantity: event.quantity,
         proceeds_gbp: proceeds,
-        allowable_cost_gbp: total_allowable_cost,
+        allowable_cost_gbp: allowable_cost,
         fees_gbp: fees,
         gain_gbp: gain,
-        matching_components,
+        matching_components: components,
         warnings,
     }
 }
@@ -514,77 +465,24 @@ fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapsh
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct DisposalKey {
-    date: NaiveDate,
-    datetime: String,
-    asset: String,
-    quantity: String,
-}
-
-impl DisposalKey {
-    fn from_disposal(disposal: &DisposalRecord) -> Self {
-        DisposalKey {
-            date: disposal.date,
-            datetime: disposal.datetime.to_rfc3339(),
-            asset: disposal.asset.clone(),
-            quantity: format_decimal_key(disposal.quantity, 8),
-        }
-    }
-
-    fn from_event(event: &TaxableEvent) -> Self {
-        DisposalKey {
-            date: event.date(),
-            datetime: event.datetime.to_rfc3339(),
-            asset: event.asset.clone(),
-            quantity: format_decimal_key(event.quantity, 8),
-        }
-    }
-}
-
-fn format_decimal_key(value: Decimal, dp: u32) -> String {
-    value.round_dp(dp).normalize().to_string()
-}
-
-pub struct DisposalIndex<'a> {
-    report: &'a CgtReport,
-    by_id: HashMap<usize, usize>,
-    by_key: HashMap<DisposalKey, VecDeque<usize>>,
-}
+/// Disposal records by the id of the event they came from.
+///
+/// Event ids are unique -- `transactions_to_events` numbers them
+/// sequentially -- and every caller looks up events from the same list that
+/// went into `calculate_cgt`, so the id is always enough.
+pub struct DisposalIndex<'a>(HashMap<usize, &'a DisposalRecord>);
 
 impl<'a> DisposalIndex<'a> {
     pub fn new(report: &'a CgtReport) -> Self {
-        let mut by_id = HashMap::new();
-        let mut by_key: HashMap<DisposalKey, VecDeque<usize>> = HashMap::new();
-        for (idx, d) in report.disposals.iter().enumerate() {
-            by_id.insert(d.id, idx);
-            let key = DisposalKey::from_disposal(d);
-            by_key.entry(key).or_default().push_back(idx);
-        }
-
-        DisposalIndex {
-            report,
-            by_id,
-            by_key,
-        }
+        DisposalIndex(report.disposals.iter().map(|d| (d.id, d)).collect())
     }
 
-    pub fn find(&mut self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
-        if let Some(&idx) = self.by_id.get(&event.id) {
-            let disposal = self.report.disposals.get(idx)?;
-            // Consume the matching key entry so a later key-based fallback
-            // cannot return this disposal a second time.
-            if let Some(queue) = self.by_key.get_mut(&DisposalKey::from_disposal(disposal)) {
-                queue.retain(|&i| i != idx);
-            }
-            return Some(disposal);
+    /// The disposal record for a disposal event; `None` for acquisitions.
+    pub fn find(&self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
+        if event.event_type != EventType::Disposal {
+            return None;
         }
-
-        let key = DisposalKey::from_event(event);
-        self.by_key
-            .get_mut(&key)
-            .and_then(|queue| queue.pop_front())
-            .and_then(|idx| self.report.disposals.get(idx))
+        self.0.get(&event.id).copied()
     }
 }
 

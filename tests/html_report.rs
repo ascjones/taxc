@@ -34,6 +34,37 @@ fn report_html_respects_from_to_and_event_kind() {
     let _ = fs::remove_file(out);
 }
 
+/// User-supplied strings are embedded in a `<script>` block, so a description
+/// containing `</script>` must not be able to end it early.
+#[test]
+fn report_html_script_breakout_in_description_is_escaped() {
+    let out = unique_tmp_file("report-hostile", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = run_taxc(&[
+        "report",
+        "tests/data/hostile_description.json",
+        "--output",
+        &out_str,
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let html = fs::read_to_string(&out).expect("failed reading generated HTML");
+    let _ = fs::remove_file(&out);
+
+    assert!(
+        !html.contains("<script>window.pwned"),
+        "hostile description must not appear as live markup"
+    );
+    assert!(
+        !html.contains("</script><!--"),
+        "`<!--` must not reach the page raw"
+    );
+    assert_eq!(
+        html.matches("</script>").count(),
+        1,
+        "only the template's own closing tag may appear"
+    );
+}
+
 #[test]
 fn report_html_embeds_ngnl_value_note() {
     let out = unique_tmp_file("report-ngnl-note", "html");
@@ -598,9 +629,12 @@ fn report_html_tax_year_changes_date_range() {
     // At least one year should have fewer rows than the total (proving filtering works)
     let year1_rows = counts["year1Rows"].as_u64().unwrap_or(0) as usize;
     let year2_rows = counts["year2Rows"].as_u64().unwrap_or(0) as usize;
-    assert!(
-        year1_rows < initial_tx || year2_rows < initial_tx,
-        "At least one tax year should filter to fewer rows than total ({initial_tx}), got year1={year1_rows} year2={year2_rows}"
+    // mixed_rules.json: one transaction in 2023/24, three in 2024/25.
+    assert_eq!(initial_tx, 4);
+    assert_eq!(
+        (year1_rows, year2_rows),
+        (1, 3),
+        "tax-year presets should show 1 and 3 transactions"
     );
 
     let _ = fs::remove_file(out);
@@ -793,6 +827,94 @@ fn report_html_asset_filter_autocomplete_pills() {
     )
     .expect("Failed to remove pill");
     wait_for_tx_row_count(&tab, 4);
+
+    let _ = fs::remove_file(out);
+}
+
+/// A link to a row outside the report's CLI filter explains itself, and a
+/// link to a row hidden by the on-page filters clears them and lands on it.
+#[test]
+fn report_html_navigation_recovers_or_explains() {
+    let out = unique_tmp_file("report-html-nav", "html");
+    let out_str = out.to_string_lossy().to_string();
+    // --to cuts off the B&B repurchase on 2024-06-20, but the disposal still
+    // links to it.
+    let output = run_taxc(&[
+        "report",
+        "tests/data/mixed_rules.json",
+        "--to",
+        "2024-06-15",
+        "--output",
+        &out_str,
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = common::launch_browser();
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                var ids = new Set(DATA.events.map(function(e) { return e.id; }));
+                var target = null;
+                DATA.events.forEach(function(e) {
+                    (e.cgt ? e.cgt.matching_components : []).forEach(function(mc) {
+                        if (mc.matched_event_id != null && !ids.has(mc.matched_event_id)) target = mc.matched_event_id;
+                    });
+                });
+                if (target == null) return 'no link to a row outside the filter';
+                navigateToEvent(target);
+                var notice = document.getElementById('notice');
+                if (!notice || notice.hidden) return 'no notice shown';
+                if (notice.textContent.indexOf('outside this report') < 0) return 'unexpected notice: ' + notice.textContent;
+                return '';
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to test out-of-report navigation");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Out-of-report navigation: {}", msg);
+
+    let result = tab
+        .evaluate(
+            r#"
+            new Promise(function(resolve) {
+                var target = DATA.events[0].id;
+                // Hide everything with the on-page date filter, then navigate.
+                switchTab('events');
+                document.getElementById('date-from').value = '2099-01-01';
+                applyFilters();
+                if (document.querySelector('#events-body tr[data-event-id="' + target + '"]')) {
+                    resolve('the on-page filter did not hide the row');
+                    return;
+                }
+                navigateToEvent(target);
+                setTimeout(function() {
+                    var row = document.querySelector('#events-body tr[data-event-id="' + target + '"]');
+                    resolve(row ? '' : 'target row not shown after recovery');
+                }, 800);
+            })
+            "#,
+            true,
+        )
+        .expect("Failed to test hidden-row navigation");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Hidden-row navigation: {}", msg);
 
     let _ = fs::remove_file(out);
 }

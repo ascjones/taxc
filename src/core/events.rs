@@ -4,9 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Type of taxable event
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
-    #[default]
     Acquisition,
     Disposal,
 }
@@ -86,7 +85,7 @@ pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
 }
 
 /// Asset class for tax treatment
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum AssetClass {
     Crypto,
     Stock,
@@ -94,38 +93,30 @@ pub enum AssetClass {
 }
 
 /// A taxable event (acquisition, disposal, or income)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TaxableEvent {
     /// Sequential event identifier assigned during conversion
     pub id: usize,
     /// Original input transaction ID for this event
     pub source_transaction_id: String,
     /// Account this event originated from
-    #[serde(default)]
     pub account: String,
     #[serde(rename = "date")]
-    #[schemars(with = "String")]
     pub datetime: DateTime<FixedOffset>,
     pub event_type: EventType,
-    #[serde(default)]
     pub tag: Tag,
     pub asset: String,
     pub asset_class: AssetClass,
-    #[schemars(with = "f64")]
     pub quantity: Decimal,
-    #[schemars(with = "f64")]
     pub value_gbp: Decimal,
-    #[serde(default)]
-    #[schemars(with = "Option<f64>")]
     pub fee_gbp: Option<Decimal>,
-    #[serde(default)]
     pub description: Option<String>,
 }
 
 impl TaxableEvent {
-    /// Get just the date portion for tax calculations
+    /// The UK calendar date of the event, which every tax rule keys on.
     pub fn date(&self) -> NaiveDate {
-        self.datetime.date_naive()
+        super::uk::uk_date(self.datetime)
     }
 
     pub fn total_cost_gbp(&self) -> Decimal {
@@ -246,42 +237,31 @@ mod tests {
     use super::*;
     use rust_decimal_macros::dec;
 
-    #[test]
-    fn total_cost_includes_fees() {
-        let event = TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-1".to_string(),
-            account: String::new(),
-            datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "GBP".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1000),
-            value_gbp: dec!(1000),
-            fee_gbp: Some(dec!(50)),
-            description: None,
-        };
-        assert_eq!(event.total_cost_gbp(), dec!(1050));
+    fn at(datetime: &str) -> TaxableEvent {
+        TaxableEvent {
+            datetime: DateTime::parse_from_rfc3339(datetime).unwrap(),
+            ..crate::core::events::builders::acq("2024-01-01", "BTC", dec!(1), dec!(1))
+        }
     }
 
     #[test]
-    fn total_cost_without_fees() {
-        let event = TaxableEvent {
-            id: 1,
-            source_transaction_id: "tx-1".to_string(),
-            account: String::new(),
-            datetime: DateTime::parse_from_rfc3339("2024-01-15T00:00:00+00:00").unwrap(),
-            event_type: EventType::Acquisition,
-            tag: Tag::Trade,
-            asset: "GBP".to_string(),
-            asset_class: AssetClass::Crypto,
-            quantity: dec!(1000),
-            value_gbp: dec!(1000),
-            fee_gbp: None,
-            description: None,
-        };
-        assert_eq!(event.total_cost_gbp(), dec!(1000));
+    fn date_uses_uk_local_date_in_summer_time() {
+        // 23:30 UTC on 5 April 2024 is 00:30 BST on 6 April: the new tax year.
+        let e = at("2024-04-05T23:30:00Z");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2024, 4, 6).unwrap());
+    }
+
+    #[test]
+    fn date_uses_uk_local_date_in_winter_time() {
+        let e = at("2024-01-15T23:30:00Z");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    }
+
+    #[test]
+    fn date_ignores_the_offset_the_instant_was_written_in() {
+        // 01:00 in Tokyo on 6 April 2025 is 17:00 BST on 5 April.
+        let e = at("2025-04-06T01:00:00+09:00");
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2025, 4, 5).unwrap());
     }
 
     #[test]

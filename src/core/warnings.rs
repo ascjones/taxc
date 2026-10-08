@@ -1,11 +1,9 @@
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// Domain warning types emitted during conversion/calculation.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Warning {
     /// Event was unclassified and may need manual review.
@@ -13,9 +11,9 @@ pub enum Warning {
     /// Pool had insufficient quantity to cover the disposal.
     /// When `available = 0`, this means no cost basis at all.
     InsufficientCostBasis {
-        #[schemars(with = "f64")]
+        #[schemars(with = "String")]
         available: Decimal,
-        #[schemars(with = "f64")]
+        #[schemars(with = "String")]
         required: Decimal,
     },
 }

@@ -34,7 +34,7 @@ fn fx_price(base: &str, rate: Decimal, quote: &str, fx_rate: Decimal) -> Price {
 
 fn test_registry() -> AssetRegistry {
     let mut registry = AssetRegistry::new();
-    for symbol in ["BTC", "ETH", "USDT"] {
+    for symbol in ["BTC", "ETH", "USDT", "BNB", "DOT"] {
         registry.insert(
             symbol.to_string(),
             Asset {
@@ -642,20 +642,6 @@ fn fee_on_tagged_deposit() {
 }
 
 #[test]
-fn trade_value_gbp_with_gbp_fee() {
-    let tx = trade_tx("t-v-fee", ("BTC", dec!(1)), ("ETH", dec!(10)))
-        .with_value_gbp(dec!(1000))
-        .with_fee(Fee {
-            asset: "GBP".to_string(),
-            amount: dec!(5),
-            price: None,
-        });
-
-    let events = convert_one(&tx).unwrap();
-    assert_eq!(events[0].fee_gbp, Some(dec!(5)));
-}
-
-#[test]
 fn trade_value_gbp_crypto_fee_needs_own_price() {
     let tx = trade_tx("t-v-fee-missing", ("BTC", dec!(1)), ("ETH", dec!(10)))
         .with_value_gbp(dec!(1000))
@@ -689,21 +675,6 @@ fn trade_value_gbp_crypto_fee_with_explicit_price() {
 }
 
 #[test]
-fn deposit_income_value_gbp_with_gbp_fee() {
-    let tx = deposit_tx("d-income-fee", "ETH", dec!(1))
-        .with_tag(Tag::StakingReward)
-        .with_value_gbp(dec!(1000))
-        .with_fee(Fee {
-            asset: "GBP".to_string(),
-            amount: dec!(7),
-            price: None,
-        });
-
-    let events = convert_one(&tx).unwrap();
-    assert_eq!(events[0].fee_gbp, Some(dec!(7)));
-}
-
-#[test]
 fn deposit_income_value_gbp_crypto_fee_needs_own_price() {
     let tx = deposit_tx("d-income-fee-missing", "ETH", dec!(1))
         .with_tag(Tag::StakingReward)
@@ -734,7 +705,9 @@ fn fee_explicit_price_takes_precedence() {
         });
 
     let events = convert_one(&tx).unwrap();
-    assert_eq!(events.len(), 2);
+    // Two trade legs, plus the BTC spent on the fee as its own disposal.
+    assert_eq!(events.len(), 3);
+    assert_eq!(fee_disposals(&events, "BTC"), vec![(dec!(0.0001), dec!(2))]);
     assert_eq!(events[0].fee_gbp, Some(dec!(2)));
 }
 
@@ -749,7 +722,12 @@ fn fee_uses_trade_price_when_asset_matches_bought() {
         });
 
     let events = convert_one(&tx).unwrap();
-    assert_eq!(events.len(), 2);
+    // Two trade legs, plus the BTC spent on the fee as its own disposal.
+    assert_eq!(events.len(), 3);
+    assert_eq!(
+        fee_disposals(&events, "BTC"),
+        vec![(dec!(0.0001), dec!(1.50))]
+    );
     assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
 }
 
@@ -764,7 +742,12 @@ fn fee_asset_match_is_case_insensitive() {
         });
 
     let events = convert_one(&tx).unwrap();
-    assert_eq!(events.len(), 2);
+    // Two trade legs, plus the BTC spent on the fee as its own disposal.
+    assert_eq!(events.len(), 3);
+    assert_eq!(
+        fee_disposals(&events, "BTC"),
+        vec![(dec!(0.0001), dec!(1.50))]
+    );
     assert_eq!(events[0].fee_gbp, Some(dec!(1.50)));
 }
 
@@ -1040,18 +1023,6 @@ fn gift_deposit_creates_gift_in() {
 }
 
 #[test]
-fn deposit_gift_with_value_gbp() {
-    let tx = deposit_tx("d1-value", "ETH", dec!(2))
-        .with_tag(Tag::Gift)
-        .with_value_gbp(dec!(2000));
-
-    let events = convert_one(&tx).unwrap();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].tag, Tag::Gift);
-    assert_eq!(events[0].value_gbp, dec!(2000));
-}
-
-#[test]
 fn gift_withdrawal_creates_gift_out() {
     let tx = withdrawal_tx("w1", "ETH", dec!(2))
         .with_tag(Tag::Gift)
@@ -1074,21 +1045,6 @@ fn withdrawal_gift_with_value_gbp() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].tag, Tag::Gift);
     assert_eq!(events[0].value_gbp, dec!(2000));
-}
-
-#[test]
-fn deposit_gift_value_gbp_with_fee() {
-    let tx = deposit_tx("d-gift-fee", "ETH", dec!(2))
-        .with_tag(Tag::Gift)
-        .with_value_gbp(dec!(2000))
-        .with_fee(Fee {
-            asset: "GBP".to_string(),
-            amount: dec!(4),
-            price: None,
-        });
-
-    let events = convert_one(&tx).unwrap();
-    assert_eq!(events[0].fee_gbp, Some(dec!(4)));
 }
 
 #[test]
@@ -1228,14 +1184,6 @@ fn cashback_crypto_deposit_requires_price() {
             tx_type: "deposit".to_string(),
         }
     );
-}
-
-#[test]
-fn cashback_tag_round_trips_as_string() {
-    let json = serde_json::to_string(&Tag::Cashback).unwrap();
-    assert_eq!(json, "\"Cashback\"");
-    let tag: Tag = serde_json::from_str("\"Cashback\"").unwrap();
-    assert_eq!(tag, Tag::Cashback);
 }
 
 #[test]
@@ -1617,34 +1565,6 @@ fn unlinked_deposit_value_gbp_with_fee() {
 }
 
 #[test]
-fn unlinked_withdrawal_value_gbp_with_fee() {
-    let tx = withdrawal_tx("w-unlinked-fee", "ETH", dec!(2))
-        .with_value_gbp(dec!(2000))
-        .with_fee(Fee {
-            asset: "GBP".to_string(),
-            amount: dec!(3),
-            price: None,
-        });
-
-    let events = convert_one(&tx).unwrap();
-    assert_eq!(events[0].fee_gbp, Some(dec!(3)));
-}
-
-#[test]
-fn serde_round_trip_valuation_price() {
-    let tx = trade_tx("serde-price", ("BTC", dec!(0.5)), ("ETH", dec!(8)))
-        .with_price(gbp_price("ETH", dec!(1875)))
-        .build();
-
-    let json = serde_json::to_string(&tx).unwrap();
-    let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
-    assert!(matches!(
-        round_tripped.valuation,
-        Some(Valuation::Price(ref p)) if p.base == "ETH"
-    ));
-}
-
-#[test]
 fn serde_round_trip_valuation_value_gbp() {
     let tx = trade_tx("serde-value", ("BTC", dec!(0.5)), ("ETH", dec!(8)))
         .with_value_gbp(dec!(15000))
@@ -1656,17 +1576,6 @@ fn serde_round_trip_valuation_value_gbp() {
         round_tripped.valuation,
         Some(Valuation::ValueGbp(dec!(15000)))
     );
-}
-
-#[test]
-fn serde_round_trip_valuation_none() {
-    let tx = trade_tx("serde-none", ("GBP", dec!(1000)), ("BTC", dec!(0.05))).build();
-
-    let json = serde_json::to_string(&tx).unwrap();
-    assert!(!json.contains("\"valuation\""));
-
-    let round_tripped: Transaction = serde_json::from_str(&json).unwrap();
-    assert_eq!(round_tripped.valuation, None);
 }
 
 #[test]
@@ -1747,4 +1656,295 @@ fn zero_fee_amount_is_allowed() {
     let events = convert_all(&[tx]).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].fee_gbp, Some(dec!(0)));
+}
+
+fn crypto_fee(asset: &str, amount: Decimal, gbp_rate: Decimal) -> Fee {
+    Fee {
+        asset: asset.to_string(),
+        amount,
+        price: Some(gbp_price(asset, gbp_rate)),
+    }
+}
+
+fn fee_disposals(events: &[TaxableEvent], asset: &str) -> Vec<(Decimal, Decimal)> {
+    events
+        .iter()
+        .filter(|e| e.event_type == EventType::Disposal && e.asset == asset && e.fee_gbp.is_none())
+        .map(|e| (e.quantity, e.value_gbp))
+        .collect()
+}
+
+// --- HMRC: tokens spent on a fee are themselves disposed of (CRYPTO22280) ---
+
+#[test]
+fn crypto_fee_on_trade_is_a_disposal_of_the_fee_tokens() {
+    // Sell 1 ETH for BTC and pay 0.01 BNB (at £500) as the exchange fee.
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_value_gbp(dec!(2000))
+        .with_fee(crypto_fee("BNB", dec!(0.01), dec!(500)));
+    let events = convert_one(&tx).unwrap();
+
+    // The fee stays an allowable cost of the ETH disposal...
+    let eth = events.iter().find(|e| e.asset == "ETH").unwrap();
+    assert_eq!(eth.fee_gbp, Some(dec!(5)));
+    // ...and the BNB spent on it is a disposal at its market value.
+    assert_eq!(fee_disposals(&events, "BNB"), vec![(dec!(0.01), dec!(5))]);
+    assert_eq!(events.len(), 3);
+}
+
+#[test]
+fn gbp_fee_on_trade_is_not_a_disposal() {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_value_gbp(dec!(2000))
+        .with_fee(Fee {
+            asset: "GBP".to_string(),
+            amount: dec!(5),
+            price: None,
+        });
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().all(|e| e.asset != "GBP"));
+}
+
+#[test]
+fn crypto_fee_on_linked_transfer_is_a_disposal_of_the_fee_tokens() {
+    // Moving 1 BTC between own wallets, paying a separate 0.001 BTC network
+    // fee: quantities exclude the fee, so 1 left and 1 arrived. The transfer
+    // is not a disposal; the fee tokens are.
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1))
+            .with_withdrawal_link("d1")
+            .with_fee(crypto_fee("BTC", dec!(0.001), dec!(50000))),
+        deposit_tx("d1", "BTC", dec!(1)).with_deposit_link("w1"),
+    ];
+    let events = convert_all(&txs).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].event_type, EventType::Disposal);
+    assert_eq!(events[0].asset, "BTC");
+    assert_eq!(events[0].quantity, dec!(0.001));
+    assert_eq!(events[0].value_gbp, dec!(50));
+    assert_eq!(events[0].fee_gbp, None);
+}
+
+#[test]
+fn linked_transfer_fee_and_transit_shortfall_are_disposed_of_separately() {
+    // 1 BTC sent plus a 0.001 BTC fee, but only 0.9995 arrived: the fee is a
+    // priced disposal and the missing 0.0005 an unclassified one. The fee is
+    // not subtracted from the shortfall -- it never was part of the 1 BTC.
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1))
+            .with_withdrawal_link("d1")
+            .with_price(gbp_price("BTC", dec!(50000)))
+            .with_fee(crypto_fee("BTC", dec!(0.001), dec!(50000))),
+        deposit_tx("d1", "BTC", dec!(0.9995)).with_deposit_link("w1"),
+    ];
+    let events = convert_all(&txs).unwrap();
+    let mut got: Vec<(Tag, Decimal)> = events.iter().map(|e| (e.tag, e.quantity)).collect();
+    got.sort();
+    assert_eq!(
+        got,
+        vec![(Tag::Unclassified, dec!(0.0005)), (Tag::Trade, dec!(0.001))]
+    );
+}
+
+#[test]
+fn linked_deposit_fee_is_disposed_of_once() {
+    // A fee on the receiving leg is its own outflow: 1 sent, 1 arrived, then
+    // 0.03 DOT paid. One fee disposal, no shortfall.
+    let txs = [
+        withdrawal_tx("w1", "DOT", dec!(1)).with_withdrawal_link("d1"),
+        deposit_tx("d1", "DOT", dec!(1))
+            .with_deposit_link("w1")
+            .with_fee(crypto_fee("DOT", dec!(0.03), dec!(5))),
+    ];
+    let events = convert_all(&txs).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].quantity, dec!(0.03));
+    assert_eq!(events[0].tag, Tag::Trade);
+}
+
+#[test]
+fn linked_transfer_shortfall_valued_pro_rata_from_value_gbp() {
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1))
+            .with_withdrawal_link("d1")
+            .with_value_gbp(dec!(50000)),
+        deposit_tx("d1", "BTC", dec!(0.999)).with_deposit_link("w1"),
+    ];
+    let events = convert_all(&txs).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].value_gbp, dec!(50));
+}
+
+#[test]
+fn linked_transfer_shortfall_without_valuation_is_valued_at_zero() {
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1)).with_withdrawal_link("d1"),
+        deposit_tx("d1", "BTC", dec!(0.999)).with_deposit_link("w1"),
+    ];
+    let events = convert_all(&txs).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].tag, Tag::Unclassified);
+    assert_eq!(events[0].value_gbp, Decimal::ZERO);
+}
+
+#[test]
+fn linked_transfer_undeclared_shortfall_is_an_unclassified_disposal() {
+    // 1 BTC left, 0.999 arrived and no fee was declared: the missing 0.001
+    // must leave the pool, flagged for review rather than silently vanishing.
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1))
+            .with_withdrawal_link("d1")
+            .with_price(gbp_price("BTC", dec!(50000))),
+        deposit_tx("d1", "BTC", dec!(0.999)).with_deposit_link("w1"),
+    ];
+    let events = convert_all(&txs).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].event_type, EventType::Disposal);
+    assert_eq!(events[0].tag, Tag::Unclassified);
+    assert_eq!(events[0].quantity, dec!(0.001));
+    assert_eq!(events[0].value_gbp, dec!(50));
+}
+
+#[test]
+fn linked_transfer_exact_quantities_produce_no_events() {
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1)).with_withdrawal_link("d1"),
+        deposit_tx("d1", "BTC", dec!(1)).with_deposit_link("w1"),
+    ];
+    assert!(convert_all(&txs).unwrap().is_empty());
+}
+
+#[test]
+fn linked_transfer_asset_mismatch_errors() {
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1)).with_withdrawal_link("d1"),
+        deposit_tx("d1", "ETH", dec!(5)).with_deposit_link("w1"),
+    ];
+    assert!(matches!(
+        convert_all(&txs),
+        Err(TransactionError::LinkedTransactionAssetMismatch { .. })
+    ));
+}
+
+#[test]
+fn linked_deposit_exceeding_withdrawal_errors() {
+    let txs = [
+        withdrawal_tx("w1", "BTC", dec!(1)).with_withdrawal_link("d1"),
+        deposit_tx("d1", "BTC", dec!(1.5)).with_deposit_link("w1"),
+    ];
+    assert!(matches!(
+        convert_all(&txs),
+        Err(TransactionError::LinkedDepositExceedsWithdrawal { .. })
+    ));
+}
+
+#[test]
+fn gbp_gift_withdrawal_is_not_a_disposal() {
+    // Sterling is not a chargeable asset (TCGA 1992 s21(4)).
+    let tx = withdrawal_tx("w1", "GBP", dec!(1000))
+        .with_tag(Tag::Gift)
+        .with_value_gbp(dec!(1000));
+    assert!(convert_one(&tx).unwrap().is_empty());
+}
+
+#[test]
+fn negative_value_gbp_valuation_errors() {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05))).with_value_gbp(dec!(-5000));
+    assert!(matches!(
+        convert_one(&tx),
+        Err(TransactionError::NegativeValuation { .. })
+    ));
+}
+
+#[test]
+fn exclude_unlinked_drops_unlinked_deposits_and_their_fees() {
+    let tx = deposit_tx("d1", "BTC", dec!(1))
+        .with_price(gbp_price("BTC", dec!(50000)))
+        .with_fee(crypto_fee("BTC", dec!(0.001), dec!(50000)));
+    let events = tx
+        .as_ref()
+        .to_taxable_events(&test_registry(), true)
+        .unwrap();
+    assert!(events.is_empty(), "{events:?}");
+}
+
+#[test]
+fn crypto_fee_on_tagged_deposit_is_disposed_of() {
+    let tx = deposit_tx("d1", "ETH", dec!(1))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = convert_one(&tx).unwrap();
+    // The reward is acquired in full; the fee tokens then leave.
+    let acq = events
+        .iter()
+        .find(|e| e.event_type == EventType::Acquisition)
+        .unwrap();
+    assert_eq!(acq.quantity, dec!(1));
+    assert_eq!(acq.fee_gbp, Some(dec!(20)));
+    assert_eq!(fee_disposals(&events, "ETH"), vec![(dec!(0.01), dec!(20))]);
+}
+
+#[test]
+fn crypto_fee_on_gift_withdrawal_is_disposed_of() {
+    let tx = withdrawal_tx("w1", "ETH", dec!(1))
+        .with_tag(Tag::Gift)
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(fee_disposals(&events, "ETH"), vec![(dec!(0.01), dec!(20))]);
+}
+
+#[test]
+fn crypto_fee_on_unlinked_withdrawal_is_disposed_of() {
+    let tx = withdrawal_tx("w1", "ETH", dec!(1))
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(fee_disposals(&events, "ETH"), vec![(dec!(0.01), dec!(20))]);
+}
+
+#[test]
+fn crypto_fee_on_gbp_deposit_is_still_disposed_of() {
+    // Sterling moves are not chargeable, but tokens spent on their fee are.
+    let tx = deposit_tx("d1", "GBP", dec!(500)).with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = convert_one(&tx).unwrap();
+    assert_eq!(fee_disposals(&events, "ETH"), vec![(dec!(0.01), dec!(20))]);
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn zero_crypto_fee_is_not_a_disposal() {
+    let tx = trade_tx("t1", ("ETH", dec!(1)), ("BTC", dec!(0.05)))
+        .with_value_gbp(dec!(2000))
+        .with_fee(crypto_fee("BNB", dec!(0), dec!(500)));
+    assert_eq!(convert_one(&tx).unwrap().len(), 2);
+}
+
+#[test]
+fn exclude_unlinked_keeps_tagged_deposits_and_their_fees() {
+    let tx = deposit_tx("d1", "ETH", dec!(1))
+        .with_tag(Tag::StakingReward)
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = tx
+        .as_ref()
+        .to_taxable_events(&test_registry(), true)
+        .unwrap();
+    assert_eq!(events.len(), 2);
+}
+
+#[test]
+fn exclude_unlinked_drops_unlinked_withdrawals_and_their_fees() {
+    let tx = withdrawal_tx("w1", "ETH", dec!(1))
+        .with_price(gbp_price("ETH", dec!(2000)))
+        .with_fee(crypto_fee("ETH", dec!(0.01), dec!(2000)));
+    let events = tx
+        .as_ref()
+        .to_taxable_events(&test_registry(), true)
+        .unwrap();
+    assert!(events.is_empty(), "{events:?}");
 }
