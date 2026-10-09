@@ -15,7 +15,6 @@
       "Bash(find:*)",
       "Bash(echo:*)",
       "Bash(sqlite3:*)",
-      "Bash(./scripts/serve-report.sh:*)",
       "Skill(bump-version)"
     ]
   },
