@@ -69,13 +69,7 @@ impl Transaction {
                 new_shares.asset.as_str(),
             ),
             TransactionType::SmallCapitalDistribution { asset, amount } => (
-                vec![ctx.adjustment(
-                    AdjustmentKind::SmallCapitalDistribution,
-                    asset,
-                    Decimal::ZERO,
-                    -*amount,
-                    None,
-                )],
+                vec![ctx.small_capital_distribution(asset, *amount)],
                 asset.as_str(),
             ),
             // Validation guarantees the fee; it is the only thing that moves.
@@ -294,6 +288,17 @@ impl EventContext<'_> {
             consideration,
             self.fee_gbp(None)?,
         ))
+    }
+
+    /// The distribution as a negative cost: it reduces the pool's cost.
+    fn small_capital_distribution(&self, asset: &str, amount: Decimal) -> TaxableEvent {
+        self.adjustment(
+            AdjustmentKind::SmallCapitalDistribution,
+            asset,
+            Decimal::ZERO,
+            -amount,
+            None,
+        )
     }
 
     fn invalid_tag(&self, tx_type: &str) -> TransactionError {

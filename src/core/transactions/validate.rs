@@ -56,30 +56,8 @@ pub(super) fn validate_assets(
     }
 
     for tx in transactions {
-        match &tx.details {
-            TransactionType::Trade { sold, bought } => {
-                validate_symbol(&registry, sold.asset.as_str())?;
-                validate_symbol(&registry, bought.asset.as_str())?;
-            }
-            TransactionType::Deposit { amount, .. }
-            | TransactionType::Withdrawal { amount, .. } => {
-                validate_symbol(&registry, amount.asset.as_str())?;
-            }
-            TransactionType::Demerger {
-                original,
-                new_holding,
-                ..
-            } => {
-                validate_symbol(&registry, original.as_str())?;
-                validate_symbol(&registry, new_holding.asset.as_str())?;
-            }
-            TransactionType::RightsIssue { new_shares, .. } => {
-                validate_symbol(&registry, new_shares.asset.as_str())?;
-            }
-            TransactionType::SmallCapitalDistribution { asset, .. } => {
-                validate_symbol(&registry, asset.as_str())?;
-            }
-            TransactionType::Fee {} => {}
+        for asset in tx.details.assets() {
+            validate_symbol(&registry, asset)?;
         }
 
         if let Some(fee) = &tx.fee {
@@ -181,33 +159,18 @@ pub(super) fn validate_restricted_types(
     transactions: &[Transaction],
 ) -> Result<(), TransactionError> {
     for tx in transactions {
-        let (tx_type, assets, fee_rule) = match &tx.details {
+        let fee_rule = match &tx.details {
             TransactionType::Trade { .. }
             | TransactionType::Deposit { .. }
             | TransactionType::Withdrawal { .. } => continue,
-            TransactionType::Demerger {
-                original,
-                new_holding,
-                ..
-            } => (
-                "Demerger",
-                vec![original.as_str(), new_holding.asset.as_str()],
-                FeeRule::None,
-            ),
-            TransactionType::RightsIssue { new_shares, .. } => (
-                "RightsIssue",
-                vec![new_shares.asset.as_str()],
-                FeeRule::Optional,
-            ),
-            TransactionType::SmallCapitalDistribution { asset, .. } => (
-                "SmallCapitalDistribution",
-                vec![asset.as_str()],
-                FeeRule::None,
-            ),
-            TransactionType::Fee {} => ("Fee", vec![], FeeRule::Required),
+            TransactionType::Demerger { .. } | TransactionType::SmallCapitalDistribution { .. } => {
+                FeeRule::None
+            }
+            TransactionType::RightsIssue { .. } => FeeRule::Optional,
+            TransactionType::Fee {} => FeeRule::Required,
         };
         let id = || tx.id.clone();
-        let tx_type_string = || tx_type.to_string();
+        let tx_type_string = || tx.details.type_name().to_string();
 
         if tx.tag != Tag::Unclassified {
             return Err(TransactionError::InvalidTagForType {
@@ -222,7 +185,7 @@ pub(super) fn validate_restricted_types(
                 tx_type: tx_type_string(),
             });
         }
-        if assets.into_iter().any(is_gbp) {
+        if tx.details.assets().into_iter().any(is_gbp) {
             return Err(TransactionError::SterlingNotAllowed {
                 id: id(),
                 tx_type: tx_type_string(),

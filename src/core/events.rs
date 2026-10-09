@@ -7,30 +7,15 @@ use serde::{Deserialize, Serialize};
 ///
 /// Serializes as a plain string: `"Acquisition"`, `"Disposal"`, or a pool
 /// adjustment's kind (e.g. `"Demerger"`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
     Acquisition,
     Disposal,
     /// A share reorganisation that changes a Section 104 pool directly. It is
     /// neither an acquisition nor a disposal, so it is never matched and
     /// never counts in any total.
+    #[serde(untagged)]
     PoolAdjustment(AdjustmentKind),
-}
-
-impl EventType {
-    fn label(self) -> &'static str {
-        match self {
-            EventType::Acquisition => "Acquisition",
-            EventType::Disposal => "Disposal",
-            EventType::PoolAdjustment(kind) => kind.label(),
-        }
-    }
-}
-
-impl Serialize for EventType {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.label())
-    }
 }
 
 /// The share reorganisation behind a pool adjustment. Declared in the order

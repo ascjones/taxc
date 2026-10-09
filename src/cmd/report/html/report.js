@@ -1041,9 +1041,8 @@ function filterEvents(events, filters) {
         if (filters.assets.size > 0 && !filters.assets.has(e.asset)) return false;
 
         const eventKind = (e.event_kind || '').toLowerCase();
-        if (eventKind === 'acquisition' && !filters.types.acquisition) return false;
-        if (eventKind === 'disposal' && !filters.types.disposal) return false;
-        if (eventKind === 'adjustment' && !filters.types.adjustment) return false;
+        // Each event kind has a type-<kind> checkbox.
+        if (eventKind in filters.types && !filters.types[eventKind]) return false;
 
         const tag = (e.tag || '').toLowerCase();
         if (

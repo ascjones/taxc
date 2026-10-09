@@ -587,35 +587,29 @@ fn build_transaction_rows(
                 asset: a.asset.clone(),
                 quantity: quantity_string(a.quantity),
             };
-            let (transaction_type, amounts) = match &tx.details {
-                TransactionType::Trade { sold, bought } => (
-                    "Trade",
-                    vec![amount("Sold", sold), amount("Bought", bought)],
-                ),
-                TransactionType::Deposit { amount: a, .. } => {
-                    ("Deposit", vec![amount("Amount", a)])
+            let amounts = match &tx.details {
+                TransactionType::Trade { sold, bought } => {
+                    vec![amount("Sold", sold), amount("Bought", bought)]
                 }
-                TransactionType::Withdrawal { amount: a, .. } => {
-                    ("Withdrawal", vec![amount("Amount", a)])
-                }
+                TransactionType::Deposit { amount: a, .. }
+                | TransactionType::Withdrawal { amount: a, .. } => vec![amount("Amount", a)],
                 TransactionType::Demerger { new_holding, .. } => {
-                    ("Demerger", vec![amount("New holding", new_holding)])
+                    vec![amount("New holding", new_holding)]
                 }
                 TransactionType::RightsIssue { new_shares, .. } => {
-                    ("RightsIssue", vec![amount("New shares", new_shares)])
+                    vec![amount("New shares", new_shares)]
                 }
-                TransactionType::SmallCapitalDistribution { amount: gbp, .. } => (
-                    "SmallCapitalDistribution",
+                TransactionType::SmallCapitalDistribution { amount: gbp, .. } => {
                     vec![TransactionAmount {
                         label: "Distribution".to_string(),
                         asset: "GBP".to_string(),
                         quantity: pence_string(*gbp),
-                    }],
-                ),
+                    }]
+                }
                 // The fee is the whole transaction, shown in its own column.
-                TransactionType::Fee {} => ("Fee", vec![]),
+                TransactionType::Fee {} => vec![],
             };
-            let transaction_type = transaction_type.to_string();
+            let transaction_type = tx.details.type_name().to_string();
 
             let fee = tx.fee.as_ref().map(|f| TransactionFee {
                 asset: f.asset.clone(),
@@ -642,21 +636,8 @@ fn build_transaction_rows(
 
 /// Every asset a transaction moves, including its fee asset.
 fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
-    let moved = match &tx.details {
-        TransactionType::Trade { sold, bought } => vec![sold.asset.as_str(), bought.asset.as_str()],
-        TransactionType::Deposit { amount, .. } | TransactionType::Withdrawal { amount, .. } => {
-            vec![amount.asset.as_str()]
-        }
-        TransactionType::Demerger {
-            original,
-            new_holding,
-            ..
-        } => vec![original.as_str(), new_holding.asset.as_str()],
-        TransactionType::RightsIssue { new_shares, .. } => vec![new_shares.asset.as_str()],
-        TransactionType::SmallCapitalDistribution { asset, .. } => vec![asset.as_str()],
-        TransactionType::Fee {} => vec![],
-    };
-    moved
+    tx.details
+        .assets()
         .into_iter()
         .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
 }

@@ -124,6 +124,40 @@ pub enum TransactionType {
     Fee {},
 }
 
+impl TransactionType {
+    /// The type's name, as its `type` tag spells it.
+    pub(crate) fn type_name(&self) -> &'static str {
+        match self {
+            TransactionType::Trade { .. } => "Trade",
+            TransactionType::Deposit { .. } => "Deposit",
+            TransactionType::Withdrawal { .. } => "Withdrawal",
+            TransactionType::Demerger { .. } => "Demerger",
+            TransactionType::RightsIssue { .. } => "RightsIssue",
+            TransactionType::SmallCapitalDistribution { .. } => "SmallCapitalDistribution",
+            TransactionType::Fee {} => "Fee",
+        }
+    }
+
+    /// Every asset the transaction names, excluding its fee.
+    pub(crate) fn assets(&self) -> Vec<&str> {
+        match self {
+            TransactionType::Trade { sold, bought } => vec![&sold.asset, &bought.asset],
+            TransactionType::Deposit { amount, .. }
+            | TransactionType::Withdrawal { amount, .. } => {
+                vec![&amount.asset]
+            }
+            TransactionType::Demerger {
+                original,
+                new_holding,
+                ..
+            } => vec![original, &new_holding.asset],
+            TransactionType::RightsIssue { new_shares, .. } => vec![&new_shares.asset],
+            TransactionType::SmallCapitalDistribution { asset, .. } => vec![asset],
+            TransactionType::Fee {} => vec![],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Amount {
     pub asset: String,
