@@ -551,3 +551,82 @@ fn validate_and_calculate_agree_on_the_first_rejection() {
     let calculated = taxc::calculate(doc, &options).unwrap_err();
     assert_eq!(validated, calculated);
 }
+
+fn shares(symbols: &[&str]) -> Vec<Asset> {
+    symbols
+        .iter()
+        .map(|s| Asset {
+            symbol: s.to_string(),
+            asset_class: AssetClass::Stock,
+        })
+        .collect()
+}
+
+#[test]
+fn calculate_counts_a_distribution_above_pool_cost_as_a_warned_gain() {
+    // AE3: £50 distributed on a holding that cost £30 is a £20 gain in the
+    // year's totals, assuming the s.122(4) election.
+    let doc = Transactions {
+        assets: shares(&["X"]),
+        transactions: vec![
+            tx(
+                "buy",
+                "2024-01-10T10:00:00Z",
+                TransactionType::Trade {
+                    sold: amount("GBP", dec!(30)),
+                    bought: amount("X", dec!(10)),
+                },
+            ),
+            tx(
+                "distribution",
+                "2024-06-01T10:00:00Z",
+                TransactionType::SmallCapitalDistribution {
+                    asset: "X".to_string(),
+                    amount: dec!(50),
+                },
+            ),
+        ],
+    };
+    let results = taxc::calculate(doc, &CalculationOptions::default()).unwrap();
+
+    let year = results
+        .years
+        .iter()
+        .find(|y| y.summary.tax_year == TaxYear(2025))
+        .unwrap();
+    assert_eq!(year.summary.cgt.disposal_count, 1);
+    assert_eq!(year.summary.cgt.total_gain, dec!(20));
+    assert_eq!(year.summary.cgt.summary.gross_gains, dec!(20));
+    let warnings: Vec<_> = year.warnings.iter().map(|w| &w.warning).collect();
+    assert_eq!(
+        warnings,
+        [&taxc::results::Warning::CapitalDistributionExceedsCost]
+    );
+    assert_eq!(year.warnings[0].source_transaction_id, "distribution");
+}
+
+#[test]
+fn calculate_warns_on_a_demerger_with_no_original_pool() {
+    let doc = Transactions {
+        assets: shares(&["ULVR", "MICC"]),
+        transactions: vec![tx(
+            "demerger",
+            "2025-12-17T08:00:00Z",
+            TransactionType::Demerger {
+                original: "ULVR".to_string(),
+                new_holding: amount("MICC", dec!(177)),
+                cost_fraction: dec!(0.051151),
+            },
+        )],
+    };
+    let results = taxc::calculate(doc, &CalculationOptions::default()).unwrap();
+
+    let warnings = &results.years[0].warnings;
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].source_transaction_id, "demerger");
+    assert!(matches!(
+        warnings[0].warning,
+        taxc::results::Warning::InsufficientCostBasis { .. }
+    ));
+    assert_eq!(results.years[0].summary.cgt.disposal_count, 0);
+}

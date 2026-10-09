@@ -12,6 +12,9 @@ pub enum EventKind {
     Disposal,
     /// Acquisition events only.
     Acquisition,
+    /// Pool adjustments (demergers, rights issues, small capital
+    /// distributions) only.
+    Adjustment,
 }
 
 impl From<EventType> for EventKind {
@@ -19,6 +22,7 @@ impl From<EventType> for EventKind {
         match event_type {
             EventType::Acquisition => EventKind::Acquisition,
             EventType::Disposal => EventKind::Disposal,
+            EventType::PoolAdjustment(_) => EventKind::Adjustment,
         }
     }
 }
@@ -32,6 +36,7 @@ impl EventKind {
         match self {
             EventKind::Disposal => "disposal",
             EventKind::Acquisition => "acquisition",
+            EventKind::Adjustment => "adjustment",
         }
     }
 }
@@ -213,6 +218,7 @@ mod tests {
             value_gbp: dec!(1000),
             fee_gbp: None,
             description: None,
+            demerged_from: None,
         }
     }
 

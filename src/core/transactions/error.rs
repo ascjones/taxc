@@ -60,6 +60,20 @@ pub enum TransactionError {
     InvalidDatetime(String),
     #[error("quantity must be positive for {asset}: {id}")]
     NonPositiveQuantity { id: String, asset: String },
+    #[error("{field} must be positive: {id}")]
+    NonPositiveAmount { id: String, field: String },
+    #[error("cost_fraction must be greater than 0 and less than 1: {id}")]
+    InvalidCostFraction { id: String },
+    #[error("demerger new holding must be a different asset from the original: {id}")]
+    DemergerSameAsset { id: String },
+    #[error("{tx_type} cannot apply to GBP: {id}")]
+    SterlingNotAllowed { id: String, tx_type: String },
+    #[error("Fee transaction requires a fee with a positive amount: {id}")]
+    FeeRequired { id: String },
+    #[error("fee not allowed on {tx_type}: {id}")]
+    FeeNotAllowed { id: String, tx_type: String },
+    #[error("valuation not allowed on {tx_type}: {id}")]
+    ValuationNotAllowed { id: String, tx_type: String },
     #[error("valuation cannot be negative: {id}")]
     NegativeValuation { id: String },
     #[error("fee amount cannot be negative: {id}")]

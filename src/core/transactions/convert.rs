@@ -6,7 +6,7 @@ use super::normalize::{is_gbp, normalize_currency};
 use super::validate::{asset_class_for, validate_price_base};
 use super::valuation::Valuation;
 use super::{Amount, AssetRegistry, Fee, Transaction, TransactionType};
-use crate::core::events::{EventType, Tag, TaxableEvent};
+use crate::core::events::{AdjustmentKind, DemergedFrom, EventType, Tag, TaxableEvent};
 use crate::core::price::Price;
 
 /// Event ids are assigned globally by `transactions_to_events` after all
@@ -53,6 +53,33 @@ impl Transaction {
                 ctx.withdrawal_events(amount, linked_deposit.as_deref())?,
                 amount.asset.as_str(),
             ),
+            TransactionType::Demerger {
+                original,
+                new_holding,
+                cost_fraction,
+            } => (
+                vec![ctx.demerger(original, new_holding, *cost_fraction)],
+                new_holding.asset.as_str(),
+            ),
+            TransactionType::RightsIssue {
+                new_shares,
+                consideration,
+            } => (
+                vec![ctx.rights_issue(new_shares, *consideration)?],
+                new_shares.asset.as_str(),
+            ),
+            TransactionType::SmallCapitalDistribution { asset, amount } => (
+                vec![ctx.adjustment(
+                    AdjustmentKind::SmallCapitalDistribution,
+                    asset,
+                    Decimal::ZERO,
+                    -*amount,
+                    None,
+                )],
+                asset.as_str(),
+            ),
+            // Validation guarantees the fee; it is the only thing that moves.
+            TransactionType::Fee {} => (vec![], self.fee.as_ref().map_or("", |f| f.asset.as_str())),
         };
 
         events.extend(ctx.fee_disposal(main_asset)?);
@@ -167,6 +194,7 @@ impl EventContext<'_> {
             value_gbp,
             fee_gbp,
             description: self.description.clone(),
+            demerged_from: None,
         }
     }
 
@@ -207,6 +235,65 @@ impl EventContext<'_> {
             None => "Fee".to_string(),
         });
         Ok(Some(event))
+    }
+
+    /// A pool adjustment. Validation has already restricted these types to
+    /// the default tag; the event carries `Trade`, as a fee disposal does,
+    /// so it is never flagged unclassified.
+    fn adjustment(
+        &self,
+        kind: AdjustmentKind,
+        asset: &str,
+        quantity: Decimal,
+        cost_gbp: Decimal,
+        fee_gbp: Option<Decimal>,
+    ) -> TaxableEvent {
+        self.event(
+            EventType::PoolAdjustment(kind),
+            Tag::Trade,
+            asset,
+            quantity,
+            cost_gbp,
+            fee_gbp,
+        )
+    }
+
+    /// The new holding, at no cost of its own: the CGT engine moves the
+    /// fraction of the original pool's cost when it applies the demerger.
+    fn demerger(
+        &self,
+        original: &str,
+        new_holding: &Amount,
+        cost_fraction: Decimal,
+    ) -> TaxableEvent {
+        TaxableEvent {
+            demerged_from: Some(DemergedFrom {
+                asset: original.to_string(),
+                cost_fraction,
+            }),
+            ..self.adjustment(
+                AdjustmentKind::Demerger,
+                &new_holding.asset,
+                new_holding.quantity,
+                Decimal::ZERO,
+                None,
+            )
+        }
+    }
+
+    /// The rights shares, costing their consideration plus any fee.
+    fn rights_issue(
+        &self,
+        new_shares: &Amount,
+        consideration: Decimal,
+    ) -> Result<TaxableEvent, TransactionError> {
+        Ok(self.adjustment(
+            AdjustmentKind::RightsIssue,
+            &new_shares.asset,
+            new_shares.quantity,
+            consideration,
+            self.fee_gbp(None)?,
+        ))
     }
 
     fn invalid_tag(&self, tx_type: &str) -> TransactionError {

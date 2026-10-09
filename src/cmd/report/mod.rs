@@ -372,7 +372,7 @@ fn build_event_rows(
         .iter()
         .map(|e| {
             let disposal = disposal_index.find(e);
-            let event_warnings = event_warnings(e, disposal);
+            let event_warnings = event_warnings(e, disposal, cgt_report.warnings_for_adjustment(e));
 
             let cgt = disposal.map(|d| cgt_details(d, acquisitions));
 
@@ -588,6 +588,22 @@ fn build_transaction_rows(
                 TransactionType::Withdrawal { amount: a, .. } => {
                     ("Withdrawal", vec![amount("Amount", a)])
                 }
+                TransactionType::Demerger { new_holding, .. } => {
+                    ("Demerger", vec![amount("New holding", new_holding)])
+                }
+                TransactionType::RightsIssue { new_shares, .. } => {
+                    ("RightsIssue", vec![amount("New shares", new_shares)])
+                }
+                TransactionType::SmallCapitalDistribution { amount: gbp, .. } => (
+                    "SmallCapitalDistribution",
+                    vec![TransactionAmount {
+                        label: "Distribution".to_string(),
+                        asset: "GBP".to_string(),
+                        quantity: pence_string(*gbp),
+                    }],
+                ),
+                // The fee is the whole transaction, shown in its own column.
+                TransactionType::Fee {} => ("Fee", vec![]),
             };
             let transaction_type = transaction_type.to_string();
 
@@ -621,6 +637,14 @@ fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
         TransactionType::Deposit { amount, .. } | TransactionType::Withdrawal { amount, .. } => {
             vec![amount.asset.as_str()]
         }
+        TransactionType::Demerger {
+            original,
+            new_holding,
+            ..
+        } => vec![original.as_str(), new_holding.asset.as_str()],
+        TransactionType::RightsIssue { new_shares, .. } => vec![new_shares.asset.as_str()],
+        TransactionType::SmallCapitalDistribution { asset, .. } => vec![asset.as_str()],
+        TransactionType::Fee {} => vec![],
     };
     moved
         .into_iter()

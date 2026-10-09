@@ -200,19 +200,25 @@ pub fn summarize_by_year(
         .collect()
 }
 
-/// Warnings attached to one event: an unclassified tag, plus whatever CGT
-/// matching recorded on its disposal (deduplicated).
-pub fn event_warnings(event: &TaxableEvent, disposal: Option<&DisposalRecord>) -> Vec<Warning> {
+/// Warnings attached to one event: an unclassified tag, whatever applying a
+/// pool adjustment raised, plus whatever CGT matching recorded on its
+/// disposal record (deduplicated).
+pub fn event_warnings(
+    event: &TaxableEvent,
+    disposal: Option<&DisposalRecord>,
+    adjustment: &[Warning],
+) -> Vec<Warning> {
     let mut warnings = if event.tag == Tag::Unclassified {
         vec![Warning::UnclassifiedEvent]
     } else {
         Vec::new()
     };
-    if let Some(d) = disposal {
-        for warning in &d.warnings {
-            if !warnings.contains(warning) {
-                warnings.push(warning.clone());
-            }
+    let recorded = adjustment
+        .iter()
+        .chain(disposal.into_iter().flat_map(|d| &d.warnings));
+    for warning in recorded {
+        if !warnings.contains(warning) {
+            warnings.push(warning.clone());
         }
     }
     warnings
@@ -267,7 +273,7 @@ mod tests {
         let record = &report.disposals[0];
         assert!(record.warnings.contains(&Warning::UnclassifiedEvent));
 
-        let warnings = event_warnings(&d, Some(record));
+        let warnings = event_warnings(&d, Some(record), &[]);
         assert_eq!(
             warnings,
             vec![
@@ -278,7 +284,7 @@ mod tests {
                 },
             ]
         );
-        assert!(event_warnings(&d, None).contains(&Warning::UnclassifiedEvent));
+        assert!(event_warnings(&d, None, &[]).contains(&Warning::UnclassifiedEvent));
     }
 
     #[test]

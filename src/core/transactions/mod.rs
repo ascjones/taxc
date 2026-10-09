@@ -49,7 +49,7 @@ pub struct ConversionOptions {
 }
 
 use normalize::{normalize_assets, normalize_transactions};
-use validate::{validate_amounts, validate_assets, validate_links};
+use validate::{validate_amounts, validate_assets, validate_links, validate_restricted_types};
 
 /// Read transactions from JSON
 pub fn read_transactions_json<R: Read>(
@@ -84,6 +84,7 @@ pub fn transactions_to_events(
     options: ConversionOptions,
 ) -> Result<Vec<TaxableEvent>, TransactionError> {
     validate_amounts(transactions)?;
+    validate_restricted_types(transactions)?;
     validate_links(transactions)?;
 
     let deposited: HashMap<&str, Decimal> = transactions
