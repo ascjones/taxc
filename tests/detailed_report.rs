@@ -768,3 +768,98 @@ fn summary_flags_unclassified_disposals_it_excludes() {
         "{stdout}"
     );
 }
+
+#[test]
+fn pools_daily_lists_reorganisations_by_type() {
+    // AE5: the demerger shows in `pools --daily`, in the table and JSON.
+    let output = run_taxc(&["pools", "tests/data/reorganisations.json", "--daily"]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for label in ["Demerger", "RightsIssue", "SmallCapitalDistribution"] {
+        assert!(stdout.contains(label), "missing {label} in:\n{stdout}");
+    }
+
+    let output = run_taxc(&[
+        "pools",
+        "tests/data/reorganisations.json",
+        "--daily",
+        "--json",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let demerger: Vec<(&str, &str, &str)> = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["event_type"] == "Demerger")
+        .map(|e| {
+            (
+                e["asset"].as_str().unwrap(),
+                e["quantity"].as_str().unwrap(),
+                e["cost_gbp"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        demerger,
+        [("ULVR", "887", "35102.90"), ("MICC", "177", "1892.34")]
+    );
+}
+
+#[test]
+fn event_kind_adjustment_selects_only_pool_adjustments() {
+    let output = run_taxc(&[
+        "pools",
+        "tests/data/reorganisations.json",
+        "--daily",
+        "--json",
+        "--event-kind",
+        "adjustment",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entries = json["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert!(
+            ["Demerger", "RightsIssue", "SmallCapitalDistribution"]
+                .contains(&entry["event_type"].as_str().unwrap()),
+            "{entry}"
+        );
+    }
+
+    let output = run_taxc(&[
+        "report",
+        "tests/data/reorganisations.json",
+        "--json",
+        "--event-kind",
+        "adjustment",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let events = json["events"].as_array().unwrap();
+    assert_eq!(events.len(), 4);
+    assert!(events.iter().all(|e| e["event_kind"] == "adjustment"));
+}
+
+#[test]
+fn summary_counts_the_distribution_excess_and_fee_disposal_but_no_adjustment() {
+    // 2025/26: the CSN and MICC sales, the DOT fee disposal and the X
+    // distribution's £20 excess. The demerger, rights issue and ULVR cash
+    // are not disposals.
+    let output = run_taxc(&[
+        "summary",
+        "tests/data/reorganisations.json",
+        "--year",
+        "2026",
+        "--json",
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["disposal_count"], 4);
+    // CSN: 2,500 - 2,806.58 = -306.58; MICC: 264.33; DOT: 0.10 - 0.10 = 0;
+    // X: 20.00.
+    assert_eq!(json["gross_gains"], "284.33");
+    assert_eq!(json["in_year_losses"], "306.58");
+    assert_eq!(json["income"], "0.00");
+}

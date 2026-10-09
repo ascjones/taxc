@@ -385,6 +385,16 @@ fn build_event_rows(
                         .unwrap_or_else(|| pence_string(e.value_gbp)),
                     Some(NGNL_VALUE_NOTE.to_string()),
                 )
+            } else if let Some(from) = &e.demerged_from {
+                // The CGT engine computes the moved cost, so the row states
+                // the apportionment instead.
+                (
+                    pence_string(e.value_gbp),
+                    Some(format!(
+                        "Demerger: {} of the {} pool's cost moves to this holding.",
+                        from.cost_fraction, from.asset
+                    )),
+                )
             } else {
                 (pence_string(e.value_gbp), None)
             };

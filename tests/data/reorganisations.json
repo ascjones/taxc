@@ -1,0 +1,105 @@
+{
+  "assets": [
+    {"symbol": "ULVR", "asset_class": "Stock"},
+    {"symbol": "MICC", "asset_class": "Stock"},
+    {"symbol": "CSN", "asset_class": "Stock"},
+    {"symbol": "X", "asset_class": "Stock"},
+    {"symbol": "DOT", "asset_class": "Crypto"}
+  ],
+  "transactions": [
+    {
+      "id": "csn-buy",
+      "datetime": "2024-04-10T10:00:00+01:00",
+      "account": "ii",
+      "type": "Trade",
+      "sold": {"asset": "GBP", "quantity": "10665.00"},
+      "bought": {"asset": "CSN", "quantity": "3800"}
+    },
+    {
+      "id": "ulvr-buy",
+      "datetime": "2025-01-10T10:00:00Z",
+      "account": "ii",
+      "type": "Trade",
+      "sold": {"asset": "GBP", "quantity": "36995.24"},
+      "bought": {"asset": "ULVR", "quantity": "887"}
+    },
+    {
+      "id": "x-buy",
+      "datetime": "2025-05-01T10:00:00+01:00",
+      "account": "ii",
+      "type": "Trade",
+      "sold": {"asset": "GBP", "quantity": "30"},
+      "bought": {"asset": "X", "quantity": "10"}
+    },
+    {
+      "id": "dot-buy",
+      "datetime": "2025-05-01T10:00:00+01:00",
+      "account": "kraken",
+      "type": "Trade",
+      "sold": {"asset": "GBP", "quantity": "50"},
+      "bought": {"asset": "DOT", "quantity": "10"}
+    },
+    {
+      "id": "x-distribution",
+      "datetime": "2025-06-01T10:00:00+01:00",
+      "account": "ii",
+      "description": "Return of capital",
+      "type": "SmallCapitalDistribution",
+      "asset": "X",
+      "amount": "50"
+    },
+    {
+      "id": "dot-fee",
+      "datetime": "2025-06-02T10:00:00+01:00",
+      "account": "polkadot",
+      "description": "Transaction fee",
+      "type": "Fee",
+      "fee": {"asset": "DOT", "amount": "0.02", "price": {"base": "DOT", "rate": "5.00"}}
+    },
+    {
+      "id": "csn-sale",
+      "datetime": "2025-07-08T10:00:00+01:00",
+      "account": "ii",
+      "type": "Trade",
+      "sold": {"asset": "CSN", "quantity": "1000"},
+      "bought": {"asset": "GBP", "quantity": "2500"}
+    },
+    {
+      "id": "csn-rights",
+      "datetime": "2025-07-18T10:00:00+01:00",
+      "account": "ii",
+      "description": "10 for 19 rights take-up",
+      "type": "RightsIssue",
+      "new_shares": {"asset": "CSN", "quantity": "1473"},
+      "consideration": "2592.48"
+    },
+    {
+      "id": "micc-sale",
+      "datetime": "2025-12-17T14:00:00Z",
+      "account": "ii",
+      "type": "Trade",
+      "sold": {"asset": "MICC", "quantity": "177"},
+      "bought": {"asset": "GBP", "quantity": "2160.65"},
+      "fee": {"asset": "GBP", "amount": "3.98"}
+    },
+    {
+      "id": "ulvr-demerger",
+      "datetime": "2025-12-17T08:00:00Z",
+      "account": "ii",
+      "description": "TMICC demerger",
+      "type": "Demerger",
+      "original": "ULVR",
+      "new_holding": {"asset": "MICC", "quantity": "177"},
+      "cost_fraction": "0.051151"
+    },
+    {
+      "id": "ulvr-cash",
+      "datetime": "2025-12-18T08:00:00Z",
+      "account": "ii",
+      "description": "Consolidation fractional cash",
+      "type": "SmallCapitalDistribution",
+      "asset": "ULVR",
+      "amount": "21.64"
+    }
+  ]
+}

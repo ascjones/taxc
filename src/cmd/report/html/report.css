@@ -1024,6 +1024,7 @@ select { cursor: pointer; }
 }
 .arrow-in { color: var(--gain); }
 .arrow-out { color: var(--loss); }
+.arrow-adj { color: var(--accent); }
 .arrow-warn { color: var(--warning); }
 
 /* ---- Tag pill colors ---- */
@@ -1309,6 +1310,14 @@ tr[data-expandable]:hover .expand-chevron {
 .tx-type-withdrawal {
     background: var(--loss-bg);
     color: var(--loss);
+}
+
+.tx-type-demerger,
+.tx-type-rightsissue,
+.tx-type-smallcapitaldistribution,
+.tx-type-fee {
+    background: var(--accent-bg);
+    color: var(--accent);
 }
 
 .tx-amounts {
