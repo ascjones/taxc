@@ -1629,3 +1629,46 @@ fn disposal_index_finds_the_excess_record_for_its_adjustment_only() {
     );
     assert!(index.find(&buy).is_none());
 }
+
+#[test]
+fn adjustment_and_disposal_on_one_uk_date_across_utc_midnight() {
+    // The sale at 23:30 UTC on 1 June is 00:30 BST on 2 June: the rights
+    // issue's UK date. By UTC date the sale would come a day earlier and
+    // miss the rights shares; by UK date the rights issue applies first.
+    let events = vec![
+        acq("2024-01-10", "CSN", dec!(100), dec!(100)),
+        at(
+            disp("2024-06-01", "CSN", dec!(50), dec!(500)),
+            "2024-06-01T23:30:00Z",
+        ),
+        at(
+            rights_issue("2024-06-02", "CSN", dec!(100), dec!(300)),
+            "2024-06-02T10:00:00+01:00",
+        ),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // The pool holds 200 at £400 when the sale draws on it.
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(100));
+}
+
+#[test]
+fn demerger_applies_after_rights_issue_and_before_distribution_at_one_instant() {
+    // Listed in reverse. The rights cost joins ULVR before the fraction is
+    // taken, and the fractional cash on MICC reduces the moved cost rather
+    // than finding an empty pool.
+    let events = vec![
+        acq("2025-01-10", "ULVR", dec!(100), dec!(1000)),
+        small_distribution("2025-12-17", "MICC", dec!(5)),
+        demerger("2025-12-17", "ULVR", dec!(0.1), "MICC", dec!(10)),
+        rights_issue("2025-12-17", "ULVR", dec!(10), dec!(200)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    // 0.1 x (1,000 + 200) = 120 moved, less the £5 cash.
+    assert_eq!(final_pool(&report, "MICC"), (dec!(10), dec!(115)));
+    assert_eq!(final_pool(&report, "ULVR"), (dec!(110), dec!(1080)));
+}

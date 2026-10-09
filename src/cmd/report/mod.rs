@@ -141,6 +141,9 @@ pub struct TransactionRow {
     /// Fee if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fee: Option<TransactionFee>,
+    /// Every asset the transaction touches, including its fee asset and a
+    /// demerger's original holding (for asset filtering)
+    pub assets: Vec<String>,
     /// Event IDs generated from this transaction
     pub event_ids: Vec<usize>,
 }
@@ -327,6 +330,8 @@ fn acquisition_lookup(events: &[TaxableEvent]) -> AcquisitionLookup {
 fn cgt_details(d: &DisposalRecord, acquisitions: &AcquisitionLookup) -> CgtDetails {
     let rule = match d.matching_components.as_slice() {
         [only] => only.rule.display().to_string(),
+        // A small capital distribution's excess gain matches nothing.
+        [] => "Capital Distribution".to_string(),
         _ => "Mixed".to_string(),
     };
     let matching_components = d
@@ -628,6 +633,12 @@ fn build_transaction_rows(
                 description: tx.description.clone().unwrap_or_default(),
                 amounts,
                 fee,
+                assets: transaction_assets(tx).fold(Vec::new(), |mut assets, a| {
+                    if !assets.iter().any(|seen| seen == a) {
+                        assets.push(a.to_string());
+                    }
+                    assets
+                }),
                 event_ids,
             }
         })

@@ -661,6 +661,7 @@ fn distribution_above_cost_row_shows_its_gain_and_warning() {
     let cgt = distribution.cgt.as_ref().expect("gain details on the row");
     assert_eq!(cgt.gain_gbp, "20.00");
     assert!(cgt.matching_components.is_empty());
+    assert_eq!(cgt.rule, "Capital Distribution");
     assert_eq!(
         distribution.warnings,
         [Warning::CapitalDistributionExceedsCost]
@@ -725,4 +726,54 @@ fn reorganisation_and_fee_transactions_are_listed_with_their_events() {
     assert!(amounts("dot-fee").is_empty());
     assert_eq!(tx("dot-fee").event_ids.len(), 1);
     assert_eq!(row(&data, "dot-fee").event_type, "Disposal");
+}
+
+#[test]
+fn event_kind_filters_keep_a_distribution_gain_with_its_row() {
+    // The X distribution's £20 excess gain belongs to an adjustment row, so
+    // it follows the adjustment filter, never the disposal one: the summary
+    // must total exactly the gains of the rows listed.
+    let (txs, events) = load(REORGANISATIONS);
+    let cgt_report = calculate_cgt(events.clone());
+    for (kind, expected_gain, expected_count) in [
+        (EventKind::Adjustment, "20.00", 1),
+        // CSN -306.58, MICC 264.33, DOT 0.00
+        (EventKind::Disposal, "-42.25", 3),
+    ] {
+        let filter = EventFilter {
+            event_kind: Some(kind),
+            ..no_filter()
+        };
+        let data = build_report_data(&txs, &events, &cgt_report, &filter);
+        let listed: Decimal = data
+            .events
+            .iter()
+            .filter_map(|e| e.cgt.as_ref())
+            .map(|c| c.gain_gbp.parse::<Decimal>().unwrap())
+            .sum();
+        assert_eq!(data.summary.total_gain, expected_gain, "{kind:?}");
+        assert_eq!(pence_string(listed), expected_gain, "{kind:?}");
+        assert_eq!(data.summary.disposal_count, expected_count, "{kind:?}");
+    }
+}
+
+#[test]
+fn transaction_rows_list_every_asset_they_touch() {
+    // The HTML asset filter matches on these, so a fee-only transaction must
+    // name its fee asset and a demerger its original holding.
+    let (txs, events) = load(REORGANISATIONS);
+    let cgt_report = calculate_cgt(events.clone());
+    let data = build_report_data(&txs, &events, &cgt_report, &no_filter());
+    let assets = |id: &str| {
+        data.transactions
+            .iter()
+            .find(|t| t.id == id)
+            .unwrap()
+            .assets
+            .clone()
+    };
+    assert_eq!(assets("dot-fee"), ["DOT"]);
+    assert_eq!(assets("ulvr-demerger"), ["ULVR", "MICC"]);
+    assert_eq!(assets("ulvr-cash"), ["ULVR"]);
+    assert_eq!(assets("micc-sale"), ["MICC", "GBP"]);
 }

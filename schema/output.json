@@ -463,6 +463,13 @@
             "$ref": "#/$defs/TransactionAmount"
           }
         },
+        "assets": {
+          "description": "Every asset the transaction touches, including its fee asset and a\ndemerger's original holding (for asset filtering)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "datetime": {
           "type": "string"
         },
@@ -511,6 +518,7 @@
         "tag",
         "description",
         "amounts",
+        "assets",
         "event_ids"
       ]
     },

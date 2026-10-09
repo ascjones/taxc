@@ -35,7 +35,7 @@ Salary is treated as PAYE-settled (already taxed at source): it is reported on i
 
 Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data. Timestamps are in UK local time, quantities use the same 8-decimal rounding as `taxc pools`, and `summary.disposal_count` counts classified disposals (unclassified ones are in the `*_with_unclassified` totals). The CLI filters (`-y`, `--from`/`--to`, `-a`, `--event-kind`) also narrow the Transactions tab.
 
-Pool adjustments (demergers, rights issues, small capital distributions) are listed as events with `event_kind: "adjustment"` and `event_type` naming the reorganisation. They are never disposals, acquisitions or income in any total, with one exception: when a small capital distribution exceeds its pool's cost, its row carries the excess as a gain (`cgt`) with a `CapitalDistributionExceedsCost` warning, and that gain counts in the totals like a disposal's. `--event-kind disposal` keeps that gain in the totals.
+Pool adjustments (demergers, rights issues, small capital distributions) are listed as events with `event_kind: "adjustment"` and `event_type` naming the reorganisation. They are never disposals, acquisitions or income in any total, with one exception: when a small capital distribution exceeds its pool's cost, its row carries the excess as a gain (`cgt`) with a `CapitalDistributionExceedsCost` warning, and that gain counts in the totals like a disposal's. It follows its row under `--event-kind`: `adjustment` keeps it, `disposal` leaves it out.
 
 ### `taxc pools`
 

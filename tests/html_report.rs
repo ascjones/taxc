@@ -952,6 +952,13 @@ fn report_html_renders_reorganisations_and_fees() {
                         return 'expected ' + DATA.transactions.length + ' tx rows, got ' + txRows.length;
                     if (!document.querySelector('#transactions-body .tx-row .tx-type-fee'))
                         return 'no row for the Fee transaction';
+                    // Filtering by the fee's asset keeps the fee-only row.
+                    selectedAssets.add('DOT');
+                    applyFilters();
+                    if (!document.querySelector('#transactions-body .tx-row .tx-type-fee'))
+                        return 'DOT asset filter hides the Fee transaction';
+                    selectedAssets.delete('DOT');
+                    applyFilters();
 
                     // The JS totals must agree with Rust's: the distribution's
                     // excess counts, no other adjustment does.

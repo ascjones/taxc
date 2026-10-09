@@ -483,7 +483,7 @@ function filterTransactions(transactions, filters) {
         if (filters.dateTo && tx.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
 
-        if (filters.assets.size > 0 && !tx.amounts.some(a => filters.assets.has(a.asset))) {
+        if (filters.assets.size > 0 && !tx.assets.some(a => filters.assets.has(a))) {
             return false;
         }
 
@@ -497,8 +497,8 @@ function filterTransactions(transactions, filters) {
         if (!allClasses) {
             // Keep the transaction if any involved asset belongs to an enabled
             // class; assets with no known class always pass.
-            const anyEnabled = tx.amounts.some(a => {
-                const cls = assetClassByAsset.get(a.asset);
+            const anyEnabled = tx.assets.some(a => {
+                const cls = assetClassByAsset.get(a);
                 return cls && Object.prototype.hasOwnProperty.call(classes, cls) ? classes[cls] : true;
             });
             if (!anyEnabled) return false;

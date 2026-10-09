@@ -163,6 +163,10 @@ pub struct DisposalRecord {
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub asset: String,
+    /// The event the record comes from: a `Disposal`, or the
+    /// `PoolAdjustment(SmallCapitalDistribution)` whose excess over pool cost
+    /// is a gain.
+    pub event_type: EventType,
     pub quantity: Decimal,
     pub proceeds_gbp: Decimal,
     pub allowable_cost_gbp: Decimal,
@@ -475,6 +479,7 @@ fn process_disposal(
         datetime: event.datetime,
         date,
         asset: event.asset.clone(),
+        event_type: event.event_type,
         quantity: event.quantity,
         proceeds_gbp: proceeds,
         allowable_cost_gbp: allowable_cost,
@@ -551,6 +556,7 @@ fn apply_adjustment(
                     datetime: event.datetime,
                     date: event.date(),
                     asset: event.asset.clone(),
+                    event_type: event.event_type,
                     quantity: Decimal::ZERO,
                     proceeds_gbp: gain,
                     allowable_cost_gbp: Decimal::ZERO,

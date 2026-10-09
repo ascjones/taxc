@@ -139,12 +139,12 @@ impl EventFilter {
     }
 
     pub fn matches_disposal(&self, disposal: &DisposalRecord) -> bool {
-        // A disposal record only passes an event-kind filter for disposals.
+        // A distribution's excess gain follows its adjustment event.
         self.matches_date(disposal.date)
             && self.matches_asset(&disposal.asset)
             && self
                 .event_kind
-                .is_none_or(|kind| kind == EventKind::Disposal)
+                .is_none_or(|kind| kind.matches(disposal.event_type))
     }
 
     pub fn apply<'a>(&self, events: &'a [TaxableEvent]) -> Vec<&'a TaxableEvent> {
