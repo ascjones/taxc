@@ -17,7 +17,7 @@ taxc pools transactions.json --daily     # section 104 pool history
 taxc schema input                        # input format reference
 ```
 
-All commands take an optional positional `FILE` (JSON); if omitted or `-`, input is read from stdin. Filtering commands share `-y`/`--from`/`--to` (date), `-a` (asset), `--event-kind` (disposal/acquisition), and `--exclude-unlinked`.
+All commands take an optional positional `FILE` (JSON); if omitted or `-`, input is read from stdin. Filtering commands share `-y`/`--from`/`--to` (date), `-a` (asset), `--event-kind` (disposal/acquisition/adjustment), and `--exclude-unlinked`.
 
 ### `taxc summary`
 
@@ -35,9 +35,11 @@ Salary is treated as PAYE-settled (already taxed at source): it is reported on i
 
 Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data. Timestamps are in UK local time, quantities use the same 8-decimal rounding as `taxc pools`, and `summary.disposal_count` counts classified disposals (unclassified ones are in the `*_with_unclassified` totals). The CLI filters (`-y`, `--from`/`--to`, `-a`, `--event-kind`) also narrow the Transactions tab.
 
+Pool adjustments (demergers, rights issues, small capital distributions) are listed as events with `event_kind: "adjustment"` and `event_type` naming the reorganisation. They are never disposals, acquisitions or income in any total, with one exception: when a small capital distribution exceeds its pool's cost, its row carries the excess as a gain (`cgt`) with a `CapitalDistributionExceedsCost` warning, and that gain counts in the totals like a disposal's. `--event-kind disposal` keeps that gain in the totals.
+
 ### `taxc pools`
 
-Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history. Every tax year from the first event to the last gets a snapshot, including years with no activity. Sterling is not a chargeable asset and never appears as a pool.
+Section 104 pool balances over time — year-end snapshots by default, `--daily` for daily history. The daily history includes pool adjustments, labelled by type (`Demerger`, `RightsIssue`, `SmallCapitalDistribution`); a demerger has an entry for both the original and the new holding. Every tax year from the first event to the last gets a snapshot, including years with no activity. Sterling is not a chargeable asset and never appears as a pool.
 
 Quantities render to at most 8 decimal places, rounded half away from zero — the same rule monetary amounts use. A quantity carrying more decimals is rounded, not truncated, so a non-zero balance below `0.00000001` shows as `0.00000001` rather than `0`.
 
@@ -47,11 +49,17 @@ Print the JSON schema for the input (default) or output (`taxc schema output`) f
 
 ## Input Format
 
-JSON with top-level `assets` and `transactions` fields — run `taxc schema input` for the full schema. Three transaction types:
+JSON with top-level `assets` and `transactions` fields — run `taxc schema input` for the full schema. Seven transaction types:
 
 - **Trade** — asset swap (`sold`/`bought`)
 - **Deposit** — asset received (`amount`)
 - **Withdrawal** — asset sent (`amount`)
+- **Demerger** — part of a holding's cost moves to a new holding (`original`, `new_holding`, `cost_fraction`)
+- **RightsIssue** — rights shares join an existing holding (`new_shares`, `consideration`)
+- **SmallCapitalDistribution** — a distribution reduces a holding's cost (`asset`, `amount`)
+- **Fee** — a fee paid with nothing else moving (`fee`)
+
+The last four are described under [Share reorganisations and fee-only transactions](#share-reorganisations-and-fee-only-transactions).
 
 An optional `tag` classifies a transaction for tax. Income tags (`Salary`, `OtherIncome`, `Dividend`, `Interest`, `StakingReward`, `AirdropIncome`) count toward the income tax estimate; other tags cover cashback, gifts, transfers, and no gain/no loss. `Cashback` is an ordinary acquisition at market value but **not** income — HMRC treats cashback on personal spending as tax-free (Statement of Practice 4/97).
 
@@ -66,8 +74,8 @@ GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashbac
 ```json
 {
   "assets": [
-    { "symbol": "BTC" },
-    { "symbol": "ETH" },
+    { "symbol": "BTC", "asset_class": "Crypto" },
+    { "symbol": "ETH", "asset_class": "Crypto" },
     { "symbol": "AAPL", "asset_class": "Stock" }
   ],
   "transactions": [
@@ -101,6 +109,63 @@ GBP deposits tagged `Salary`, `OtherIncome`, `Dividend`, `Interest`, or `Cashbac
 }
 ```
 
+### Share reorganisations and fee-only transactions
+
+`Demerger`, `RightsIssue` and `SmallCapitalDistribution` change a Section 104 pool without a disposal. They are never matched under the same-day or 30-day rules, and on any UK date they apply before that day's disposals are matched, in time order (at the same instant: rights issue, then demerger, then small capital distribution). taxc does not test whether a reorganisation qualifies: choosing the type is your assertion that it does, so check the company's tax guidance. These three types take no `tag` and no `valuation`, and never apply to GBP.
+
+- **Demerger** — a demerger the company's guidance treats as a share reorganisation: an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a scheme of reconstruction (s.136). `cost_fraction` (strictly between 0 and 1) of the `original` pool's cost moves to the `new_holding`, apportioned by market value on the first dealing day (s.130); the moved cost is rounded to the penny. No disposal is recorded, and the new holding counts as held since the original shares were. HMRC: [CG45620](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg45620), [CG51702](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51702), [CG51890](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51890), [CG52742](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg52742). A demerger taxed as a dividend in specie is not a `Demerger`: record a `Dividend`-tagged `Deposit` of the new shares at market value. No fee is allowed.
+- **RightsIssue** — take-up of your own pro-rata rights entitlement in the same company. The `new_shares` and their `consideration` (GBP, plus any `fee`) join the existing pool (TCGA 1992 s.126(2)(a), s.127, s.128; HMRC [CG51746](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51746), [CG51590](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51590)). Shares from purchased rights or excess applications, and rights to shares in another company ([CG52065](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg52065)), are a `Trade`.
+- **SmallCapitalDistribution** — a capital distribution small enough to reduce the holding's allowable cost instead of being a disposal (TCGA 1992 s.122(2); HMRC [CG57835](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57835)), including cash for fractional entitlements on a reorganisation (s.128(3); [CG57855](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57855)). HMRC treats a distribution as small when it is 5% or less of the holding's value, or £3,000 or less. If `amount` exceeds the pool's cost, the cost becomes zero and the excess is a chargeable gain, as under a s.122(4) election ([CG57847](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57847)), with a warning. A distribution you elect to treat as a part disposal ([CG57838](https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57838)) is a `Trade`. No fee is allowed.
+
+A demerger or small capital distribution on an asset with no pool carries an `InsufficientCostBasis` warning: the demerger still adds the new holding (at zero cost), and the whole distribution is a gain. Share conversions (s.135 exchanges), share splits and consolidations, and the unquoted-shares timing rule (s.129) are not modelled; adjust earlier acquisitions for a split or consolidation yourself.
+
+- **Fee** — a fee paid with nothing else moving, such as a network fee on a staking operation. `fee` is required and must be positive; a non-GBP fee needs its own `price`. The fee tokens are disposed of at market value (HMRC [CRYPTO22100](https://www.gov.uk/hmrc-internal-manuals/cryptoassets-manual/crypto22100), [CRYPTO22280](https://www.gov.uk/hmrc-internal-manuals/cryptoassets-manual/crypto22280)), exactly as a fee attached to another transaction is. A GBP fee records nothing. Takes no `tag` and no `valuation`.
+
+```json
+{
+  "assets": [
+    { "symbol": "ULVR", "asset_class": "Stock" },
+    { "symbol": "MICC", "asset_class": "Stock" },
+    { "symbol": "CSN", "asset_class": "Stock" },
+    { "symbol": "DOT", "asset_class": "Crypto" }
+  ],
+  "transactions": [
+    {
+      "id": "demerger",
+      "datetime": "2025-12-17T08:00:00Z",
+      "account": "ii",
+      "type": "Demerger",
+      "original": "ULVR",
+      "new_holding": { "asset": "MICC", "quantity": "177" },
+      "cost_fraction": "0.051151"
+    },
+    {
+      "id": "rights",
+      "datetime": "2025-07-18T09:00:00+01:00",
+      "account": "ii",
+      "type": "RightsIssue",
+      "new_shares": { "asset": "CSN", "quantity": "1473" },
+      "consideration": "2592.48"
+    },
+    {
+      "id": "fractional-cash",
+      "datetime": "2025-12-18T08:00:00Z",
+      "account": "ii",
+      "type": "SmallCapitalDistribution",
+      "asset": "ULVR",
+      "amount": "21.64"
+    },
+    {
+      "id": "network-fee",
+      "datetime": "2025-06-02T10:00:00+01:00",
+      "account": "polkadot",
+      "type": "Fee",
+      "fee": { "asset": "DOT", "amount": "0.02", "price": { "base": "DOT", "rate": "5.00" } }
+    }
+  ]
+}
+```
+
 `datetime` may carry any UTC offset (a date-only or offset-less value is read as UTC). Every tax rule counts **UK calendar days**: the tax year, the same-day rule and the 30-day bed-and-breakfast window all use the date in Europe/London time. So `2024-04-05T23:30:00Z` — 00:30 BST on 6 April — falls in 2024/25. Report timestamps are shown in UK local time.
 
 ## HMRC Share Identification Rules
@@ -111,7 +176,7 @@ Disposals are matched against acquisitions in order:
 2. **Bed & Breakfast Rule** — acquisitions within 30 days after the disposal
 3. **Section 104 Pool** — remaining shares from the pooled cost basis
 
-All acquisitions of an asset on one UK day are treated as a single acquisition (TCGA 1992 s105). Sterling is not a chargeable asset, so GBP never enters a pool. Estimated tax is rounded down to the penny, as HMRC does.
+All acquisitions of an asset on one UK day are treated as a single acquisition (TCGA 1992 s105). Pool adjustments (see [Share reorganisations](#share-reorganisations-and-fee-only-transactions)) are not acquisitions, so they are never matched; they apply to the pool before the day's disposals. Sterling is not a chargeable asset, so GBP never enters a pool. Estimated tax is rounded down to the penny, as HMRC does.
 
 Losses are netted against all gains in the same tax year. taxc does not model the connected-person rule (TCGA 1992 s18), under which a loss on a disposal to a connected person — typically a family gift — can only be set against gains on disposals to that same person; review such losses by hand.
 
@@ -151,7 +216,7 @@ taxc = { git = "https://github.com/ascjones/taxc", tag = "<latest release tag>" 
 The stable public surface:
 
 - `taxc::input` — the input document root `Transactions` and its field types (`Asset`, `Transaction`, `Amount`, `Valuation`, `Tag`, …), plus `TransactionError`, the typed rejection returned by validation
-- `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`, `TaxableEvent`, `Warning`, `TaxYear`, `TaxBand`, …)
+- `taxc::results` — calculation outputs (`TaxSummary`, `CgtReport`, `TaxableEvent`, `EventType`, `AdjustmentKind`, `Warning`, `TaxYear`, `TaxBand`, …). `CgtReport::warnings_for_adjustment` returns the warnings raised applying a pool adjustment; `TaxYearResults::warnings` already includes them
 - `taxc::validate(&doc, &options)` — check a document the way the CLI would, returning the first `TransactionError` (wrapped in `taxc::Error`)
 - `taxc::calculate(doc, &CalculationOptions)` — run CGT matching and the per-year summary (CGT after AEA, income by tag, warnings), returning `TaxResults` as plain values with no formatting
 - `taxc::input_schema()` — the input JSON Schema, identical to `taxc schema input`

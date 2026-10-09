@@ -531,7 +531,7 @@
           ]
         },
         {
-          "description": "Pool had insufficient quantity to cover the disposal.\nWhen `available = 0`, this means no cost basis at all.",
+          "description": "Pool had insufficient quantity to cover the disposal.\nWhen `available = 0`, this means no cost basis at all. A demerger or\nsmall capital distribution against an empty pool records it with\n`available` and `required` both zero.",
           "type": "object",
           "properties": {
             "available": {
@@ -549,6 +549,19 @@
             "type",
             "available",
             "required"
+          ]
+        },
+        {
+          "description": "A small capital distribution exceeded the pool's allowable cost. The\ncost is reduced to zero and the excess is a chargeable gain, which\nassumes the taxpayer makes the s.122(4) TCGA 1992 election (HMRC\nCG57847).",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "CapitalDistributionExceedsCost"
+            }
+          },
+          "required": [
+            "type"
           ]
         }
       ]
