@@ -2471,3 +2471,46 @@ fn hmrc_fee_example_crypto22280_sale_with_token_fee() {
         dec!(2998)
     );
 }
+
+#[test]
+fn reorganisation_types_accept_numeric_amounts_and_an_explicit_unclassified_tag() {
+    // A producer may write quantities and amounts as JSON numbers and spell
+    // out the default tag.
+    let unclassified = |row| with(row, "tag", serde_json::json!("Unclassified"));
+    let rows = serde_json::json!([
+        unclassified(with(
+            demerger_row("d"),
+            "new_holding",
+            serde_json::json!({"asset": "MICC", "quantity": 177}),
+        )),
+        unclassified(with(
+            rights_issue_row("r"),
+            "new_shares",
+            serde_json::json!({"asset": "CSN", "quantity": 1473}),
+        )),
+        unclassified(with(
+            small_distribution_row("s"),
+            "amount",
+            serde_json::json!(5.03),
+        )),
+        unclassified(with(
+            fee_row("f"),
+            "fee",
+            serde_json::json!({"asset": "DOT", "amount": 0.02, "price": {"base": "DOT", "rate": "5.00"}}),
+        )),
+    ]);
+
+    let events = convert_rows(rows).unwrap();
+
+    let micc = events.iter().find(|e| e.asset == "MICC").unwrap();
+    assert_eq!(micc.quantity, dec!(177));
+    let distribution = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::PoolAdjustment(AdjustmentKind::SmallCapitalDistribution)
+        })
+        .unwrap();
+    assert_eq!(distribution.total_cost_gbp(), dec!(-5.03));
+    let fee = events.iter().find(|e| e.asset == "DOT").unwrap();
+    assert_eq!(fee.value_gbp, dec!(0.10));
+}
