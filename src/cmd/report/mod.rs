@@ -328,10 +328,12 @@ fn acquisition_lookup(events: &[TaxableEvent]) -> AcquisitionLookup {
 
 /// The CGT detail block for one disposal row.
 fn cgt_details(d: &DisposalRecord, acquisitions: &AcquisitionLookup) -> CgtDetails {
+    // A small capital distribution's excess gain matches nothing.
     let rule = match d.matching_components.as_slice() {
+        _ if matches!(d.event_type, EventType::PoolAdjustment(_)) => {
+            "Capital Distribution".to_string()
+        }
         [only] => only.rule.display().to_string(),
-        // A small capital distribution's excess gain matches nothing.
-        [] => "Capital Distribution".to_string(),
         _ => "Mixed".to_string(),
     };
     let matching_components = d
@@ -633,12 +635,7 @@ fn build_transaction_rows(
                 description: tx.description.clone().unwrap_or_default(),
                 amounts,
                 fee,
-                assets: transaction_assets(tx).fold(Vec::new(), |mut assets, a| {
-                    if !assets.iter().any(|seen| seen == a) {
-                        assets.push(a.to_string());
-                    }
-                    assets
-                }),
+                assets: distinct_assets(tx),
                 event_ids,
             }
         })
@@ -651,6 +648,16 @@ fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
         .assets()
         .into_iter()
         .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
+}
+
+/// `transaction_assets` without repeats, in first-seen order.
+fn distinct_assets(tx: &Transaction) -> Vec<String> {
+    transaction_assets(tx).fold(Vec::new(), |mut assets, a| {
+        if !assets.iter().any(|seen| seen == a) {
+            assets.push(a.to_string());
+        }
+        assets
+    })
 }
 
 /// Group event warnings into one record per distinct warning value, ordered

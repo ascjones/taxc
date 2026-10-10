@@ -1371,7 +1371,7 @@ fn adjustment_entries<'a>(report: &'a CgtReport, asset: &str) -> Vec<&'a PoolHis
 
 #[test]
 fn demerger_moves_cost_to_new_holding_sold_the_same_day() {
-    // AE1: the ULVR -> MICC demerger, with the MICC sold on the demerger
+    // The ULVR -> MICC demerger, with the MICC sold on the demerger
     // date. The sale is listed first to prove adjustments apply before
     // same-day disposals.
     let events = vec![
@@ -1415,7 +1415,7 @@ fn demerger_moves_cost_to_new_holding_sold_the_same_day() {
 
 #[test]
 fn rights_issue_joins_the_pool_and_is_never_matched() {
-    // AE2: a sale 10 days before a rights issue matches the pool, not the
+    // A sale 10 days before a rights issue matches the pool, not the
     // rights shares.
     let events = vec![
         acq("2024-04-10", "CSN", dec!(3800), dec!(10665.00)),
@@ -1458,7 +1458,7 @@ fn rights_issue_on_a_sale_date_is_pooled_not_matched_same_day() {
 
 #[test]
 fn small_capital_distribution_reduces_pool_cost_without_a_disposal() {
-    // AE3: the £21.64 ULVR consolidation cash.
+    // The £21.64 ULVR consolidation cash.
     let events = vec![
         acq("2025-01-10", "ULVR", dec!(887), dec!(36995.24)),
         small_distribution("2025-12-17", "ULVR", dec!(21.64)),
@@ -1476,7 +1476,7 @@ fn small_capital_distribution_reduces_pool_cost_without_a_disposal() {
 
 #[test]
 fn small_capital_distribution_above_pool_cost_is_a_gain_under_s122_4() {
-    // AE3: £50 against a pool costing £30 zeroes the cost and records a £20
+    // £50 against a pool costing £30 zeroes the cost and records a £20
     // gain on the distribution's own event.
     let events = vec![
         acq("2024-01-10", "X", dec!(10), dec!(30)),

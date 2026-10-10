@@ -620,7 +620,7 @@ fn row<'a>(data: &'a ReportData, source_transaction_id: &str) -> &'a EventRow {
 
 #[test]
 fn demerger_is_listed_as_an_adjustment_and_not_counted_as_a_disposal() {
-    // AE5: a demerger and a same-day sale of the new holding report one
+    // A demerger and a same-day sale of the new holding report one
     // disposal; the demerger is listed as "Demerger".
     let (txs, events) = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
@@ -646,7 +646,7 @@ fn demerger_is_listed_as_an_adjustment_and_not_counted_as_a_disposal() {
 
 #[test]
 fn distribution_above_cost_row_shows_its_gain_and_warning() {
-    // AE3: £50 on a holding that cost £30.
+    // £50 on a holding that cost £30.
     let (txs, events) = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
     let filter = EventFilter {

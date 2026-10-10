@@ -2383,7 +2383,7 @@ fn small_capital_distribution_converts_to_one_negative_cost_adjustment() {
 
 #[test]
 fn fee_transaction_in_tokens_is_one_disposal_at_market_value() {
-    // AE4: 0.02 DOT at £5.00 is disposed of for £0.10.
+    // 0.02 DOT at £5.00 is disposed of for £0.10.
     let events = convert_rows(serde_json::json!([fee_row("f")])).unwrap();
     assert_eq!(events.len(), 1, "{events:?}");
     let e = &events[0];

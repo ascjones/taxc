@@ -210,7 +210,7 @@ impl<'a> FromIterator<&'a DisposalRecord> for DisposalTotals {
 #[derive(Debug)]
 pub struct CgtReport {
     /// Disposals, plus the gain on any small capital distribution that
-    /// exceeded its pool's cost (keyed by the distribution's event id).
+    /// exceeded its pool's cost, under the distribution's event id.
     pub disposals: Vec<DisposalRecord>,
     pub pool_history: PoolHistory,
     /// Warnings raised applying pool adjustments, by event id.

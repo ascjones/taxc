@@ -564,7 +564,7 @@ fn shares(symbols: &[&str]) -> Vec<Asset> {
 
 #[test]
 fn calculate_counts_a_distribution_above_pool_cost_as_a_warned_gain() {
-    // AE3: £50 distributed on a holding that cost £30 is a £20 gain in the
+    // £50 distributed on a holding that cost £30 is a £20 gain in the
     // year's totals, assuming the s.122(4) election.
     let doc = Transactions {
         assets: shares(&["X"]),

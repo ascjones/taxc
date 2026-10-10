@@ -771,7 +771,7 @@ fn summary_flags_unclassified_disposals_it_excludes() {
 
 #[test]
 fn pools_daily_lists_reorganisations_by_type() {
-    // AE5: the demerger shows in `pools --daily`, in the table and JSON.
+    // The demerger shows in `pools --daily`, in the table and JSON.
     let output = run_taxc(&["pools", "tests/data/reorganisations.json", "--daily"]);
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
