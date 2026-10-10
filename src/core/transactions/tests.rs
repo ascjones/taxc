@@ -2405,3 +2405,69 @@ fn fee_transaction_in_sterling_produces_no_event() {
     .unwrap();
     assert!(events.is_empty(), "{events:?}");
 }
+
+// --- HMRC CRYPTO22280 worked example: Terri pays a 1-token fee ---
+//
+// https://www.gov.uk/hmrc-internal-manuals/cryptoassets-manual/crypto22280
+// Terri holds 10,000 tokens that cost £20,000.
+
+fn terri_buys_10000_dot() -> serde_json::Value {
+    with(
+        row(
+            "buy",
+            serde_json::json!({
+                "type": "Trade",
+                "sold": {"asset": "GBP", "quantity": "20000"},
+                "bought": {"asset": "DOT", "quantity": "10000"},
+            }),
+        ),
+        "datetime",
+        serde_json::json!("2025-01-01T09:00:00Z"),
+    )
+}
+
+fn one_dot_fee_at_5() -> serde_json::Value {
+    serde_json::json!({"asset": "DOT", "amount": "1", "price": {"base": "DOT", "rate": "5"}})
+}
+
+fn total_gain(rows: serde_json::Value) -> Decimal {
+    let events = convert_rows(rows).unwrap();
+    crate::core::cgt::calculate_cgt(events)
+        .disposals
+        .iter()
+        .map(|d| d.gain_gbp)
+        .sum()
+}
+
+#[test]
+fn hmrc_fee_example_crypto22280_fee_only_token_is_a_disposal() {
+    // The token given as the fee: £5 consideration less £2 pool cost
+    // (1/10,000 x £20,000) is a £3 gain.
+    let fee = with(fee_row("fee"), "fee", one_dot_fee_at_5());
+    assert_eq!(
+        total_gain(serde_json::json!([terri_buys_10000_dot(), fee])),
+        dec!(3)
+    );
+}
+
+#[test]
+fn hmrc_fee_example_crypto22280_sale_with_token_fee() {
+    // Terri sells 1,000 tokens for £5,000 and pays 1 token as the fee. HMRC
+    // combines both same-day disposals: £5,005 - £2,002 - £5 = £2,998.
+    let sale = with(
+        row(
+            "sell",
+            serde_json::json!({
+                "type": "Trade",
+                "sold": {"asset": "DOT", "quantity": "1000"},
+                "bought": {"asset": "GBP", "quantity": "5000"},
+            }),
+        ),
+        "fee",
+        one_dot_fee_at_5(),
+    );
+    assert_eq!(
+        total_gain(serde_json::json!([terri_buys_10000_dot(), sale])),
+        dec!(2998)
+    );
+}

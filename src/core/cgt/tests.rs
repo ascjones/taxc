@@ -1672,3 +1672,114 @@ fn demerger_applies_after_rights_issue_and_before_distribution_at_one_instant() 
     assert_eq!(final_pool(&report, "MICC"), (dec!(10), dec!(115)));
     assert_eq!(final_pool(&report, "ULVR"), (dec!(110), dec!(1080)));
 }
+
+// --- HMRC worked examples for share reorganisations ---
+//
+// HMRC rounds its examples to whole pounds; taxc keeps pence, so each figure
+// is within £1 of the published one.
+
+#[test]
+fn hmrc_rights_issue_example_cg51590_mr_browne() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51590
+    // (Example 2): a 1-for-5 rights issue taken up for £1,060 joins the pool.
+    let events = vec![
+        acq("2008-08-17", "X", dec!(10000), dec!(2500)),
+        acq("2009-04-01", "X", dec!(10000), dec!(2600)),
+        rights_issue("2009-10-08", "X", dec!(4000), dec!(1060)),
+        disp("2012-12-10", "X", dec!(7500), dec!(3000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // Pool 24,000 shares, cost £6,160. 7,500 shares cost £1,925.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(1925));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(1075));
+    // HMRC prints £4,236, but £6,160 - £1,925 = £4,235.
+    assert_eq!(final_pool(&report, "X"), (dec!(16500), dec!(4235)));
+}
+
+#[test]
+fn hmrc_rights_issue_example_cg51590_peninsula_trust() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51590
+    // (Example 4): two rights issues either side of a purchase.
+    let events = vec![
+        acq("1997-09-24", "X", dec!(15000), dec!(6750)),
+        rights_issue("2001-01-30", "X", dec!(9000), dec!(3600)),
+        acq("2004-06-14", "X", dec!(12000), dec!(13800)),
+        rights_issue("2005-11-26", "X", dec!(9000), dec!(9450)),
+        disp("2010-02-23", "X", dec!(20000), dec!(39000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // Pool 45,000 shares, cost £33,600. HMRC: cost £14,934, gain £24,066,
+    // remaining cost £18,666.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(14933.33));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(24066.67));
+    assert_eq!(final_pool(&report, "X"), (dec!(25000), dec!(18666.67)));
+}
+
+#[test]
+fn hmrc_demerger_example_cg52742() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg52742
+    // Pacific Exploration demerges to Resolution Holdings. By market value,
+    // 12/37 of the £15,000 pool cost moves to the 3,000 new shares.
+    let events = vec![
+        acq("2005-06-01", "PAC", dec!(5000), dec!(15000)),
+        demerger("2009-09-01", "PAC", dec!(12) / dec!(37), "RES", dec!(3000)),
+        disp("2011-04-01", "RES", dec!(2000), dec!(8000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // HMRC: £4,865 moved; 2,000 shares cost £3,243 for a £4,757 gain,
+    // leaving 1,000 shares at £1,622.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(3243.24));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(4756.76));
+    assert_eq!(final_pool(&report, "RES"), (dec!(1000), dec!(1621.62)));
+    assert_eq!(final_pool(&report, "PAC"), (dec!(5000), dec!(10135.14)));
+}
+
+#[test]
+fn hmrc_small_capital_distribution_example_cg57844() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57844
+    // A £5,000 distribution (4.5% of the holding's value) on 10,000 shares
+    // that cost £45,000 reduces the pool cost. It is not a disposal.
+    let events = vec![
+        acq("2011-03-01", "X", dec!(10000), dec!(45000)),
+        small_distribution("2017-09-01", "X", dec!(5000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    assert_eq!(final_pool(&report, "X"), (dec!(10000), dec!(40000)));
+}
+
+#[test]
+fn hmrc_distribution_exceeding_cost_example_cg57847() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57847
+    // A £10,000 small distribution on shares with £6,000 allowable cost,
+    // under a s.122(4) election: the proceeds are reduced by the £6,000, so
+    // £4,000 is chargeable and no cost remains. HMRC's example predates 1988
+    // and goes on to rebase to 1982 values, which taxc does not model, so
+    // the dates and share count here are illustrative.
+    let events = vec![
+        acq("2020-01-01", "Z", dec!(1000), dec!(6000)),
+        small_distribution("2021-01-01", "Z", dec!(10000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert_eq!(report.disposals.len(), 1);
+    let excess = &report.disposals[0];
+    assert_eq!(excess.gain_gbp, dec!(4000));
+    assert_eq!(
+        excess.warnings,
+        vec![Warning::CapitalDistributionExceedsCost]
+    );
+    assert_eq!(final_pool(&report, "Z"), (dec!(1000), dec!(0)));
+}
