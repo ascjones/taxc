@@ -5,6 +5,7 @@ use serde::Serialize;
 /// Domain warning types emitted during conversion/calculation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum Warning {
     /// Event was unclassified and may need manual review.
     UnclassifiedEvent,

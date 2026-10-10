@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Serializes as a plain string: `"Acquisition"`, `"Disposal"`, or a pool
 /// adjustment's kind (e.g. `"Demerger"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub enum EventType {
     Acquisition,
     Disposal,
@@ -21,6 +22,7 @@ pub enum EventType {
 /// The share reorganisation behind a pool adjustment. Declared in the order
 /// adjustments of one asset at the same instant apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[non_exhaustive]
 pub enum AdjustmentKind {
     /// Rights shares and their consideration join the existing pool.
     RightsIssue,
