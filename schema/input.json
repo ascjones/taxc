@@ -298,7 +298,7 @@
           ]
         },
         {
-          "description": "Demerger treated as a share reorganisation: no disposal. The stated\nfraction of the original shares' pool cost moves to the new holding,\nwhich is treated as held since the original shares were.\n\nCovers an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a\nscheme of reconstruction (TCGA 1992 s.136), as the company's tax\nguidance states. `cost_fraction` is the share of the original cost\napportioned to the new holding by market value on the first dealing\nday (s.130). HMRC CG45620, CG51702, CG51890, CG52742.\n\nA demerger taxed as a dividend in specie is not a `Demerger`: record\nit as a Dividend-tagged Deposit of the new shares at market value.",
+          "description": "Demerger treated as a share reorganisation: no disposal. The stated\nfraction of the original shares' pool cost moves to the new holding,\nwhich is treated as held since the original shares were.\n\nCovers an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a\nscheme of reconstruction (TCGA 1992 s.136), as the company's tax\nguidance states. `cost_fraction` is the share of the original cost\napportioned to the new holding by market value: on the first dealing\nday if the shares are quoted (s.130), otherwise at the first disposal\n(s.129). HMRC CG45620, CG51702, CG51890, CG52742.\n\nA demerger taxed as a dividend in specie is not a `Demerger`: record\nit as a Dividend-tagged Deposit of the new shares at market value.",
           "type": "object",
           "properties": {
             "cost_fraction": {

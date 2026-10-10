@@ -69,8 +69,9 @@ pub enum TransactionType {
     /// Covers an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a
     /// scheme of reconstruction (TCGA 1992 s.136), as the company's tax
     /// guidance states. `cost_fraction` is the share of the original cost
-    /// apportioned to the new holding by market value on the first dealing
-    /// day (s.130). HMRC CG45620, CG51702, CG51890, CG52742.
+    /// apportioned to the new holding by market value: on the first dealing
+    /// day if the shares are quoted (s.130), otherwise at the first disposal
+    /// (s.129). HMRC CG45620, CG51702, CG51890, CG52742.
     ///
     /// A demerger taxed as a dividend in specie is not a `Demerger`: record
     /// it as a Dividend-tagged Deposit of the new shares at market value.

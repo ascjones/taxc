@@ -1725,7 +1725,10 @@ fn hmrc_rights_issue_example_cg51590_peninsula_trust() {
 fn hmrc_demerger_example_cg52742() {
     // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg52742
     // Pacific Exploration demerges to Resolution Holdings. By market value,
-    // 12/37 of the £15,000 pool cost moves to the 3,000 new shares.
+    // 12/37 of the £15,000 pool cost moves to the 3,000 new shares. Neither
+    // company is quoted, so s.129 takes the values at the disposal date; for
+    // quoted shares s.130 takes them on the first dealing day. Either way
+    // the input states the resulting fraction.
     let events = vec![
         acq("2005-06-01", "PAC", dec!(5000), dec!(15000)),
         demerger("2009-09-01", "PAC", dec!(12) / dec!(37), "RES", dec!(3000)),
@@ -1747,7 +1750,10 @@ fn hmrc_demerger_example_cg52742() {
 fn hmrc_small_capital_distribution_example_cg57844() {
     // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57844
     // A £5,000 distribution (4.5% of the holding's value) on 10,000 shares
-    // that cost £45,000 reduces the pool cost. It is not a disposal.
+    // that cost £45,000 reduces the pool cost. It is not a disposal. HMRC's
+    // shareholder is a company and also reduces an indexed pool; indexation
+    // does not apply to individuals after 5 April 2008, so only the
+    // qualifying-expenditure pool is checked.
     let events = vec![
         acq("2011-03-01", "X", dec!(10000), dec!(45000)),
         small_distribution("2017-09-01", "X", dec!(5000)),

@@ -49,7 +49,7 @@ A Taxable Event that changes a Section 104 Pool directly, without a disposal: a 
 HMRC's term (TCGA 1992 s.126–s.131) for a change to a company's share capital in which the new holding stands in the shoes of the original shares: no disposal, and the original cost carries over. taxc models three kinds as Pool Adjustments; conversions (s.135) and unit changes at constant cost are out of scope.
 
 ### Demerger
-A Share Reorganisation in which a company passes shares in another company to its shareholders, treated as an exempt distribution (s.192) or a scheme of reconstruction (s.136). A stated fraction of the original pool's cost moves to the new holding, apportioned by market value on the first dealing day (s.130). HMRC CG45620, CG51702, CG51890, CG52742. A demerger taxed as a dividend in specie is income, not a Demerger.
+A Share Reorganisation in which a company passes shares in another company to its shareholders, treated as an exempt distribution (s.192) or a scheme of reconstruction (s.136). A stated fraction of the original pool's cost moves to the new holding, apportioned by market value: on the first dealing day if the shares are quoted (s.130), otherwise at the first disposal (s.129). HMRC CG45620, CG51702, CG51890, CG52742. A demerger taxed as a dividend in specie is income, not a Demerger.
 
 ### Rights Issue
 A Share Reorganisation in which the holder takes up their pro-rata entitlement to new shares in the same company (s.126–s.128; HMRC CG51746, CG51590). The shares and their consideration join the existing pool. Purchased rights, excess applications and rights in another company (CG52065) are ordinary acquisitions.

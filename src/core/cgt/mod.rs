@@ -524,7 +524,7 @@ fn apply_adjustment(
         AdjustmentKind::RightsIssue => {
             pool_for(pools, &event.asset).add(event.quantity, event.total_cost_gbp());
         }
-        // s.130: the stated fraction of the original cost moves to the new
+        // s.129/s.130: the stated fraction of the original cost moves to the new
         // holding.
         AdjustmentKind::Demerger => {
             let from = event
