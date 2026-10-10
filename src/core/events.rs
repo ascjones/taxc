@@ -3,11 +3,52 @@ use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Type of taxable event
+/// Type of taxable event.
+///
+/// Serializes as a plain string: `"Acquisition"`, `"Disposal"`, or a pool
+/// adjustment's kind (e.g. `"Demerger"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub enum EventType {
     Acquisition,
     Disposal,
+    /// A share reorganisation that changes a Section 104 pool directly. It is
+    /// neither an acquisition nor a disposal, so it is never matched and
+    /// never counts in any total.
+    #[serde(untagged)]
+    PoolAdjustment(AdjustmentKind),
+}
+
+/// The share reorganisation behind a pool adjustment. Declared in the order
+/// adjustments of one asset at the same instant apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[non_exhaustive]
+pub enum AdjustmentKind {
+    /// Rights shares and their consideration join the existing pool.
+    RightsIssue,
+    /// A fraction of the original pool's cost moves to the new holding.
+    Demerger,
+    /// The amount distributed is deducted from the pool's cost.
+    SmallCapitalDistribution,
+}
+
+impl AdjustmentKind {
+    fn label(self) -> &'static str {
+        match self {
+            AdjustmentKind::RightsIssue => "RightsIssue",
+            AdjustmentKind::Demerger => "Demerger",
+            AdjustmentKind::SmallCapitalDistribution => "SmallCapitalDistribution",
+        }
+    }
+}
+
+/// Where a demerger's new holding takes its cost from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DemergedFrom {
+    /// The original shares' asset.
+    pub asset: String,
+    /// Fraction of the original pool's cost moved to the new holding.
+    pub cost_fraction: Decimal,
 }
 
 /// Classification tag for a taxable event
@@ -66,6 +107,7 @@ impl Tag {
 /// Display string for event type and tag (used in reports and summaries)
 pub fn display_event_type(event_type: EventType, tag: Tag) -> &'static str {
     match (event_type, tag) {
+        (EventType::PoolAdjustment(kind), _) => kind.label(),
         (EventType::Acquisition, Tag::StakingReward) => "StakingReward",
         (EventType::Acquisition, Tag::Salary) => "Salary",
         (EventType::Acquisition, Tag::OtherIncome) => "OtherIncome",
@@ -111,6 +153,10 @@ pub struct TaxableEvent {
     pub value_gbp: Decimal,
     pub fee_gbp: Option<Decimal>,
     pub description: Option<String>,
+    /// The original holding a demerger's new holding takes its cost from;
+    /// set only on a `PoolAdjustment(Demerger)` event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub demerged_from: Option<DemergedFrom>,
 }
 
 impl TaxableEvent {
@@ -156,6 +202,7 @@ pub mod builders {
             value_gbp: value,
             fee_gbp: fee,
             description: None,
+            demerged_from: None,
         }
     }
 
@@ -216,6 +263,59 @@ pub mod builders {
             qty,
             value,
             Some(fee),
+        )
+    }
+
+    pub fn demerger(
+        date: &str,
+        original: &str,
+        cost_fraction: Decimal,
+        asset: &str,
+        qty: Decimal,
+    ) -> TaxableEvent {
+        TaxableEvent {
+            demerged_from: Some(DemergedFrom {
+                asset: original.to_string(),
+                cost_fraction,
+            }),
+            ..adjustment(AdjustmentKind::Demerger, date, asset, qty, Decimal::ZERO)
+        }
+    }
+
+    pub fn rights_issue(
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        consideration: Decimal,
+    ) -> TaxableEvent {
+        adjustment(AdjustmentKind::RightsIssue, date, asset, qty, consideration)
+    }
+
+    pub fn small_distribution(date: &str, asset: &str, amount: Decimal) -> TaxableEvent {
+        adjustment(
+            AdjustmentKind::SmallCapitalDistribution,
+            date,
+            asset,
+            Decimal::ZERO,
+            -amount,
+        )
+    }
+
+    fn adjustment(
+        kind: AdjustmentKind,
+        date: &str,
+        asset: &str,
+        qty: Decimal,
+        cost: Decimal,
+    ) -> TaxableEvent {
+        event(
+            EventType::PoolAdjustment(kind),
+            Tag::Trade,
+            date,
+            asset,
+            qty,
+            cost,
+            None,
         )
     }
 
@@ -325,6 +425,30 @@ mod tests {
         assert_eq!(
             display_event_type(EventType::Acquisition, Tag::Cashback),
             "Cashback"
+        );
+    }
+
+    #[test]
+    fn pool_adjustment_serializes_and_displays_as_its_kind() {
+        for (kind, label) in [
+            (AdjustmentKind::Demerger, "Demerger"),
+            (AdjustmentKind::RightsIssue, "RightsIssue"),
+            (
+                AdjustmentKind::SmallCapitalDistribution,
+                "SmallCapitalDistribution",
+            ),
+        ] {
+            let event_type = EventType::PoolAdjustment(kind);
+            assert_eq!(serde_json::to_value(event_type).unwrap(), label);
+            assert_eq!(display_event_type(event_type, Tag::Trade), label);
+        }
+        assert_eq!(
+            serde_json::to_value(EventType::Acquisition).unwrap(),
+            "Acquisition"
+        );
+        assert_eq!(
+            serde_json::to_value(EventType::Disposal).unwrap(),
+            "Disposal"
         );
     }
 

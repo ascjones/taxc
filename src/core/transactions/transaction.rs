@@ -61,6 +61,102 @@ pub enum TransactionType {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         linked_deposit: Option<String>,
     },
+
+    /// Demerger treated as a share reorganisation: no disposal. The stated
+    /// fraction of the original shares' pool cost moves to the new holding,
+    /// which is treated as held since the original shares were.
+    ///
+    /// Covers an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a
+    /// scheme of reconstruction (TCGA 1992 s.136), as the company's tax
+    /// guidance states. `cost_fraction` is the share of the original cost
+    /// apportioned to the new holding by market value: on the first dealing
+    /// day if the shares are quoted (s.130), otherwise at the first disposal
+    /// (s.129). HMRC CG45620, CG51702, CG51890, CG52742.
+    ///
+    /// A demerger taxed as a dividend in specie is not a `Demerger`: record
+    /// it as a Dividend-tagged Deposit of the new shares at market value.
+    Demerger {
+        /// Symbol of the original shares, whose pool gives up the cost.
+        original: String,
+        /// The new holding received.
+        new_holding: Amount,
+        /// Fraction of the original pool cost moved, strictly between 0 and 1.
+        #[schemars(with = "DecimalJson")]
+        cost_fraction: Decimal,
+    },
+
+    /// Take-up of the holder's own pro-rata rights entitlement in the same
+    /// company: a reorganisation, not an acquisition (TCGA 1992 s.126(2)(a),
+    /// s.127, s.128; HMRC CG51746, CG51590). The shares and the consideration
+    /// paid (plus any fee) join the existing pool, and are never matched
+    /// under the same-day or 30-day rules.
+    ///
+    /// Shares from purchased rights or excess applications, and rights to
+    /// shares in another company (CG52065), are a Trade acquisition.
+    RightsIssue {
+        /// The new shares taken up.
+        new_shares: Amount,
+        /// GBP paid for the new shares, excluding any fee.
+        #[schemars(with = "DecimalJson")]
+        consideration: Decimal,
+    },
+
+    /// Small capital distribution: the amount reduces the pool's allowable
+    /// cost instead of being a disposal (TCGA 1992 s.122(2); HMRC CG57835).
+    /// Includes cash for fractional entitlements on a reorganisation
+    /// (s.128(3); HMRC CG57855). Choosing this type asserts the distribution
+    /// is small: HMRC's practice is 5% or less of the holding's value, or
+    /// £3,000 or less.
+    ///
+    /// An amount above the pool's cost zeroes the cost, and the excess is a
+    /// chargeable gain, as under a s.122(4) election (HMRC CG57847).
+    SmallCapitalDistribution {
+        /// Symbol of the shares the distribution was made on.
+        asset: String,
+        /// GBP received.
+        #[schemars(with = "DecimalJson")]
+        amount: Decimal,
+    },
+
+    /// A fee paid with nothing else moving. The transaction's `fee` is
+    /// required: tokens spent on it are disposed of at market value (HMRC
+    /// CRYPTO22100, CRYPTO22280), so a non-GBP fee needs a price. A GBP fee
+    /// produces no event.
+    Fee {},
+}
+
+impl TransactionType {
+    /// The type's name, as its `type` tag spells it.
+    pub(crate) fn type_name(&self) -> &'static str {
+        match self {
+            TransactionType::Trade { .. } => "Trade",
+            TransactionType::Deposit { .. } => "Deposit",
+            TransactionType::Withdrawal { .. } => "Withdrawal",
+            TransactionType::Demerger { .. } => "Demerger",
+            TransactionType::RightsIssue { .. } => "RightsIssue",
+            TransactionType::SmallCapitalDistribution { .. } => "SmallCapitalDistribution",
+            TransactionType::Fee {} => "Fee",
+        }
+    }
+
+    /// Every asset the transaction names, excluding its fee.
+    pub(crate) fn assets(&self) -> Vec<&str> {
+        match self {
+            TransactionType::Trade { sold, bought } => vec![&sold.asset, &bought.asset],
+            TransactionType::Deposit { amount, .. }
+            | TransactionType::Withdrawal { amount, .. } => {
+                vec![&amount.asset]
+            }
+            TransactionType::Demerger {
+                original,
+                new_holding,
+                ..
+            } => vec![original, &new_holding.asset],
+            TransactionType::RightsIssue { new_shares, .. } => vec![&new_shares.asset],
+            TransactionType::SmallCapitalDistribution { asset, .. } => vec![asset],
+            TransactionType::Fee {} => vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

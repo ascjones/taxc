@@ -296,6 +296,93 @@
             "type",
             "amount"
           ]
+        },
+        {
+          "description": "Demerger treated as a share reorganisation: no disposal. The stated\nfraction of the original shares' pool cost moves to the new holding,\nwhich is treated as held since the original shares were.\n\nCovers an exempt distribution (TCGA 1992 s.192; CTA 2010 s.1076) or a\nscheme of reconstruction (TCGA 1992 s.136), as the company's tax\nguidance states. `cost_fraction` is the share of the original cost\napportioned to the new holding by market value: on the first dealing\nday if the shares are quoted (s.130), otherwise at the first disposal\n(s.129). HMRC CG45620, CG51702, CG51890, CG52742.\n\nA demerger taxed as a dividend in specie is not a `Demerger`: record\nit as a Dividend-tagged Deposit of the new shares at market value.",
+          "type": "object",
+          "properties": {
+            "cost_fraction": {
+              "description": "Fraction of the original pool cost moved, strictly between 0 and 1.",
+              "$ref": "#/$defs/DecimalJson"
+            },
+            "new_holding": {
+              "description": "The new holding received.",
+              "$ref": "#/$defs/Amount"
+            },
+            "original": {
+              "description": "Symbol of the original shares, whose pool gives up the cost.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "Demerger"
+            }
+          },
+          "required": [
+            "type",
+            "original",
+            "new_holding",
+            "cost_fraction"
+          ]
+        },
+        {
+          "description": "Take-up of the holder's own pro-rata rights entitlement in the same\ncompany: a reorganisation, not an acquisition (TCGA 1992 s.126(2)(a),\ns.127, s.128; HMRC CG51746, CG51590). The shares and the consideration\npaid (plus any fee) join the existing pool, and are never matched\nunder the same-day or 30-day rules.\n\nShares from purchased rights or excess applications, and rights to\nshares in another company (CG52065), are a Trade acquisition.",
+          "type": "object",
+          "properties": {
+            "consideration": {
+              "description": "GBP paid for the new shares, excluding any fee.",
+              "$ref": "#/$defs/DecimalJson"
+            },
+            "new_shares": {
+              "description": "The new shares taken up.",
+              "$ref": "#/$defs/Amount"
+            },
+            "type": {
+              "type": "string",
+              "const": "RightsIssue"
+            }
+          },
+          "required": [
+            "type",
+            "new_shares",
+            "consideration"
+          ]
+        },
+        {
+          "description": "Small capital distribution: the amount reduces the pool's allowable\ncost instead of being a disposal (TCGA 1992 s.122(2); HMRC CG57835).\nIncludes cash for fractional entitlements on a reorganisation\n(s.128(3); HMRC CG57855). Choosing this type asserts the distribution\nis small: HMRC's practice is 5% or less of the holding's value, or\n£3,000 or less.\n\nAn amount above the pool's cost zeroes the cost, and the excess is a\nchargeable gain, as under a s.122(4) election (HMRC CG57847).",
+          "type": "object",
+          "properties": {
+            "amount": {
+              "description": "GBP received.",
+              "$ref": "#/$defs/DecimalJson"
+            },
+            "asset": {
+              "description": "Symbol of the shares the distribution was made on.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "SmallCapitalDistribution"
+            }
+          },
+          "required": [
+            "type",
+            "asset",
+            "amount"
+          ]
+        },
+        {
+          "description": "A fee paid with nothing else moving. The transaction's `fee` is\nrequired: tokens spent on it are disposed of at market value (HMRC\nCRYPTO22100, CRYPTO22280), so a non-GBP fee needs a price. A GBP fee\nproduces no event.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Fee"
+            }
+          },
+          "required": [
+            "type"
+          ]
         }
       ],
       "required": [

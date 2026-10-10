@@ -1,5 +1,9 @@
 use super::*;
-use crate::core::events::builders::{acq, acq_with_fee, disp, disp_with_fee, event, staking};
+use crate::core::events::builders::{
+    acq, acq_with_fee, demerger, disp, disp_with_fee, event, rights_issue, small_distribution,
+    staking,
+};
+use crate::core::events::AdjustmentKind;
 use rust_decimal_macros::dec;
 
 /// Final pool state for an asset, derived from the last pool-history entry.
@@ -1351,4 +1355,437 @@ fn no_gain_no_loss_with_fee_has_proceeds_of_cost_plus_fee() {
     assert_eq!(d.fees_gbp, dec!(20));
     assert_eq!(d.proceeds_gbp, dec!(10020));
     assert_eq!(d.gain_gbp, dec!(0));
+}
+
+// ---- Pool adjustments (share reorganisations) ----
+
+/// Pool-history entries recorded for one asset by pool adjustments.
+fn adjustment_entries<'a>(report: &'a CgtReport, asset: &str) -> Vec<&'a PoolHistoryEntry> {
+    report
+        .pool_history
+        .entries
+        .iter()
+        .filter(|e| e.asset == asset && matches!(e.event_type, EventType::PoolAdjustment(_)))
+        .collect()
+}
+
+#[test]
+fn demerger_moves_cost_to_new_holding_sold_the_same_day() {
+    // The ULVR -> MICC demerger, with the MICC sold on the demerger
+    // date. The sale is listed first to prove adjustments apply before
+    // same-day disposals.
+    let events = vec![
+        acq("2025-01-10", "ULVR", dec!(887), dec!(36995.24)),
+        disp_with_fee("2025-12-17", "MICC", dec!(177), dec!(2160.65), dec!(3.98)),
+        demerger("2025-12-17", "ULVR", dec!(0.051151), "MICC", dec!(177)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // 0.051151 x 36,995.24 = 1,892.3445... -> 1,892.34 moved.
+    assert_eq!(report.disposals.len(), 1, "no ULVR disposal");
+    let micc = &report.disposals[0];
+    assert_eq!(micc.asset, "MICC");
+    assert_eq!(micc.allowable_cost_gbp, dec!(1892.34));
+    assert_eq!(micc.gain_gbp, dec!(2160.65) - dec!(3.98) - dec!(1892.34));
+    assert_eq!(micc.matching_components.len(), 1);
+    assert_eq!(micc.matching_components[0].rule, MatchingRule::Pool);
+    assert!(micc.warnings.is_empty(), "{:?}", micc.warnings);
+
+    assert_eq!(
+        final_pool(&report, "ULVR"),
+        (dec!(887), dec!(36995.24) - dec!(1892.34))
+    );
+    assert_eq!(final_pool(&report, "MICC"), (dec!(0), dec!(0)));
+
+    // The demerger is in both pools' history, labelled as a demerger.
+    let demerger = EventType::PoolAdjustment(AdjustmentKind::Demerger);
+    let ulvr = adjustment_entries(&report, "ULVR");
+    assert_eq!(ulvr.len(), 1);
+    assert_eq!(ulvr[0].event_type, demerger);
+    assert_eq!(ulvr[0].cost_gbp, dec!(35102.90));
+    let micc_entries = adjustment_entries(&report, "MICC");
+    assert_eq!(micc_entries.len(), 1);
+    assert_eq!(micc_entries[0].event_type, demerger);
+    assert_eq!(
+        (micc_entries[0].quantity, micc_entries[0].cost_gbp),
+        (dec!(177), dec!(1892.34))
+    );
+}
+
+#[test]
+fn rights_issue_joins_the_pool_and_is_never_matched() {
+    // A sale 10 days before a rights issue matches the pool, not the
+    // rights shares.
+    let events = vec![
+        acq("2024-04-10", "CSN", dec!(3800), dec!(10665.00)),
+        disp("2025-07-08", "CSN", dec!(1000), dec!(2500)),
+        rights_issue("2025-07-18", "CSN", dec!(1473), dec!(2592.48)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert_eq!(report.disposals.len(), 1);
+    let sale = &report.disposals[0];
+    // 1,000 / 3,800 x 10,665.00 = 2,806.578... -> 2,806.58
+    assert_eq!(sale.allowable_cost_gbp, dec!(2806.58));
+    for component in &sale.matching_components {
+        assert_eq!(component.rule, MatchingRule::Pool);
+        assert_eq!(component.matched_date, None);
+    }
+    assert_eq!(
+        final_pool(&report, "CSN"),
+        (dec!(4273), dec!(10665.00) - dec!(2806.58) + dec!(2592.48))
+    );
+}
+
+#[test]
+fn rights_issue_on_a_sale_date_is_pooled_not_matched_same_day() {
+    let events = vec![
+        acq("2024-04-10", "CSN", dec!(100), dec!(100)),
+        disp("2025-07-18", "CSN", dec!(50), dec!(500)),
+        rights_issue("2025-07-18", "CSN", dec!(100), dec!(300)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    let sale = &report.disposals[0];
+    assert_eq!(sale.matching_components.len(), 1);
+    assert_eq!(sale.matching_components[0].rule, MatchingRule::Pool);
+    // The pool holds 200 at £400 when the sale draws on it.
+    assert_eq!(sale.allowable_cost_gbp, dec!(100));
+}
+
+#[test]
+fn small_capital_distribution_reduces_pool_cost_without_a_disposal() {
+    // The £21.64 ULVR consolidation cash.
+    let events = vec![
+        acq("2025-01-10", "ULVR", dec!(887), dec!(36995.24)),
+        small_distribution("2025-12-17", "ULVR", dec!(21.64)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    assert_eq!(
+        final_pool(&report, "ULVR"),
+        (dec!(887), dec!(36995.24) - dec!(21.64))
+    );
+    assert!(report.adjustment_warnings.is_empty());
+}
+
+#[test]
+fn small_capital_distribution_above_pool_cost_is_a_gain_under_s122_4() {
+    // £50 against a pool costing £30 zeroes the cost and records a £20
+    // gain on the distribution's own event.
+    let events = vec![
+        acq("2024-01-10", "X", dec!(10), dec!(30)),
+        TaxableEvent {
+            id: 7,
+            ..small_distribution("2025-03-01", "X", dec!(50))
+        },
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert_eq!(final_pool(&report, "X"), (dec!(10), dec!(0)));
+    assert_eq!(report.disposals.len(), 1);
+    let excess = &report.disposals[0];
+    assert_eq!(excess.id, 7);
+    assert_eq!(excess.asset, "X");
+    assert_eq!(excess.quantity, dec!(0));
+    assert_eq!(excess.proceeds_gbp, dec!(20));
+    assert_eq!(excess.allowable_cost_gbp, dec!(0));
+    assert_eq!(excess.fees_gbp, dec!(0));
+    assert_eq!(excess.gain_gbp, dec!(20));
+    assert!(excess.matching_components.is_empty());
+    assert_eq!(
+        excess.warnings,
+        vec![Warning::CapitalDistributionExceedsCost]
+    );
+    assert!(!excess.is_unclassified());
+}
+
+#[test]
+fn demerger_from_an_empty_pool_adds_new_holding_at_zero_cost_with_warning() {
+    let event = TaxableEvent {
+        id: 3,
+        ..demerger("2025-12-17", "ULVR", dec!(0.05), "MICC", dec!(177))
+    };
+
+    let report = calculate_cgt(vec![event.clone()]);
+
+    assert!(report.disposals.is_empty());
+    assert_eq!(final_pool(&report, "MICC"), (dec!(177), dec!(0)));
+    assert_eq!(
+        report.warnings_for_adjustment(&event),
+        [Warning::InsufficientCostBasis {
+            available: dec!(0),
+            required: dec!(0),
+        }]
+    );
+}
+
+#[test]
+fn small_capital_distribution_with_no_pool_is_all_gain_with_both_warnings() {
+    let event = TaxableEvent {
+        id: 4,
+        ..small_distribution("2025-12-17", "ULVR", dec!(21.64))
+    };
+
+    let report = calculate_cgt(vec![event.clone()]);
+
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].gain_gbp, dec!(21.64));
+    assert_eq!(
+        report.disposals[0].warnings,
+        [Warning::CapitalDistributionExceedsCost]
+    );
+    assert_eq!(
+        report.warnings_for_adjustment(&event),
+        [Warning::InsufficientCostBasis {
+            available: dec!(0),
+            required: dec!(0),
+        }]
+    );
+}
+
+#[test]
+fn adjustments_at_the_same_instant_apply_rights_issue_first() {
+    // Listed distribution-first. Applied that way, the £50 would exceed the
+    // £10 cost and leave a gain; rights first, the pool absorbs it.
+    let events = vec![
+        acq("2024-01-10", "X", dec!(100), dec!(10)),
+        small_distribution("2025-03-01", "X", dec!(50)),
+        rights_issue("2025-03-01", "X", dec!(50), dec!(100)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    assert_eq!(final_pool(&report, "X"), (dec!(150), dec!(60)));
+}
+
+#[test]
+fn adjustments_on_one_date_apply_in_time_order() {
+    // The distribution comes first in the day, so it exceeds the £10 cost
+    // before the rights issue adds to it.
+    let events = vec![
+        acq("2024-01-10", "X", dec!(100), dec!(10)),
+        at(
+            rights_issue("2025-03-01", "X", dec!(50), dec!(100)),
+            "2025-03-01T15:00:00Z",
+        ),
+        at(
+            small_distribution("2025-03-01", "X", dec!(50)),
+            "2025-03-01T09:00:00Z",
+        ),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].gain_gbp, dec!(40));
+    assert_eq!(final_pool(&report, "X"), (dec!(150), dec!(100)));
+}
+
+#[test]
+fn demerger_new_holding_is_never_matched_to_an_earlier_disposal() {
+    // A MICC sale 10 days before the demerger has nothing to match: the
+    // demerged shares are not an acquisition for the 30-day rule.
+    let events = vec![
+        acq("2025-01-10", "ULVR", dec!(100), dec!(1000)),
+        disp("2025-12-07", "MICC", dec!(10), dec!(100)),
+        demerger("2025-12-17", "ULVR", dec!(0.1), "MICC", dec!(10)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    let sale = &report.disposals[0];
+    assert!(sale
+        .matching_components
+        .iter()
+        .all(|c| c.rule == MatchingRule::Pool));
+    assert_eq!(sale.allowable_cost_gbp, dec!(0));
+    assert_eq!(final_pool(&report, "MICC"), (dec!(10), dec!(100)));
+}
+
+#[test]
+fn disposal_index_finds_the_excess_record_for_its_adjustment_only() {
+    let distribution = TaxableEvent {
+        id: 2,
+        ..small_distribution("2025-03-01", "X", dec!(50))
+    };
+    let buy = TaxableEvent {
+        id: 1,
+        ..acq("2024-01-10", "X", dec!(10), dec!(30))
+    };
+    let report = calculate_cgt(vec![buy.clone(), distribution.clone()]);
+    let index = DisposalIndex::new(&report);
+
+    assert_eq!(
+        index.find(&distribution).map(|d| d.gain_gbp),
+        Some(dec!(20))
+    );
+    assert!(index.find(&buy).is_none());
+}
+
+#[test]
+fn adjustment_and_disposal_on_one_uk_date_across_utc_midnight() {
+    // The sale at 23:30 UTC on 1 June is 00:30 BST on 2 June: the rights
+    // issue's UK date. By UTC date the sale would come a day earlier and
+    // miss the rights shares; by UK date the rights issue applies first.
+    let events = vec![
+        acq("2024-01-10", "CSN", dec!(100), dec!(100)),
+        at(
+            disp("2024-06-01", "CSN", dec!(50), dec!(500)),
+            "2024-06-01T23:30:00Z",
+        ),
+        at(
+            rights_issue("2024-06-02", "CSN", dec!(100), dec!(300)),
+            "2024-06-02T10:00:00+01:00",
+        ),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // The pool holds 200 at £400 when the sale draws on it.
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(100));
+}
+
+#[test]
+fn demerger_applies_after_rights_issue_and_before_distribution_at_one_instant() {
+    // Listed in reverse. The rights cost joins ULVR before the fraction is
+    // taken, and the fractional cash on MICC reduces the moved cost rather
+    // than finding an empty pool.
+    let events = vec![
+        acq("2025-01-10", "ULVR", dec!(100), dec!(1000)),
+        small_distribution("2025-12-17", "MICC", dec!(5)),
+        demerger("2025-12-17", "ULVR", dec!(0.1), "MICC", dec!(10)),
+        rights_issue("2025-12-17", "ULVR", dec!(10), dec!(200)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    // 0.1 x (1,000 + 200) = 120 moved, less the £5 cash.
+    assert_eq!(final_pool(&report, "MICC"), (dec!(10), dec!(115)));
+    assert_eq!(final_pool(&report, "ULVR"), (dec!(110), dec!(1080)));
+}
+
+// --- HMRC worked examples for share reorganisations ---
+//
+// HMRC rounds its examples to whole pounds; taxc keeps pence, so each figure
+// is within £1 of the published one.
+
+#[test]
+fn hmrc_rights_issue_example_cg51590_mr_browne() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51590
+    // (Example 2): a 1-for-5 rights issue taken up for £1,060 joins the pool.
+    let events = vec![
+        acq("2008-08-17", "X", dec!(10000), dec!(2500)),
+        acq("2009-04-01", "X", dec!(10000), dec!(2600)),
+        rights_issue("2009-10-08", "X", dec!(4000), dec!(1060)),
+        disp("2012-12-10", "X", dec!(7500), dec!(3000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // Pool 24,000 shares, cost £6,160. 7,500 shares cost £1,925.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(1925));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(1075));
+    // HMRC prints £4,236, but £6,160 - £1,925 = £4,235.
+    assert_eq!(final_pool(&report, "X"), (dec!(16500), dec!(4235)));
+}
+
+#[test]
+fn hmrc_rights_issue_example_cg51590_peninsula_trust() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg51590
+    // (Example 4): two rights issues either side of a purchase.
+    let events = vec![
+        acq("1997-09-24", "X", dec!(15000), dec!(6750)),
+        rights_issue("2001-01-30", "X", dec!(9000), dec!(3600)),
+        acq("2004-06-14", "X", dec!(12000), dec!(13800)),
+        rights_issue("2005-11-26", "X", dec!(9000), dec!(9450)),
+        disp("2010-02-23", "X", dec!(20000), dec!(39000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // Pool 45,000 shares, cost £33,600. HMRC: cost £14,934, gain £24,066,
+    // remaining cost £18,666.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(14933.33));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(24066.67));
+    assert_eq!(final_pool(&report, "X"), (dec!(25000), dec!(18666.67)));
+}
+
+#[test]
+fn hmrc_demerger_example_cg52742() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg52742
+    // Pacific Exploration demerges to Resolution Holdings. By market value,
+    // 12/37 of the £15,000 pool cost moves to the 3,000 new shares. Neither
+    // company is quoted, so s.129 takes the values at the disposal date; for
+    // quoted shares s.130 takes them on the first dealing day. Either way
+    // the input states the resulting fraction.
+    let events = vec![
+        acq("2005-06-01", "PAC", dec!(5000), dec!(15000)),
+        demerger("2009-09-01", "PAC", dec!(12) / dec!(37), "RES", dec!(3000)),
+        disp("2011-04-01", "RES", dec!(2000), dec!(8000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    // HMRC: £4,865 moved; 2,000 shares cost £3,243 for a £4,757 gain,
+    // leaving 1,000 shares at £1,622.
+    assert_eq!(report.disposals.len(), 1);
+    assert_eq!(report.disposals[0].allowable_cost_gbp, dec!(3243.24));
+    assert_eq!(report.disposals[0].gain_gbp, dec!(4756.76));
+    assert_eq!(final_pool(&report, "RES"), (dec!(1000), dec!(1621.62)));
+    assert_eq!(final_pool(&report, "PAC"), (dec!(5000), dec!(10135.14)));
+}
+
+#[test]
+fn hmrc_small_capital_distribution_example_cg57844() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57844
+    // A £5,000 distribution (4.5% of the holding's value) on 10,000 shares
+    // that cost £45,000 reduces the pool cost. It is not a disposal. HMRC's
+    // shareholder is a company and also reduces an indexed pool; indexation
+    // does not apply to individuals after 5 April 2008, so only the
+    // qualifying-expenditure pool is checked.
+    let events = vec![
+        acq("2011-03-01", "X", dec!(10000), dec!(45000)),
+        small_distribution("2017-09-01", "X", dec!(5000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert!(report.disposals.is_empty(), "{:?}", report.disposals);
+    assert_eq!(final_pool(&report, "X"), (dec!(10000), dec!(40000)));
+}
+
+#[test]
+fn hmrc_distribution_exceeding_cost_example_cg57847() {
+    // https://www.gov.uk/hmrc-internal-manuals/capital-gains-manual/cg57847
+    // A £10,000 small distribution on shares with £6,000 allowable cost,
+    // under a s.122(4) election: the proceeds are reduced by the £6,000, so
+    // £4,000 is chargeable and no cost remains. HMRC's example predates 1988
+    // and goes on to rebase to 1982 values, which taxc does not model, so
+    // the dates and share count here are illustrative.
+    let events = vec![
+        acq("2020-01-01", "Z", dec!(1000), dec!(6000)),
+        small_distribution("2021-01-01", "Z", dec!(10000)),
+    ];
+
+    let report = calculate_cgt(events);
+
+    assert_eq!(report.disposals.len(), 1);
+    let excess = &report.disposals[0];
+    assert_eq!(excess.gain_gbp, dec!(4000));
+    assert_eq!(
+        excess.warnings,
+        vec![Warning::CapitalDistributionExceedsCost]
+    );
+    assert_eq!(final_pool(&report, "Z"), (dec!(1000), dec!(0)));
 }

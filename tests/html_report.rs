@@ -918,3 +918,93 @@ fn report_html_navigation_recovers_or_explains() {
 
     let _ = fs::remove_file(out);
 }
+
+/// Pool adjustments and fee-only transactions render in both tabs: the
+/// adjustment rows carry their own kind, can be filtered out, and the
+/// over-cost distribution shows its warning.
+#[test]
+fn report_html_renders_reorganisations_and_fees() {
+    let out = unique_tmp_file("report-html-reorganisations", "html");
+    let out_str = out.to_string_lossy().to_string();
+    let output = run_taxc(&[
+        "report",
+        "tests/data/reorganisations.json",
+        "--output",
+        &out_str,
+    ]);
+    assert!(output.status.success(), "Command failed: {:?}", output);
+
+    let browser = common::launch_browser();
+    let tab = browser.new_tab().expect("Failed to create tab");
+    let canonical = out.canonicalize().expect("Failed to canonicalize path");
+    tab.navigate_to(&format!("file://{}", canonical.display()))
+        .expect("Failed to navigate");
+    tab.wait_until_navigated()
+        .expect("Failed to wait for navigation");
+
+    let result = tab
+        .evaluate(
+            r#"
+            (function() {
+                try {
+                    var txRows = document.querySelectorAll('#transactions-body .tx-row');
+                    if (txRows.length !== DATA.transactions.length)
+                        return 'expected ' + DATA.transactions.length + ' tx rows, got ' + txRows.length;
+                    if (!document.querySelector('#transactions-body .tx-row .tx-type-fee'))
+                        return 'no row for the Fee transaction';
+                    // Filtering by the fee's asset keeps the fee-only row.
+                    selectedAssets.add('DOT');
+                    applyFilters();
+                    if (!document.querySelector('#transactions-body .tx-row .tx-type-fee'))
+                        return 'DOT asset filter hides the Fee transaction';
+                    selectedAssets.delete('DOT');
+                    applyFilters();
+
+                    // The JS totals must agree with Rust's: the distribution's
+                    // excess counts, no other adjustment does.
+                    var js = calculateFilteredSummary(DATA.events);
+                    if (js.disposalCount !== DATA.summary.disposal_count)
+                        return 'disposal count ' + js.disposalCount + ' vs ' + DATA.summary.disposal_count;
+                    if (js.totalGain.toFixed(2) !== DATA.summary.total_gain)
+                        return 'total gain ' + js.totalGain + ' vs ' + DATA.summary.total_gain;
+
+                    switchTab('events');
+                    var adjustments = DATA.events.filter(e => e.event_kind === 'adjustment');
+                    if (adjustments.length !== 4) return 'expected 4 adjustments, got ' + adjustments.length;
+                    var demerger = adjustments.find(e => e.event_type === 'Demerger');
+                    var demergerRow = document.querySelector('#events-body tr[data-event-id="' + demerger.id + '"]');
+                    if (!demergerRow) return 'no row for the demerger';
+                    if (!demergerRow.textContent.includes('Adj.'))
+                        return 'demerger row not marked as an adjustment: ' + demergerRow.textContent;
+
+                    var excess = adjustments.find(e => e.cgt);
+                    var excessRow = document.querySelector('#events-body tr[data-event-id="' + excess.id + '"]');
+                    var details = excessRow.nextElementSibling;
+                    if (!details.textContent.includes('Distribution Exceeds Cost'))
+                        return 'excess warning not shown: ' + details.textContent;
+
+                    var box = document.getElementById('type-adjustment');
+                    if (!box) return 'no adjustment type filter';
+                    box.checked = false;
+                    applyFilters();
+                    var stillShown = adjustments.filter(e =>
+                        document.querySelector('#events-body tr[data-event-id="' + e.id + '"]'));
+                    if (stillShown.length !== 0) return 'adjustments still shown after unchecking';
+                    return '';
+                } catch (e) {
+                    return 'script error: ' + e;
+                }
+            })()
+            "#,
+            false,
+        )
+        .expect("Failed to evaluate JS");
+    let msg = result
+        .value
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .unwrap_or("no value");
+    assert!(msg.is_empty(), "Reorganisation rendering failed: {}", msg);
+
+    let _ = fs::remove_file(out);
+}

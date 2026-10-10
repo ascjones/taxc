@@ -83,11 +83,16 @@ function formatTag(tag) {
     return `<span class="${className}">${escapeHtml(label)}</span>`;
 }
 
+// Pool adjustments (demergers, rights issues, small capital distributions)
+// change a pool without being an acquisition or a disposal.
+const EVENT_KIND_DISPLAY = {
+    acquisition: { cls: 'arrow-in', arrow: '&#x2198;', label: 'Acq.' },
+    disposal: { cls: 'arrow-out', arrow: '&#x2197;', label: 'Disp.' },
+    adjustment: { cls: 'arrow-adj', arrow: '&#x21BB;', label: 'Adj.' },
+};
+
 function formatEventType(eventKind, warnings) {
-    const isDisposal = eventKind === 'disposal';
-    const cls = isDisposal ? 'arrow-out' : 'arrow-in';
-    const arrow = isDisposal ? '&#x2197;' : '&#x2198;';
-    const label = isDisposal ? 'Disp.' : 'Acq.';
+    const { cls, arrow, label } = EVENT_KIND_DISPLAY[eventKind] || EVENT_KIND_DISPLAY.acquisition;
     const warn = warnings && warnings.length > 0 ? ' arrow-warn' : '';
     return `<span class="event-arrow ${cls}${warn}">${arrow}<small>${label}</small></span>`;
 }
@@ -111,6 +116,7 @@ function formatWarningDisplay(w) {
         if (num(w.available) === 0) return 'No Cost Basis';
         return `Insufficient Cost Basis (${w.available}/${w.required})`;
     }
+    if (type === 'CapitalDistributionExceedsCost') return 'Distribution Exceeds Cost (s.122(4))';
     return type;
 }
 
@@ -254,6 +260,8 @@ function formatTransactionType(type) {
 }
 
 function formatAmounts(amounts) {
+    // A fee-only transaction moves nothing but its fee.
+    if (amounts.length === 0) return '';
     if (amounts.length === 2) {
         const sold = amounts.find(a => a.label === 'Sold') || amounts[0];
         const bought = amounts.find(a => a.label === 'Bought') || amounts[1];
@@ -475,7 +483,7 @@ function filterTransactions(transactions, filters) {
         if (filters.dateTo && tx.datetime.slice(0, 10) > filters.dateTo) return false;
         if (filters.taxYear && tx.tax_year !== filters.taxYear) return false;
 
-        if (filters.assets.size > 0 && !tx.amounts.some(a => filters.assets.has(a.asset))) {
+        if (filters.assets.size > 0 && !tx.assets.some(a => filters.assets.has(a))) {
             return false;
         }
 
@@ -489,8 +497,8 @@ function filterTransactions(transactions, filters) {
         if (!allClasses) {
             // Keep the transaction if any involved asset belongs to an enabled
             // class; assets with no known class always pass.
-            const anyEnabled = tx.amounts.some(a => {
-                const cls = assetClassByAsset.get(a.asset);
+            const anyEnabled = tx.assets.some(a => {
+                const cls = assetClassByAsset.get(a);
                 return cls && Object.prototype.hasOwnProperty.call(classes, cls) ? classes[cls] : true;
             });
             if (!anyEnabled) return false;
@@ -1033,8 +1041,8 @@ function filterEvents(events, filters) {
         if (filters.assets.size > 0 && !filters.assets.has(e.asset)) return false;
 
         const eventKind = (e.event_kind || '').toLowerCase();
-        if (eventKind === 'acquisition' && !filters.types.acquisition) return false;
-        if (eventKind === 'disposal' && !filters.types.disposal) return false;
+        // Each event kind has a type-<kind> checkbox.
+        if (eventKind in filters.types && !filters.types[eventKind]) return false;
 
         const tag = (e.tag || '').toLowerCase();
         if (

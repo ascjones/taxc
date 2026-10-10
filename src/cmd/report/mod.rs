@@ -141,6 +141,9 @@ pub struct TransactionRow {
     /// Fee if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fee: Option<TransactionFee>,
+    /// Every asset the transaction touches, including its fee asset and a
+    /// demerger's original holding (for asset filtering)
+    pub assets: Vec<String>,
     /// Event IDs generated from this transaction
     pub event_ids: Vec<usize>,
 }
@@ -325,7 +328,11 @@ fn acquisition_lookup(events: &[TaxableEvent]) -> AcquisitionLookup {
 
 /// The CGT detail block for one disposal row.
 fn cgt_details(d: &DisposalRecord, acquisitions: &AcquisitionLookup) -> CgtDetails {
+    // A small capital distribution's excess gain matches nothing.
     let rule = match d.matching_components.as_slice() {
+        _ if matches!(d.event_type, EventType::PoolAdjustment(_)) => {
+            "Capital Distribution".to_string()
+        }
         [only] => only.rule.display().to_string(),
         _ => "Mixed".to_string(),
     };
@@ -372,7 +379,7 @@ fn build_event_rows(
         .iter()
         .map(|e| {
             let disposal = disposal_index.find(e);
-            let event_warnings = event_warnings(e, disposal);
+            let event_warnings = event_warnings(e, disposal, cgt_report.warnings_for_adjustment(e));
 
             let cgt = disposal.map(|d| cgt_details(d, acquisitions));
 
@@ -384,6 +391,16 @@ fn build_event_rows(
                         .map(|details| details.cost_gbp.clone())
                         .unwrap_or_else(|| pence_string(e.value_gbp)),
                     Some(NGNL_VALUE_NOTE.to_string()),
+                )
+            } else if let Some(from) = &e.demerged_from {
+                // The CGT engine computes the moved cost, so the row states
+                // the apportionment instead.
+                (
+                    pence_string(e.value_gbp),
+                    Some(format!(
+                        "Demerger: {} of the {} pool's cost moves to this holding.",
+                        from.cost_fraction, from.asset
+                    )),
                 )
             } else {
                 (pence_string(e.value_gbp), None)
@@ -577,19 +594,29 @@ fn build_transaction_rows(
                 asset: a.asset.clone(),
                 quantity: quantity_string(a.quantity),
             };
-            let (transaction_type, amounts) = match &tx.details {
-                TransactionType::Trade { sold, bought } => (
-                    "Trade",
-                    vec![amount("Sold", sold), amount("Bought", bought)],
-                ),
-                TransactionType::Deposit { amount: a, .. } => {
-                    ("Deposit", vec![amount("Amount", a)])
+            let amounts = match &tx.details {
+                TransactionType::Trade { sold, bought } => {
+                    vec![amount("Sold", sold), amount("Bought", bought)]
                 }
-                TransactionType::Withdrawal { amount: a, .. } => {
-                    ("Withdrawal", vec![amount("Amount", a)])
+                TransactionType::Deposit { amount: a, .. }
+                | TransactionType::Withdrawal { amount: a, .. } => vec![amount("Amount", a)],
+                TransactionType::Demerger { new_holding, .. } => {
+                    vec![amount("New holding", new_holding)]
                 }
+                TransactionType::RightsIssue { new_shares, .. } => {
+                    vec![amount("New shares", new_shares)]
+                }
+                TransactionType::SmallCapitalDistribution { amount: gbp, .. } => {
+                    vec![TransactionAmount {
+                        label: "Distribution".to_string(),
+                        asset: "GBP".to_string(),
+                        quantity: pence_string(*gbp),
+                    }]
+                }
+                // The fee is the whole transaction, shown in its own column.
+                TransactionType::Fee {} => vec![],
             };
-            let transaction_type = transaction_type.to_string();
+            let transaction_type = tx.details.type_name().to_string();
 
             let fee = tx.fee.as_ref().map(|f| TransactionFee {
                 asset: f.asset.clone(),
@@ -608,6 +635,7 @@ fn build_transaction_rows(
                 description: tx.description.clone().unwrap_or_default(),
                 amounts,
                 fee,
+                assets: distinct_assets(tx),
                 event_ids,
             }
         })
@@ -616,15 +644,20 @@ fn build_transaction_rows(
 
 /// Every asset a transaction moves, including its fee asset.
 fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
-    let moved = match &tx.details {
-        TransactionType::Trade { sold, bought } => vec![sold.asset.as_str(), bought.asset.as_str()],
-        TransactionType::Deposit { amount, .. } | TransactionType::Withdrawal { amount, .. } => {
-            vec![amount.asset.as_str()]
-        }
-    };
-    moved
+    tx.details
+        .assets()
         .into_iter()
         .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
+}
+
+/// `transaction_assets` without repeats, in first-seen order.
+fn distinct_assets(tx: &Transaction) -> Vec<String> {
+    transaction_assets(tx).fold(Vec::new(), |mut assets, a| {
+        if !assets.iter().any(|seen| seen == a) {
+            assets.push(a.to_string());
+        }
+        assets
+    })
 }
 
 /// Group event warnings into one record per distinct warning value, ordered

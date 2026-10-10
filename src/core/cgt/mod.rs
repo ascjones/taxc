@@ -1,4 +1,4 @@
-use super::events::{EventType, Tag, TaxableEvent};
+use super::events::{AdjustmentKind, EventType, Tag, TaxableEvent};
 use super::fmt::round_pence;
 use super::fmt::{iso_date, pence_string, quantity_string};
 use super::uk::TaxYear;
@@ -6,7 +6,7 @@ use super::warnings::Warning;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Serialize, Serializer};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 fn serialize_date<S: Serializer>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&iso_date(*date))
@@ -163,6 +163,10 @@ pub struct DisposalRecord {
     pub datetime: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub asset: String,
+    /// The event the record comes from: a `Disposal`, or the
+    /// `PoolAdjustment(SmallCapitalDistribution)` whose excess over pool cost
+    /// is a gain.
+    pub event_type: EventType,
     pub quantity: Decimal,
     pub proceeds_gbp: Decimal,
     pub allowable_cost_gbp: Decimal,
@@ -205,8 +209,25 @@ impl<'a> FromIterator<&'a DisposalRecord> for DisposalTotals {
 /// CGT report containing all disposals
 #[derive(Debug)]
 pub struct CgtReport {
+    /// Disposals, plus the gain on any small capital distribution that
+    /// exceeded its pool's cost, under the distribution's event id.
     pub disposals: Vec<DisposalRecord>,
     pub pool_history: PoolHistory,
+    /// Warnings raised applying pool adjustments, by event id.
+    pub adjustment_warnings: BTreeMap<usize, Vec<Warning>>,
+}
+
+impl CgtReport {
+    /// Warnings raised applying a pool-adjustment event; empty for any other
+    /// event.
+    pub fn warnings_for_adjustment(&self, event: &TaxableEvent) -> &[Warning] {
+        if !matches!(event.event_type, EventType::PoolAdjustment(_)) {
+            return &[];
+        }
+        self.adjustment_warnings
+            .get(&event.id)
+            .map_or(&[], Vec::as_slice)
+    }
 }
 
 /// Tracks acquisition quantities available for matching
@@ -245,6 +266,7 @@ type AcqKey = (NaiveDate, String);
 pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     let mut pools: HashMap<String, Pool> = HashMap::new();
     let mut disposals: Vec<DisposalRecord> = Vec::new();
+    let mut adjustment_warnings: BTreeMap<usize, Vec<Warning>> = BTreeMap::new();
     let mut pool_history = PoolHistory::default();
     let mut current_year: Option<TaxYear> = None;
 
@@ -253,8 +275,18 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
         .into_iter()
         .filter(|e| !e.asset.eq_ignore_ascii_case("GBP"))
         .collect();
-    // By UK date, disposals before acquisitions on the same day (stable).
-    events.sort_by_key(|e| (e.date(), e.event_type != EventType::Disposal));
+    // By UK date: pool adjustments, then disposals, then acquisitions (stable).
+    // Adjustments apply in time order, ties broken by kind (rights issue,
+    // demerger, small capital distribution), so a same-day disposal sees the
+    // reorganised pools.
+    events.sort_by_key(|e| {
+        let (rank, adjustment) = match e.event_type {
+            EventType::PoolAdjustment(kind) => (0, Some((e.datetime, kind))),
+            EventType::Disposal => (1, None),
+            EventType::Acquisition => (2, None),
+        };
+        (e.date(), rank, adjustment)
+    });
 
     // Build acquisition tracker: first pass records totals
     let mut acquisitions: HashMap<AcqKey, AcquisitionTracker> = HashMap::new();
@@ -314,28 +346,38 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
                     let remaining = tracker.remaining_for_pool();
                     if remaining > Decimal::ZERO {
                         let cost = tracker.cost_for_qty(remaining);
-                        pools
-                            .entry(event.asset.clone())
-                            .or_insert_with(|| Pool::new(event.asset.clone()))
-                            .add(remaining, cost);
+                        pool_for(&mut pools, &event.asset).add(remaining, cost);
                     }
                 }
             }
             EventType::Disposal => {
                 disposals.push(process_disposal(event, &mut acquisitions, &mut pools));
             }
+            // Adjustments change the pools directly, bypassing the
+            // acquisition tracker, so they are never matched.
+            EventType::PoolAdjustment(kind) => {
+                let outcome = apply_adjustment(event, kind, &mut pools);
+                if !outcome.warnings.is_empty() {
+                    adjustment_warnings.insert(event.id, outcome.warnings);
+                }
+                disposals.extend(outcome.excess);
+            }
         }
 
-        // Record pool state after event (for daily history)
-        if let Some(pool) = pools.get(&event.asset) {
-            pool_history.entries.push(PoolHistoryEntry {
-                date: event.date(),
-                asset: event.asset.clone(),
-                event_type: event.event_type,
-                tag: event.tag,
-                quantity: pool.quantity,
-                cost_gbp: pool.cost_gbp,
-            });
+        // Record pool state after event (for daily history). A demerger
+        // changes the original holding's pool as well as its own.
+        let demerged_from = event.demerged_from.as_ref().map(|d| d.asset.as_str());
+        for asset in demerged_from.into_iter().chain([event.asset.as_str()]) {
+            if let Some(pool) = pools.get(asset) {
+                pool_history.entries.push(PoolHistoryEntry {
+                    date: event.date(),
+                    asset: asset.to_string(),
+                    event_type: event.event_type,
+                    tag: event.tag,
+                    quantity: pool.quantity,
+                    cost_gbp: pool.cost_gbp,
+                });
+            }
         }
     }
 
@@ -349,6 +391,7 @@ pub fn calculate_cgt(events: Vec<TaxableEvent>) -> CgtReport {
     CgtReport {
         disposals,
         pool_history,
+        adjustment_warnings,
     }
 }
 
@@ -404,9 +447,7 @@ fn process_disposal(
         warnings.push(Warning::UnclassifiedEvent);
     }
     if remaining > Decimal::ZERO {
-        let pool = pools
-            .entry(event.asset.clone())
-            .or_insert_with(|| Pool::new(event.asset.clone()));
+        let pool = pool_for(pools, &event.asset);
         // Short of the pool (including an empty one: no cost basis at all).
         if remaining > pool.quantity {
             warnings.push(Warning::InsufficientCostBasis {
@@ -438,6 +479,7 @@ fn process_disposal(
         datetime: event.datetime,
         date,
         asset: event.asset.clone(),
+        event_type: event.event_type,
         quantity: event.quantity,
         proceeds_gbp: proceeds,
         allowable_cost_gbp: allowable_cost,
@@ -446,6 +488,88 @@ fn process_disposal(
         matching_components: components,
         warnings,
     }
+}
+
+fn pool_for<'a>(pools: &'a mut HashMap<String, Pool>, asset: &str) -> &'a mut Pool {
+    pools
+        .entry(asset.to_string())
+        .or_insert_with(|| Pool::new(asset.to_string()))
+}
+
+/// What applying one pool adjustment produced besides the pool changes.
+struct AdjustmentOutcome {
+    warnings: Vec<Warning>,
+    /// The chargeable excess of a small capital distribution over its
+    /// pool's cost.
+    excess: Option<DisposalRecord>,
+}
+
+/// Apply a share reorganisation to the pools as one step, with no disposal.
+fn apply_adjustment(
+    event: &TaxableEvent,
+    kind: AdjustmentKind,
+    pools: &mut HashMap<String, Pool>,
+) -> AdjustmentOutcome {
+    // A demerger or distribution with nothing in its pool has no cost basis.
+    let no_pool_warning = || Warning::InsufficientCostBasis {
+        available: Decimal::ZERO,
+        required: Decimal::ZERO,
+    };
+    let mut warnings = Vec::new();
+    let mut excess = None;
+
+    match kind {
+        // TCGA 1992 s.127/s.128: the rights shares and their cost join the
+        // original holding.
+        AdjustmentKind::RightsIssue => {
+            pool_for(pools, &event.asset).add(event.quantity, event.total_cost_gbp());
+        }
+        // s.129/s.130: the stated fraction of the original cost moves to the new
+        // holding.
+        AdjustmentKind::Demerger => {
+            let from = event
+                .demerged_from
+                .as_ref()
+                .expect("demerger events carry their original holding");
+            let original = pool_for(pools, &from.asset);
+            if original.quantity.is_zero() {
+                warnings.push(no_pool_warning());
+            }
+            let moved = round_pence(original.cost_gbp * from.cost_fraction);
+            original.cost_gbp -= moved;
+            pool_for(pools, &event.asset).add(event.quantity, moved);
+        }
+        // s.122(2): the distribution reduces allowable cost. Beyond the
+        // cost, the excess is a gain (s.122(4) election, HMRC CG57847).
+        AdjustmentKind::SmallCapitalDistribution => {
+            let pool = pool_for(pools, &event.asset);
+            if pool.quantity.is_zero() {
+                warnings.push(no_pool_warning());
+            }
+            let amount = -event.total_cost_gbp();
+            let deducted = amount.min(pool.cost_gbp);
+            pool.cost_gbp -= deducted;
+            let gain = amount - deducted;
+            if gain > Decimal::ZERO {
+                excess = Some(DisposalRecord {
+                    id: event.id,
+                    datetime: event.datetime,
+                    date: event.date(),
+                    asset: event.asset.clone(),
+                    event_type: event.event_type,
+                    quantity: Decimal::ZERO,
+                    proceeds_gbp: gain,
+                    allowable_cost_gbp: Decimal::ZERO,
+                    fees_gbp: Decimal::ZERO,
+                    gain_gbp: gain,
+                    matching_components: Vec::new(),
+                    warnings: vec![Warning::CapitalDistributionExceedsCost],
+                });
+            }
+        }
+    }
+
+    AdjustmentOutcome { warnings, excess }
 }
 
 fn snapshot_pools(year: TaxYear, pools: &HashMap<String, Pool>) -> YearEndSnapshot {
@@ -477,9 +601,10 @@ impl<'a> DisposalIndex<'a> {
         DisposalIndex(report.disposals.iter().map(|d| (d.id, d)).collect())
     }
 
-    /// The disposal record for a disposal event; `None` for acquisitions.
+    /// The disposal record for a disposal event, or the excess gain of a
+    /// small capital distribution; `None` for acquisitions.
     pub fn find(&self, event: &TaxableEvent) -> Option<&'a DisposalRecord> {
-        if event.event_type != EventType::Disposal {
+        if event.event_type == EventType::Acquisition {
             return None;
         }
         self.0.get(&event.id).copied()

@@ -52,7 +52,7 @@ pub mod results {
         CgtReport, CgtSummary, DisposalRecord, MatchingComponent, MatchingRule, PoolHistory,
         PoolHistoryEntry, PoolState, YearEndSnapshot,
     };
-    pub use crate::core::events::{EventType, TaxableEvent};
+    pub use crate::core::events::{AdjustmentKind, DemergedFrom, EventType, TaxableEvent};
     pub use crate::core::summary::{CgtPosition, IncomePosition, TaxSummary};
     pub use crate::core::uk::{TaxBand, TaxYear};
     pub use crate::core::warnings::Warning;
@@ -187,7 +187,7 @@ fn summarize_year(
     for event in &year_events {
         let disposal = disposal_index.find(event);
         warnings.extend(
-            event_warnings(event, disposal)
+            event_warnings(event, disposal, cgt.warnings_for_adjustment(event))
                 .into_iter()
                 .map(|warning| EventWarning {
                     event_id: event.id,

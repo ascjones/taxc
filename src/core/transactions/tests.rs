@@ -1,6 +1,6 @@
 use super::datetime::parse_datetime;
 use super::*;
-use crate::core::events::{AssetClass, EventType, Tag, TaxableEvent};
+use crate::core::events::{AdjustmentKind, AssetClass, DemergedFrom, EventType, Tag, TaxableEvent};
 use crate::core::price::Price;
 use chrono::{DateTime, FixedOffset};
 use rust_decimal::Decimal;
@@ -1947,4 +1947,570 @@ fn exclude_unlinked_drops_unlinked_withdrawals_and_their_fees() {
         .to_taxable_events(&test_registry(), true)
         .unwrap();
     assert!(events.is_empty(), "{events:?}");
+}
+
+// ---- Share reorganisations and fee-only transactions ----
+
+/// Convert a document holding the given transaction rows, with ULVR, MICC
+/// and CSN shares and DOT tokens defined.
+fn convert_rows(rows: serde_json::Value) -> Result<Vec<TaxableEvent>, TransactionError> {
+    let doc: Transactions = serde_json::from_value(serde_json::json!({
+        "assets": [
+            {"symbol": "ULVR", "asset_class": "Stock"},
+            {"symbol": "MICC", "asset_class": "Stock"},
+            {"symbol": "CSN", "asset_class": "Stock"},
+            {"symbol": "DOT", "asset_class": "Crypto"},
+        ],
+        "transactions": rows,
+    }))
+    .unwrap();
+    document_to_events(doc, ConversionOptions::default())
+}
+
+/// One transaction row: the common fields plus `fields`.
+fn row(id: &str, fields: serde_json::Value) -> serde_json::Value {
+    let mut row = serde_json::json!({
+        "id": id,
+        "datetime": "2025-12-17T09:00:00Z",
+        "account": "ii",
+    });
+    row.as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    row
+}
+
+fn demerger_row(id: &str) -> serde_json::Value {
+    row(
+        id,
+        serde_json::json!({
+            "type": "Demerger",
+            "original": "ULVR",
+            "new_holding": {"asset": "MICC", "quantity": "177"},
+            "cost_fraction": "0.051151",
+        }),
+    )
+}
+
+fn rights_issue_row(id: &str) -> serde_json::Value {
+    row(
+        id,
+        serde_json::json!({
+            "type": "RightsIssue",
+            "new_shares": {"asset": "CSN", "quantity": "1473"},
+            "consideration": "2592.48",
+        }),
+    )
+}
+
+fn small_distribution_row(id: &str) -> serde_json::Value {
+    row(
+        id,
+        serde_json::json!({
+            "type": "SmallCapitalDistribution",
+            "asset": "ULVR",
+            "amount": "21.64",
+        }),
+    )
+}
+
+fn fee_row(id: &str) -> serde_json::Value {
+    row(
+        id,
+        serde_json::json!({
+            "type": "Fee",
+            "fee": {"asset": "DOT", "amount": "0.02", "price": {"base": "DOT", "rate": "5.00"}},
+        }),
+    )
+}
+
+/// `row` with `field` replaced by `value` (or removed when `value` is null).
+fn with(mut row: serde_json::Value, field: &str, value: serde_json::Value) -> serde_json::Value {
+    let obj = row.as_object_mut().unwrap();
+    if value.is_null() {
+        obj.remove(field);
+    } else {
+        obj.insert(field.to_string(), value);
+    }
+    row
+}
+
+#[test]
+fn reorganisation_types_round_trip_with_numeric_string_decimals() {
+    for row in [
+        demerger_row("d"),
+        rights_issue_row("r"),
+        small_distribution_row("s"),
+        fee_row("f"),
+    ] {
+        let tx: Transaction = serde_json::from_value(row.clone()).unwrap();
+        let back = serde_json::to_value(&tx).unwrap();
+        assert_eq!(back, row);
+    }
+}
+
+#[test]
+fn reorganisation_types_accept_valid_rows() {
+    let rows = serde_json::json!([
+        demerger_row("d"),
+        rights_issue_row("r"),
+        small_distribution_row("s"),
+        fee_row("f"),
+    ]);
+    assert!(convert_rows(rows).is_ok());
+}
+
+#[test]
+fn reorganisation_non_positive_quantities_and_amounts_are_rejected() {
+    let non_positive = |row: serde_json::Value| convert_rows(serde_json::json!([row])).unwrap_err();
+    for qty in ["0", "-1"] {
+        assert_eq!(
+            non_positive(with(
+                demerger_row("d"),
+                "new_holding",
+                serde_json::json!({"asset": "MICC", "quantity": qty}),
+            )),
+            TransactionError::NonPositiveQuantity {
+                id: "d".to_string(),
+                asset: "MICC".to_string(),
+            }
+        );
+        assert_eq!(
+            non_positive(with(
+                rights_issue_row("r"),
+                "new_shares",
+                serde_json::json!({"asset": "CSN", "quantity": qty}),
+            )),
+            TransactionError::NonPositiveQuantity {
+                id: "r".to_string(),
+                asset: "CSN".to_string(),
+            }
+        );
+        assert_eq!(
+            non_positive(with(
+                rights_issue_row("r"),
+                "consideration",
+                serde_json::json!(qty)
+            )),
+            TransactionError::NonPositiveAmount {
+                id: "r".to_string(),
+                field: "consideration".to_string(),
+            }
+        );
+        assert_eq!(
+            non_positive(with(
+                small_distribution_row("s"),
+                "amount",
+                serde_json::json!(qty)
+            )),
+            TransactionError::NonPositiveAmount {
+                id: "s".to_string(),
+                field: "amount".to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+fn demerger_cost_fraction_must_be_strictly_between_zero_and_one() {
+    for fraction in ["0", "1", "1.5", "-0.1"] {
+        let err = convert_rows(serde_json::json!([with(
+            demerger_row("d"),
+            "cost_fraction",
+            serde_json::json!(fraction),
+        )]))
+        .unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidCostFraction {
+                id: "d".to_string()
+            },
+            "fraction {fraction}"
+        );
+    }
+}
+
+#[test]
+fn demerger_into_the_original_asset_is_rejected() {
+    let err = convert_rows(serde_json::json!([with(
+        demerger_row("d"),
+        "new_holding",
+        serde_json::json!({"asset": "ulvr", "quantity": "177"}),
+    )]))
+    .unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::DemergerSameAsset {
+            id: "d".to_string()
+        }
+    );
+}
+
+#[test]
+fn reorganisation_undefined_assets_are_rejected() {
+    let undefined = |row: serde_json::Value| convert_rows(serde_json::json!([row])).unwrap_err();
+    let expected = TransactionError::UndefinedAsset {
+        symbol: "XYZ".to_string(),
+    };
+    assert_eq!(
+        undefined(with(
+            demerger_row("d"),
+            "original",
+            serde_json::json!("XYZ")
+        )),
+        expected
+    );
+    assert_eq!(
+        undefined(with(
+            demerger_row("d"),
+            "new_holding",
+            serde_json::json!({"asset": "XYZ", "quantity": "1"}),
+        )),
+        expected
+    );
+    assert_eq!(
+        undefined(with(
+            rights_issue_row("r"),
+            "new_shares",
+            serde_json::json!({"asset": "XYZ", "quantity": "1"}),
+        )),
+        expected
+    );
+    assert_eq!(
+        undefined(with(
+            small_distribution_row("s"),
+            "asset",
+            serde_json::json!("XYZ")
+        )),
+        expected
+    );
+}
+
+#[test]
+fn reorganisation_of_sterling_is_rejected() {
+    let sterling = |row: serde_json::Value| convert_rows(serde_json::json!([row])).unwrap_err();
+    assert_eq!(
+        sterling(with(
+            demerger_row("d"),
+            "original",
+            serde_json::json!("GBP")
+        )),
+        TransactionError::SterlingNotAllowed {
+            id: "d".to_string(),
+            tx_type: "Demerger".to_string(),
+        }
+    );
+    assert_eq!(
+        sterling(with(
+            rights_issue_row("r"),
+            "new_shares",
+            serde_json::json!({"asset": "GBP", "quantity": "1"}),
+        )),
+        TransactionError::SterlingNotAllowed {
+            id: "r".to_string(),
+            tx_type: "RightsIssue".to_string(),
+        }
+    );
+    assert_eq!(
+        sterling(with(
+            small_distribution_row("s"),
+            "asset",
+            serde_json::json!("gbp")
+        )),
+        TransactionError::SterlingNotAllowed {
+            id: "s".to_string(),
+            tx_type: "SmallCapitalDistribution".to_string(),
+        }
+    );
+}
+
+#[test]
+fn fee_transaction_requires_a_positive_fee() {
+    for fee in [
+        serde_json::Value::Null,
+        serde_json::json!({"asset": "DOT", "amount": "0", "price": {"base": "DOT", "rate": "5"}}),
+    ] {
+        let err = convert_rows(serde_json::json!([with(fee_row("f"), "fee", fee)])).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::FeeRequired {
+                id: "f".to_string()
+            }
+        );
+    }
+}
+
+#[test]
+fn fee_transaction_in_tokens_requires_a_price() {
+    let err = convert_rows(serde_json::json!([with(
+        fee_row("f"),
+        "fee",
+        serde_json::json!({"asset": "DOT", "amount": "0.02"}),
+    )]))
+    .unwrap_err();
+    assert_eq!(
+        err,
+        TransactionError::MissingFeePrice {
+            asset: "DOT".to_string()
+        }
+    );
+}
+
+#[test]
+fn reorganisation_and_fee_types_reject_a_non_default_tag() {
+    for (row, tx_type) in [
+        (demerger_row("x"), "Demerger"),
+        (rights_issue_row("x"), "RightsIssue"),
+        (small_distribution_row("x"), "SmallCapitalDistribution"),
+        (fee_row("x"), "Fee"),
+    ] {
+        let err = convert_rows(serde_json::json!([with(
+            row,
+            "tag",
+            serde_json::json!("Trade")
+        )]))
+        .unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::InvalidTagForType {
+                id: "x".to_string(),
+                tag: "Trade".to_string(),
+                tx_type: tx_type.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+fn reorganisation_and_fee_types_reject_a_valuation() {
+    for (row, tx_type) in [
+        (demerger_row("x"), "Demerger"),
+        (rights_issue_row("x"), "RightsIssue"),
+        (small_distribution_row("x"), "SmallCapitalDistribution"),
+        (fee_row("x"), "Fee"),
+    ] {
+        let err = convert_rows(serde_json::json!([with(
+            row,
+            "valuation",
+            serde_json::json!("10")
+        )]))
+        .unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::ValuationNotAllowed {
+                id: "x".to_string(),
+                tx_type: tx_type.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+fn demerger_and_small_distribution_reject_a_fee() {
+    let gbp_fee = serde_json::json!({"asset": "GBP", "amount": "1"});
+    for (row, tx_type) in [
+        (demerger_row("x"), "Demerger"),
+        (small_distribution_row("x"), "SmallCapitalDistribution"),
+    ] {
+        let err = convert_rows(serde_json::json!([with(row, "fee", gbp_fee.clone())])).unwrap_err();
+        assert_eq!(
+            err,
+            TransactionError::FeeNotAllowed {
+                id: "x".to_string(),
+                tx_type: tx_type.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+fn demerger_converts_to_one_linked_pool_adjustment() {
+    let events = convert_rows(serde_json::json!([demerger_row("d")])).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    let e = &events[0];
+    assert_eq!(
+        e.event_type,
+        EventType::PoolAdjustment(AdjustmentKind::Demerger)
+    );
+    assert_eq!(e.tag, Tag::Trade);
+    assert_eq!(e.asset, "MICC");
+    assert_eq!(e.asset_class, AssetClass::Stock);
+    assert_eq!(e.quantity, dec!(177));
+    assert_eq!(e.value_gbp, dec!(0));
+    assert_eq!(
+        e.demerged_from,
+        Some(DemergedFrom {
+            asset: "ULVR".to_string(),
+            cost_fraction: dec!(0.051151),
+        })
+    );
+}
+
+#[test]
+fn rights_issue_converts_to_one_adjustment_costing_consideration_plus_fee() {
+    let events = convert_rows(serde_json::json!([with(
+        rights_issue_row("r"),
+        "fee",
+        serde_json::json!({"asset": "GBP", "amount": "9.99"}),
+    )]))
+    .unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    let e = &events[0];
+    assert_eq!(
+        e.event_type,
+        EventType::PoolAdjustment(AdjustmentKind::RightsIssue)
+    );
+    assert_eq!(e.tag, Tag::Trade);
+    assert_eq!(e.asset, "CSN");
+    assert_eq!(e.quantity, dec!(1473));
+    assert_eq!(e.total_cost_gbp(), dec!(2602.47));
+    assert_eq!(e.demerged_from, None);
+}
+
+#[test]
+fn small_capital_distribution_converts_to_one_negative_cost_adjustment() {
+    let events = convert_rows(serde_json::json!([small_distribution_row("s")])).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    let e = &events[0];
+    assert_eq!(
+        e.event_type,
+        EventType::PoolAdjustment(AdjustmentKind::SmallCapitalDistribution)
+    );
+    assert_eq!(e.asset, "ULVR");
+    assert_eq!(e.quantity, dec!(0));
+    assert_eq!(e.total_cost_gbp(), dec!(-21.64));
+}
+
+#[test]
+fn fee_transaction_in_tokens_is_one_disposal_at_market_value() {
+    // 0.02 DOT at £5.00 is disposed of for £0.10.
+    let events = convert_rows(serde_json::json!([fee_row("f")])).unwrap();
+    assert_eq!(events.len(), 1, "{events:?}");
+    let e = &events[0];
+    assert_eq!(e.event_type, EventType::Disposal);
+    assert_eq!(e.tag, Tag::Trade);
+    assert_eq!(e.asset, "DOT");
+    assert_eq!(e.quantity, dec!(0.02));
+    assert_eq!(e.value_gbp, dec!(0.10));
+    assert_eq!(e.fee_gbp, None);
+}
+
+#[test]
+fn fee_transaction_in_sterling_produces_no_event() {
+    let events = convert_rows(serde_json::json!([with(
+        fee_row("f"),
+        "fee",
+        serde_json::json!({"asset": "GBP", "amount": "1.50"}),
+    )]))
+    .unwrap();
+    assert!(events.is_empty(), "{events:?}");
+}
+
+// --- HMRC CRYPTO22280 worked example: Terri pays a 1-token fee ---
+//
+// https://www.gov.uk/hmrc-internal-manuals/cryptoassets-manual/crypto22280
+// Terri holds 10,000 tokens that cost £20,000.
+
+fn terri_buys_10000_dot() -> serde_json::Value {
+    with(
+        row(
+            "buy",
+            serde_json::json!({
+                "type": "Trade",
+                "sold": {"asset": "GBP", "quantity": "20000"},
+                "bought": {"asset": "DOT", "quantity": "10000"},
+            }),
+        ),
+        "datetime",
+        serde_json::json!("2025-01-01T09:00:00Z"),
+    )
+}
+
+fn one_dot_fee_at_5() -> serde_json::Value {
+    serde_json::json!({"asset": "DOT", "amount": "1", "price": {"base": "DOT", "rate": "5"}})
+}
+
+fn total_gain(rows: serde_json::Value) -> Decimal {
+    let events = convert_rows(rows).unwrap();
+    crate::core::cgt::calculate_cgt(events)
+        .disposals
+        .iter()
+        .map(|d| d.gain_gbp)
+        .sum()
+}
+
+#[test]
+fn hmrc_fee_example_crypto22280_fee_only_token_is_a_disposal() {
+    // The token given as the fee: £5 consideration less £2 pool cost
+    // (1/10,000 x £20,000) is a £3 gain.
+    let fee = with(fee_row("fee"), "fee", one_dot_fee_at_5());
+    assert_eq!(
+        total_gain(serde_json::json!([terri_buys_10000_dot(), fee])),
+        dec!(3)
+    );
+}
+
+#[test]
+fn hmrc_fee_example_crypto22280_sale_with_token_fee() {
+    // Terri sells 1,000 tokens for £5,000 and pays 1 token as the fee. HMRC
+    // combines both same-day disposals: £5,005 - £2,002 - £5 = £2,998.
+    let sale = with(
+        row(
+            "sell",
+            serde_json::json!({
+                "type": "Trade",
+                "sold": {"asset": "DOT", "quantity": "1000"},
+                "bought": {"asset": "GBP", "quantity": "5000"},
+            }),
+        ),
+        "fee",
+        one_dot_fee_at_5(),
+    );
+    assert_eq!(
+        total_gain(serde_json::json!([terri_buys_10000_dot(), sale])),
+        dec!(2998)
+    );
+}
+
+#[test]
+fn reorganisation_types_accept_numeric_amounts_and_an_explicit_unclassified_tag() {
+    // A producer may write quantities and amounts as JSON numbers and spell
+    // out the default tag.
+    let unclassified = |row| with(row, "tag", serde_json::json!("Unclassified"));
+    let rows = serde_json::json!([
+        unclassified(with(
+            demerger_row("d"),
+            "new_holding",
+            serde_json::json!({"asset": "MICC", "quantity": 177}),
+        )),
+        unclassified(with(
+            rights_issue_row("r"),
+            "new_shares",
+            serde_json::json!({"asset": "CSN", "quantity": 1473}),
+        )),
+        unclassified(with(
+            small_distribution_row("s"),
+            "amount",
+            serde_json::json!(5.03),
+        )),
+        unclassified(with(
+            fee_row("f"),
+            "fee",
+            serde_json::json!({"asset": "DOT", "amount": 0.02, "price": {"base": "DOT", "rate": "5.00"}}),
+        )),
+    ]);
+
+    let events = convert_rows(rows).unwrap();
+
+    let micc = events.iter().find(|e| e.asset == "MICC").unwrap();
+    assert_eq!(micc.quantity, dec!(177));
+    let distribution = events
+        .iter()
+        .find(|e| {
+            e.event_type == EventType::PoolAdjustment(AdjustmentKind::SmallCapitalDistribution)
+        })
+        .unwrap();
+    assert_eq!(distribution.total_cost_gbp(), dec!(-5.03));
+    let fee = events.iter().find(|e| e.asset == "DOT").unwrap();
+    assert_eq!(fee.value_gbp, dec!(0.10));
 }

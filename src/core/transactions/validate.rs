@@ -56,15 +56,8 @@ pub(super) fn validate_assets(
     }
 
     for tx in transactions {
-        match &tx.details {
-            TransactionType::Trade { sold, bought } => {
-                validate_symbol(&registry, sold.asset.as_str())?;
-                validate_symbol(&registry, bought.asset.as_str())?;
-            }
-            TransactionType::Deposit { amount, .. }
-            | TransactionType::Withdrawal { amount, .. } => {
-                validate_symbol(&registry, amount.asset.as_str())?;
-            }
+        for asset in tx.details.assets() {
+            validate_symbol(&registry, asset)?;
         }
 
         if let Some(fee) = &tx.fee {
@@ -91,13 +84,23 @@ fn validate_symbol(registry: &AssetRegistry, symbol: &str) -> Result<(), Transac
     })
 }
 
-/// Reject zero/negative quantities and negative fee amounts.
+/// Reject zero/negative quantities and amounts, negative fee amounts, and a
+/// demerger fraction outside (0, 1) or into its own original asset.
 pub(super) fn validate_amounts(transactions: &[Transaction]) -> Result<(), TransactionError> {
     fn check_positive(id: &str, amount: &Amount) -> Result<(), TransactionError> {
         if amount.quantity <= Decimal::ZERO {
             return Err(TransactionError::NonPositiveQuantity {
                 id: id.to_string(),
                 asset: amount.asset.clone(),
+            });
+        }
+        Ok(())
+    }
+    fn check_positive_gbp(id: &str, field: &str, value: Decimal) -> Result<(), TransactionError> {
+        if value <= Decimal::ZERO {
+            return Err(TransactionError::NonPositiveAmount {
+                id: id.to_string(),
+                field: field.to_string(),
             });
         }
         Ok(())
@@ -113,6 +116,30 @@ pub(super) fn validate_amounts(transactions: &[Transaction]) -> Result<(), Trans
             | TransactionType::Withdrawal { amount, .. } => {
                 check_positive(&tx.id, amount)?;
             }
+            TransactionType::Demerger {
+                original,
+                new_holding,
+                cost_fraction,
+            } => {
+                check_positive(&tx.id, new_holding)?;
+                if *cost_fraction <= Decimal::ZERO || *cost_fraction >= Decimal::ONE {
+                    return Err(TransactionError::InvalidCostFraction { id: tx.id.clone() });
+                }
+                if *original == new_holding.asset {
+                    return Err(TransactionError::DemergerSameAsset { id: tx.id.clone() });
+                }
+            }
+            TransactionType::RightsIssue {
+                new_shares,
+                consideration,
+            } => {
+                check_positive(&tx.id, new_shares)?;
+                check_positive_gbp(&tx.id, "consideration", *consideration)?;
+            }
+            TransactionType::SmallCapitalDistribution { amount, .. } => {
+                check_positive_gbp(&tx.id, "amount", *amount)?;
+            }
+            TransactionType::Fee {} => {}
         }
 
         if let Some(fee) = &tx.fee {
@@ -123,6 +150,67 @@ pub(super) fn validate_amounts(transactions: &[Transaction]) -> Result<(), Trans
     }
 
     Ok(())
+}
+
+/// The reorganisation and fee-only types take the default tag and no
+/// valuation, never apply to sterling, and constrain the fee: a `Fee` needs a
+/// positive one, and a demerger or small capital distribution allows none.
+pub(super) fn validate_restricted_types(
+    transactions: &[Transaction],
+) -> Result<(), TransactionError> {
+    for tx in transactions {
+        let fee_rule = match &tx.details {
+            TransactionType::Trade { .. }
+            | TransactionType::Deposit { .. }
+            | TransactionType::Withdrawal { .. } => continue,
+            TransactionType::Demerger { .. } | TransactionType::SmallCapitalDistribution { .. } => {
+                FeeRule::None
+            }
+            TransactionType::RightsIssue { .. } => FeeRule::Optional,
+            TransactionType::Fee {} => FeeRule::Required,
+        };
+        let id = || tx.id.clone();
+        let tx_type_string = || tx.details.type_name().to_string();
+
+        if tx.tag != Tag::Unclassified {
+            return Err(TransactionError::InvalidTagForType {
+                id: id(),
+                tag: format!("{:?}", tx.tag),
+                tx_type: tx_type_string(),
+            });
+        }
+        if tx.valuation.is_some() {
+            return Err(TransactionError::ValuationNotAllowed {
+                id: id(),
+                tx_type: tx_type_string(),
+            });
+        }
+        if tx.details.assets().into_iter().any(is_gbp) {
+            return Err(TransactionError::SterlingNotAllowed {
+                id: id(),
+                tx_type: tx_type_string(),
+            });
+        }
+        match fee_rule {
+            FeeRule::None if tx.fee.is_some() => {
+                return Err(TransactionError::FeeNotAllowed {
+                    id: id(),
+                    tx_type: tx_type_string(),
+                });
+            }
+            FeeRule::Required if !tx.fee.as_ref().is_some_and(|f| f.amount > Decimal::ZERO) => {
+                return Err(TransactionError::FeeRequired { id: id() });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+enum FeeRule {
+    None,
+    Optional,
+    Required,
 }
 
 pub(super) fn validate_links(transactions: &[Transaction]) -> Result<(), TransactionError> {

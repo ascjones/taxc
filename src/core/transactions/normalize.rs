@@ -36,6 +36,21 @@ pub(super) fn normalize_transactions(transactions: &mut [Transaction]) {
             TransactionType::Withdrawal { amount, .. } => {
                 amount.asset = normalize_currency(&amount.asset);
             }
+            TransactionType::Demerger {
+                original,
+                new_holding,
+                ..
+            } => {
+                *original = normalize_currency(original);
+                new_holding.asset = normalize_currency(&new_holding.asset);
+            }
+            TransactionType::RightsIssue { new_shares, .. } => {
+                new_shares.asset = normalize_currency(&new_shares.asset);
+            }
+            TransactionType::SmallCapitalDistribution { asset, .. } => {
+                *asset = normalize_currency(asset);
+            }
+            TransactionType::Fee {} => {}
         }
     }
 }
