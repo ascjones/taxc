@@ -17,7 +17,7 @@ enum Command {
     /// Show aggregated tax summary
     Summary(SummaryCommand),
 
-    /// Generate tax report (HTML by default, or JSON with --json)
+    /// Generate a detailed tax report as JSON
     Report(ReportCommand),
 
     /// Show pool balances over time

@@ -3,6 +3,19 @@
 mod common;
 use common::run_taxc;
 
+#[test]
+fn report_outputs_json_by_default_and_still_accepts_json_flag() {
+    let default = run_taxc(&["report", "tests/data/mixed_rules.json"]);
+    let flagged = run_taxc(&["report", "tests/data/mixed_rules.json", "--json"]);
+    assert!(default.status.success(), "Command failed: {:?}", default);
+    assert!(flagged.status.success(), "Command failed: {:?}", flagged);
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&default.stdout).expect("default output is JSON");
+    assert!(json["events"].is_array());
+    assert_eq!(default.stdout, flagged.stdout);
+}
+
 /// Test that the report JSON output includes mixed matching rules
 #[test]
 fn report_mixed_rules() {

@@ -49,7 +49,7 @@ The suite follows a pyramid — keep domain logic at the lowest layer that can e
 
 - **`src/core/` unit tests** — pure domain logic (CGT matching, tax-event conversion, tax-year/rate math). The bulk of coverage belongs here.
 - **`src/cmd/` in-process tests** — aggregation/filtering/report-shaping tested by calling functions like `build_report_data` directly (no process spawn). Prefer this tier over E2E for anything that isn't strictly CLI wiring.
-- **`tests/` integration tests** — CLI argument wiring, stdout/JSON formatting, and HTML/JS rendering, exercised through the compiled binary. Some figures are deliberately re-verified end-to-end (defense-in-depth for a tax tool); that redundancy is intentional.
+- **`tests/` integration tests** — CLI argument wiring and stdout/JSON formatting, exercised through the compiled binary. Some figures are deliberately re-verified end-to-end (defense-in-depth for a tax tool); that redundancy is intentional.
 
 ### Conventions
 

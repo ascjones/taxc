@@ -1,25 +1,22 @@
-//! Report command and JSON/HTML data model.
-
-pub mod html;
+//! Report command and its JSON data model.
 
 pub const NGNL_VALUE_NOTE: &str = "No gain/no loss transfer: value shows transferred allowable cost basis. CGT proceeds are deemed from cost basis and disposal fees; see disposal details for tax values.";
 
 use super::filter::{EventFilter, EventKind, FilterArgs};
-use super::read_transactions_and_events;
+use super::read_events;
 use crate::core::fmt::{iso_date, pence_string, quantity_string};
-use crate::core::transactions::{Transaction, TransactionType};
+use crate::core::uk_rfc3339;
 use crate::core::{
     calculate_cgt, display_event_type, event_warnings, AssetClass, CgtReport, DisposalIndex,
     DisposalRecord, DisposalTotals, EventType, Tag, TaxYear, TaxableEvent, Warning,
 };
-use crate::core::{uk_date, uk_rfc3339};
 use anyhow::Context;
 use chrono::NaiveDate;
 use clap::Args;
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -28,12 +25,12 @@ pub struct ReportCommand {
     #[arg(default_value = "-")]
     file: PathBuf,
 
-    /// Output file path (default: opens in browser)
+    /// Output file path (default: stdout)
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Output as JSON instead of HTML
-    #[arg(long)]
+    /// Accepted for compatibility: JSON is the only format
+    #[arg(long, hide = true)]
     json: bool,
 
     /// Filter by asset (e.g., BTC, ETH)
@@ -51,114 +48,29 @@ pub struct ReportCommand {
 impl ReportCommand {
     pub fn exec(&self) -> anyhow::Result<()> {
         let event_filter = self.filter.build(self.asset.clone())?;
-        let (transactions, events) =
-            read_transactions_and_events(&self.file, self.exclude_unlinked)?;
-
+        let events = read_events(&self.file, self.exclude_unlinked)?;
         let cgt_report = calculate_cgt(events.clone());
+        let data = build_report_data(&events, &cgt_report, &event_filter);
+        let json = serde_json::to_string_pretty(&data)?;
 
-        if self.json {
-            let data = build_report_data(&[], &events, &cgt_report, &event_filter);
-            let json = serde_json::to_string_pretty(&data)?;
-
-            if let Some(ref output_path) = self.output {
-                write_output(output_path, &json)?;
-                eprintln!("JSON report written to: {}", output_path.display());
-            } else {
-                println!("{}", json);
-            }
+        if let Some(ref output_path) = self.output {
+            std::fs::write(output_path, &json)
+                .with_context(|| format!("cannot write {}", output_path.display()))?;
+            eprintln!("JSON report written to: {}", output_path.display());
         } else {
-            let html = html::generate_html(&transactions, &events, &cgt_report, &event_filter)?;
-
-            if let Some(ref output_path) = self.output {
-                write_output(output_path, &html)?;
-                println!("HTML report written to: {}", output_path.display());
-            } else {
-                let temp_path = write_private_temp(&html)?;
-                opener::open(&temp_path).with_context(|| {
-                    format!(
-                        "report written to {} but could not open a browser",
-                        temp_path.display()
-                    )
-                })?;
-                println!("Opened HTML report in browser: {}", temp_path.display());
-            }
+            println!("{}", json);
         }
 
         Ok(())
     }
 }
 
-fn write_output(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
-    std::fs::write(path, contents).with_context(|| format!("cannot write {}", path.display()))
-}
-
-/// Write the report to a new, uniquely named file only the user can read.
-///
-/// The report holds personal financial data and the temp directory may be
-/// shared (e.g. /tmp on Linux), so a fixed name would be readable by others
-/// and could be pre-created as a symlink by another user.
-fn write_private_temp(contents: &str) -> anyhow::Result<PathBuf> {
-    use std::io::Write;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default();
-    let path =
-        std::env::temp_dir().join(format!("taxc-report-{}-{}.html", std::process::id(), nanos));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options
-        .open(&path)
-        .with_context(|| format!("cannot create {}", path.display()))?;
-    file.write_all(contents.as_bytes())?;
-    Ok(path)
-}
-
-/// Data structure for embedding in HTML as JSON
+/// The report's JSON document
 #[derive(Serialize, JsonSchema)]
 pub struct ReportData {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub transactions: Vec<TransactionRow>,
     pub events: Vec<EventRow>,
     pub warnings: Vec<WarningRecord>,
     pub summary: Summary,
-}
-
-/// A serialized input transaction for the transactions view
-#[derive(Serialize, JsonSchema)]
-pub struct TransactionRow {
-    pub id: String,
-    pub datetime: String,
-    pub tax_year: String,
-    pub account: String,
-    pub transaction_type: String,
-    pub tag: Tag,
-    pub description: String,
-    /// Assets involved (e.g. for Trade: sold + bought; for Deposit/Withdrawal: single amount)
-    pub amounts: Vec<TransactionAmount>,
-    /// Fee if any
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fee: Option<TransactionFee>,
-    /// Every asset the transaction touches, including its fee asset and a
-    /// demerger's original holding (for asset filtering)
-    pub assets: Vec<String>,
-    /// Event IDs generated from this transaction
-    pub event_ids: Vec<usize>,
-}
-
-#[derive(Serialize, JsonSchema)]
-pub struct TransactionAmount {
-    pub label: String,
-    pub asset: String,
-    pub quantity: String,
-}
-
-#[derive(Serialize, JsonSchema)]
-pub struct TransactionFee {
-    pub asset: String,
-    pub amount: String,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -279,7 +191,6 @@ pub struct Summary {
 }
 
 pub(super) fn build_report_data(
-    transactions: &[Transaction],
     events: &[TaxableEvent],
     cgt_report: &CgtReport,
     filter: &EventFilter,
@@ -291,7 +202,6 @@ pub(super) fn build_report_data(
     let event_rows = build_event_rows(&filtered_events, cgt_report, &acquisitions);
 
     ReportData {
-        transactions: build_transaction_rows(transactions, events, &filtered_events, filter),
         warnings: group_warnings(&event_rows),
         summary: build_summary(&filtered_events, &event_rows, cgt_report, filter),
         events: event_rows,
@@ -551,113 +461,6 @@ fn build_summary(
         min_date: min_date.map(iso_date),
         max_date: max_date.map(iso_date),
     }
-}
-
-fn build_transaction_rows(
-    transactions: &[Transaction],
-    events: &[TaxableEvent],
-    filtered_events: &[&TaxableEvent],
-    filter: &EventFilter,
-) -> Vec<TransactionRow> {
-    // Build transaction_id -> event_ids mapping
-    let mut tx_event_map: HashMap<String, Vec<usize>> = HashMap::new();
-    for e in filtered_events {
-        tx_event_map
-            .entry(e.source_transaction_id.clone())
-            .or_default()
-            .push(e.id);
-    }
-    let has_events: HashSet<&str> = events
-        .iter()
-        .map(|e| e.source_transaction_id.as_str())
-        .collect();
-
-    // A transaction is shown when the filter keeps one of its events, or --
-    // for transactions with no taxable events (sterling moves, linked
-    // transfers) -- when it falls in the date range and involves the asset.
-    let shown = |tx: &&Transaction| {
-        if has_events.contains(tx.id.as_str()) {
-            return tx_event_map.contains_key(&tx.id);
-        }
-        filter.event_kind.is_none()
-            && filter.matches_date(uk_date(tx.datetime))
-            && transaction_assets(tx).any(|a| filter.matches_asset(a))
-    };
-
-    // Build transaction rows
-    transactions
-        .iter()
-        .filter(shown)
-        .map(|tx| {
-            let amount = |label: &str, a: &crate::core::transactions::Amount| TransactionAmount {
-                label: label.to_string(),
-                asset: a.asset.clone(),
-                quantity: quantity_string(a.quantity),
-            };
-            let amounts = match &tx.details {
-                TransactionType::Trade { sold, bought } => {
-                    vec![amount("Sold", sold), amount("Bought", bought)]
-                }
-                TransactionType::Deposit { amount: a, .. }
-                | TransactionType::Withdrawal { amount: a, .. } => vec![amount("Amount", a)],
-                TransactionType::Demerger { new_holding, .. } => {
-                    vec![amount("New holding", new_holding)]
-                }
-                TransactionType::RightsIssue { new_shares, .. } => {
-                    vec![amount("New shares", new_shares)]
-                }
-                TransactionType::SmallCapitalDistribution { amount: gbp, .. } => {
-                    vec![TransactionAmount {
-                        label: "Distribution".to_string(),
-                        asset: "GBP".to_string(),
-                        quantity: pence_string(*gbp),
-                    }]
-                }
-                // The fee is the whole transaction, shown in its own column.
-                TransactionType::Fee {} => vec![],
-            };
-            let transaction_type = tx.details.type_name().to_string();
-
-            let fee = tx.fee.as_ref().map(|f| TransactionFee {
-                asset: f.asset.clone(),
-                amount: quantity_string(f.amount),
-            });
-
-            let event_ids = tx_event_map.get(&tx.id).cloned().unwrap_or_default();
-
-            TransactionRow {
-                id: tx.id.clone(),
-                datetime: uk_rfc3339(tx.datetime),
-                tax_year: TaxYear::from_date(uk_date(tx.datetime)).display(),
-                account: tx.account.clone(),
-                transaction_type,
-                tag: tx.tag,
-                description: tx.description.clone().unwrap_or_default(),
-                amounts,
-                fee,
-                assets: distinct_assets(tx),
-                event_ids,
-            }
-        })
-        .collect()
-}
-
-/// Every asset a transaction moves, including its fee asset.
-fn transaction_assets(tx: &Transaction) -> impl Iterator<Item = &str> {
-    tx.details
-        .assets()
-        .into_iter()
-        .chain(tx.fee.as_ref().map(|f| f.asset.as_str()))
-}
-
-/// `transaction_assets` without repeats, in first-seen order.
-fn distinct_assets(tx: &Transaction) -> Vec<String> {
-    transaction_assets(tx).fold(Vec::new(), |mut assets, a| {
-        if !assets.iter().any(|seen| seen == a) {
-            assets.push(a.to_string());
-        }
-        assets
-    })
 }
 
 /// Group event warnings into one record per distinct warning value, ordered
