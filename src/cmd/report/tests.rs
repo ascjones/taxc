@@ -29,7 +29,7 @@ fn gift_event_types_in_report_data() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     let event_types: Vec<&str> = data.events.iter().map(|e| e.event_type.as_str()).collect();
     assert_eq!(event_types, vec!["GiftIn", "GiftOut"]);
@@ -53,7 +53,7 @@ fn same_day_duplicate_acquisitions_link_to_first_row() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     let disposal = data
         .events
@@ -94,7 +94,7 @@ fn bnb_duplicate_acquisitions_link_to_first_row() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     let disposal = data
         .events
@@ -141,7 +141,7 @@ fn warning_records_grouped_by_value_and_ordered_by_first_event() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(
         data.warnings.len(),
@@ -178,7 +178,7 @@ fn warning_records_distinct_insufficient_cost_basis_values_stay_separate() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(
         data.warnings.len(),
@@ -206,7 +206,7 @@ fn warning_records_same_first_event_tie_breaks_deterministically() {
     }];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     // The tie-breaker is Warning's derived Ord, i.e. variant declaration
     // order, so UnclassifiedEvent sorts before InsufficientCostBasis.
@@ -245,7 +245,7 @@ fn summary_includes_dividend_and_interest_totals() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(data.summary.total_income, "1500.00");
     assert_eq!(data.summary.total_dividend_income, "200.00");
@@ -274,7 +274,7 @@ fn summary_separates_crypto_and_stock_cgt_totals() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     // Combined totals
     assert_eq!(data.summary.total_proceeds, "27000.00");
@@ -316,7 +316,7 @@ fn report_rule_label_is_pool_for_pure_pool_disposal() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(disposal_cgt(&data).rule, "Pool");
 }
@@ -337,7 +337,7 @@ fn report_rule_label_is_mixed_for_multi_component_disposal() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(disposal_cgt(&data).rule, "Mixed");
 }
@@ -356,7 +356,7 @@ fn report_summary_aggregates_unclassified_disposals_separately() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     assert_eq!(data.summary.unclassified_count, 1);
     assert_eq!(data.summary.total_gain, "0.00"); // unclassified excluded
@@ -382,7 +382,7 @@ fn no_gain_no_loss_report_value_uses_cost_basis_with_note() {
     ];
 
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
 
     let ngnl = data
         .events
@@ -403,26 +403,16 @@ fn event_datetime_is_rendered_in_uk_local_time() {
         ..acq("2024-04-05", "BTC", dec!(1), dec!(1000))
     }];
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
     assert_eq!(data.events[0].datetime, "2024-04-06T00:30:00+01:00");
     assert_eq!(data.events[0].tax_year, "2024/25");
 }
 
 /// Parse a document and convert it the way the CLI does.
-fn load(
-    json: &str,
-) -> (
-    Vec<crate::core::transactions::Transaction>,
-    Vec<TaxableEvent>,
-) {
+fn load(json: &str) -> Vec<TaxableEvent> {
     let (txs, registry) = crate::core::read_transactions_json(json.as_bytes()).unwrap();
-    let events = crate::core::transactions_to_events(
-        &txs,
-        &registry,
-        crate::core::ConversionOptions::default(),
-    )
-    .unwrap();
-    (txs, events)
+    crate::core::transactions_to_events(&txs, &registry, crate::core::ConversionOptions::default())
+        .unwrap()
 }
 
 const TWO_ASSETS: &str = r#"{
@@ -443,40 +433,14 @@ const TWO_ASSETS: &str = r#"{
 }"#;
 
 #[test]
-fn transaction_rows_respect_the_asset_filter() {
-    let (txs, events) = load(TWO_ASSETS);
-    let cgt_report = calculate_cgt(events.clone());
-    let filter = EventFilter {
-        asset: Some("BTC".to_string()),
-        ..no_filter()
-    };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
-    let ids: Vec<&str> = data.transactions.iter().map(|t| t.id.as_str()).collect();
-    assert_eq!(ids, vec!["btc-buy", "btc-sell", "btc-rebuy"]);
-}
-
-#[test]
-fn transaction_rows_respect_the_date_filter() {
-    let (txs, events) = load(TWO_ASSETS);
-    let cgt_report = calculate_cgt(events.clone());
-    let filter = EventFilter {
-        from: chrono::NaiveDate::from_ymd_opt(2024, 6, 1),
-        ..no_filter()
-    };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
-    let ids: Vec<&str> = data.transactions.iter().map(|t| t.id.as_str()).collect();
-    assert_eq!(ids, vec!["btc-sell", "btc-rebuy"]);
-}
-
-#[test]
 fn bnb_link_survives_when_the_acquisition_is_outside_the_filter() {
-    let (txs, events) = load(TWO_ASSETS);
+    let events = load(TWO_ASSETS);
     let cgt_report = calculate_cgt(events.clone());
     let filter = EventFilter {
         to: chrono::NaiveDate::from_ymd_opt(2024, 6, 5),
         ..no_filter()
     };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let data = build_report_data(&events, &cgt_report, &filter);
     let sale = data
         .events
         .iter()
@@ -504,7 +468,7 @@ fn report_quantities_use_the_canonical_rendering() {
         ..acq("2024-05-01", "ETH", dec!(1.1234567890), dec!(1000))
     }];
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
     assert_eq!(data.events[0].quantity, "1.12345679");
 }
 
@@ -526,87 +490,8 @@ fn summary_disposal_count_excludes_unclassified_like_taxc_summary() {
         },
     ];
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&[], &events, &cgt_report, &no_filter());
+    let data = build_report_data(&events, &cgt_report, &no_filter());
     assert_eq!(data.summary.disposal_count, 1);
-}
-
-#[cfg(unix)]
-#[test]
-fn private_temp_report_is_unique_and_owner_only() {
-    use std::os::unix::fs::PermissionsExt;
-    let a = write_private_temp("<html>a</html>").unwrap();
-    let b = write_private_temp("<html>b</html>").unwrap();
-    assert_ne!(a, b, "each run gets its own file");
-    assert_eq!(std::fs::read_to_string(&a).unwrap(), "<html>a</html>");
-    let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o600);
-    let _ = std::fs::remove_file(a);
-    let _ = std::fs::remove_file(b);
-}
-
-const WITH_EVENTLESS: &str = r#"{
-  "assets": [
-    {"symbol": "BTC", "asset_class": "Crypto"},
-    {"symbol": "ETH", "asset_class": "Crypto"}
-  ],
-  "transactions": [
-    {"id": "gbp-in", "datetime": "2024-05-01T10:00:00Z", "account": "k", "type": "Deposit",
-     "amount": {"asset": "GBP", "quantity": 1000}},
-    {"id": "btc-buy", "datetime": "2024-05-02T10:00:00Z", "account": "k", "type": "Trade",
-     "sold": {"asset": "GBP", "quantity": 1000}, "bought": {"asset": "BTC", "quantity": 1}},
-    {"id": "btc-out", "datetime": "2024-06-01T10:00:00Z", "account": "k", "type": "Withdrawal",
-     "amount": {"asset": "BTC", "quantity": 1}, "linked_deposit": "btc-in"},
-    {"id": "btc-in", "datetime": "2024-06-01T10:05:00Z", "account": "ledger", "type": "Deposit",
-     "amount": {"asset": "BTC", "quantity": 1}, "linked_withdrawal": "btc-out"},
-    {"id": "eth-buy", "datetime": "2024-06-02T10:00:00Z", "account": "k", "type": "Trade",
-     "sold": {"asset": "GBP", "quantity": 500}, "bought": {"asset": "ETH", "quantity": 1}}
-  ]
-}"#;
-
-fn shown_ids(filter: EventFilter) -> Vec<String> {
-    let (txs, events) = load(WITH_EVENTLESS);
-    let cgt_report = calculate_cgt(events.clone());
-    build_report_data(&txs, &events, &cgt_report, &filter)
-        .transactions
-        .into_iter()
-        .map(|t| t.id)
-        .collect()
-}
-
-#[test]
-fn eventless_transactions_follow_the_date_and_asset_filters() {
-    // The GBP deposit and the exact linked BTC pair produce no events.
-    assert_eq!(
-        shown_ids(no_filter()),
-        vec!["gbp-in", "btc-buy", "btc-out", "btc-in", "eth-buy"]
-    );
-    assert_eq!(
-        shown_ids(EventFilter {
-            asset: Some("BTC".to_string()),
-            ..no_filter()
-        }),
-        vec!["btc-buy", "btc-out", "btc-in"]
-    );
-    assert_eq!(
-        shown_ids(EventFilter {
-            from: chrono::NaiveDate::from_ymd_opt(2024, 6, 1),
-            ..no_filter()
-        }),
-        vec!["btc-out", "btc-in", "eth-buy"]
-    );
-}
-
-#[test]
-fn eventless_transactions_are_hidden_under_an_event_kind_filter() {
-    // An event-kind filter selects events; a transaction without any has none
-    // of that kind.
-    assert_eq!(
-        shown_ids(EventFilter {
-            event_kind: Some(EventKind::Acquisition),
-            ..no_filter()
-        }),
-        vec!["btc-buy", "eth-buy"]
-    );
 }
 
 const REORGANISATIONS: &str = include_str!("../../../tests/data/reorganisations.json");
@@ -622,13 +507,13 @@ fn row<'a>(data: &'a ReportData, source_transaction_id: &str) -> &'a EventRow {
 fn demerger_is_listed_as_an_adjustment_and_not_counted_as_a_disposal() {
     // A demerger and a same-day sale of the new holding report one
     // disposal; the demerger is listed as "Demerger".
-    let (txs, events) = load(REORGANISATIONS);
+    let events = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
     let filter = EventFilter {
         asset: Some("MICC".to_string()),
         ..no_filter()
     };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let data = build_report_data(&events, &cgt_report, &filter);
 
     assert_eq!(data.summary.disposal_count, 1);
     // 2,160.65 - 3.98 fee - 1,892.34 moved cost
@@ -647,13 +532,13 @@ fn demerger_is_listed_as_an_adjustment_and_not_counted_as_a_disposal() {
 #[test]
 fn distribution_above_cost_row_shows_its_gain_and_warning() {
     // £50 on a holding that cost £30.
-    let (txs, events) = load(REORGANISATIONS);
+    let events = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
     let filter = EventFilter {
         asset: Some("X".to_string()),
         ..no_filter()
     };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let data = build_report_data(&events, &cgt_report, &filter);
 
     let distribution = row(&data, "x-distribution");
     assert_eq!(distribution.event_type, "SmallCapitalDistribution");
@@ -673,13 +558,13 @@ fn distribution_above_cost_row_shows_its_gain_and_warning() {
 
 #[test]
 fn adjustment_event_kind_filter_keeps_only_adjustments() {
-    let (txs, events) = load(REORGANISATIONS);
+    let events = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
     let filter = EventFilter {
         event_kind: Some(EventKind::Adjustment),
         ..no_filter()
     };
-    let data = build_report_data(&txs, &events, &cgt_report, &filter);
+    let data = build_report_data(&events, &cgt_report, &filter);
 
     let mut types: Vec<&str> = data.events.iter().map(|e| e.event_type.as_str()).collect();
     types.sort();
@@ -695,36 +580,10 @@ fn adjustment_event_kind_filter_keeps_only_adjustments() {
 }
 
 #[test]
-fn reorganisation_and_fee_transactions_are_listed_with_their_events() {
-    let (txs, events) = load(REORGANISATIONS);
+fn fee_transaction_is_listed_as_a_disposal_row() {
+    let events = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&txs, &events, &cgt_report, &no_filter());
-
-    let tx = |id: &str| data.transactions.iter().find(|t| t.id == id).unwrap();
-    let amounts = |id: &str| -> Vec<(String, String, String)> {
-        tx(id)
-            .amounts
-            .iter()
-            .map(|a| (a.label.clone(), a.asset.clone(), a.quantity.clone()))
-            .collect()
-    };
-    let owned = |l: &str, a: &str, q: &str| (l.to_string(), a.to_string(), q.to_string());
-
-    assert_eq!(tx("ulvr-demerger").transaction_type, "Demerger");
-    assert_eq!(
-        amounts("ulvr-demerger"),
-        [owned("New holding", "MICC", "177")]
-    );
-    assert_eq!(tx("csn-rights").transaction_type, "RightsIssue");
-    assert_eq!(amounts("csn-rights"), [owned("New shares", "CSN", "1473")]);
-    assert_eq!(tx("ulvr-cash").transaction_type, "SmallCapitalDistribution");
-    assert_eq!(
-        amounts("ulvr-cash"),
-        [owned("Distribution", "GBP", "21.64")]
-    );
-    assert_eq!(tx("dot-fee").transaction_type, "Fee");
-    assert!(amounts("dot-fee").is_empty());
-    assert_eq!(tx("dot-fee").event_ids.len(), 1);
+    let data = build_report_data(&events, &cgt_report, &no_filter());
     assert_eq!(row(&data, "dot-fee").event_type, "Disposal");
 }
 
@@ -733,7 +592,7 @@ fn event_kind_filters_keep_a_distribution_gain_with_its_row() {
     // The X distribution's £20 excess gain belongs to an adjustment row, so
     // it follows the adjustment filter, never the disposal one: the summary
     // must total exactly the gains of the rows listed.
-    let (txs, events) = load(REORGANISATIONS);
+    let events = load(REORGANISATIONS);
     let cgt_report = calculate_cgt(events.clone());
     for (kind, expected_gain, expected_count) in [
         (EventKind::Adjustment, "20.00", 1),
@@ -744,7 +603,7 @@ fn event_kind_filters_keep_a_distribution_gain_with_its_row() {
             event_kind: Some(kind),
             ..no_filter()
         };
-        let data = build_report_data(&txs, &events, &cgt_report, &filter);
+        let data = build_report_data(&events, &cgt_report, &filter);
         let listed: Decimal = data
             .events
             .iter()
@@ -755,25 +614,4 @@ fn event_kind_filters_keep_a_distribution_gain_with_its_row() {
         assert_eq!(pence_string(listed), expected_gain, "{kind:?}");
         assert_eq!(data.summary.disposal_count, expected_count, "{kind:?}");
     }
-}
-
-#[test]
-fn transaction_rows_list_every_asset_they_touch() {
-    // The HTML asset filter matches on these, so a fee-only transaction must
-    // name its fee asset and a demerger its original holding.
-    let (txs, events) = load(REORGANISATIONS);
-    let cgt_report = calculate_cgt(events.clone());
-    let data = build_report_data(&txs, &events, &cgt_report, &no_filter());
-    let assets = |id: &str| {
-        data.transactions
-            .iter()
-            .find(|t| t.id == id)
-            .unwrap()
-            .assets
-            .clone()
-    };
-    assert_eq!(assets("dot-fee"), ["DOT"]);
-    assert_eq!(assets("ulvr-demerger"), ["ULVR", "MICC"]);
-    assert_eq!(assets("ulvr-cash"), ["ULVR"]);
-    assert_eq!(assets("micc-sale"), ["MICC", "GBP"]);
 }

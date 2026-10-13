@@ -12,7 +12,7 @@ cargo install --git https://github.com/ascjones/taxc
 
 ```
 taxc summary transactions.json -y 2025   # aggregated tax calculations
-taxc report transactions.json            # interactive HTML report
+taxc report transactions.json            # detailed JSON report
 taxc pools transactions.json --daily     # section 104 pool history
 taxc schema input                        # input format reference
 ```
@@ -23,7 +23,7 @@ All commands take an optional positional `FILE` (JSON); if omitted or `-`, input
 
 Aggregated CGT and income calculations. Filter with `-y 2025` or `--from`/`--to`; add `--json` for machine-readable output, `-t higher` for a different tax band.
 
-In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report --json`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields are numbers (`dividend_rate_pct` can be fractional, e.g. `8.75`); `dividend_allowance` is the money amount of the year's dividend allowance. `cgt_rate_pct` is `null` whenever no single rate explains `estimated_cgt` — the years summed apply different rates, or the year is 2024/25, whose rates changed on 30 October 2024. `estimated_cgt` is always authoritative.
+In `--json` output every monetary field is a 2dp string (`"12345.67"`), matching `taxc report`, so amounts survive JSON parsing exactly. Counts and the `*_rate_pct` fields are numbers (`dividend_rate_pct` can be fractional, e.g. `8.75`); `dividend_allowance` is the money amount of the year's dividend allowance. `cgt_rate_pct` is `null` whenever no single rate explains `estimated_cgt` — the years summed apply different rates, or the year is 2024/25, whose rates changed on 30 October 2024. `estimated_cgt` is always authoritative.
 
 When the selected range spans more than one tax year, each year is summarised on its own — with that year's AEA and rates, and losses netted only within the year — and the totals are the sums. The text output prints a block per year; the JSON carries the per-year figures in `years` and the sums at the top level, where `tax_year` reads e.g. `"2022/23 to 2024/25"` and a `*_rate_pct` is `null` if the years' rates differ. Use `-y` to select a single year.
 
@@ -33,7 +33,7 @@ Salary is treated as PAYE-settled (already taxed at source): it is reported on i
 
 ### `taxc report`
 
-Self-contained HTML report, opened in your browser: summary cards, interactive filtering, sortable columns, expandable per-disposal detail (fees, warnings, matching), and a Tax Years view with a gain/loss chart. Use `-o file.html` to save instead, or `--json` for structured data. Timestamps are in UK local time, quantities use the same 8-decimal rounding as `taxc pools`, and `summary.disposal_count` counts classified disposals (unclassified ones are in the `*_with_unclassified` totals). The CLI filters (`-y`, `--from`/`--to`, `-a`, `--event-kind`) also narrow the Transactions tab.
+Detailed JSON report on stdout: every event with its fees, warnings and CGT matching, warnings grouped by value, and summary totals (`taxc schema output` for the schema). Use `-o file.json` to write it to a file. Timestamps are in UK local time, quantities use the same 8-decimal rounding as `taxc pools`, and `summary.disposal_count` counts classified disposals (unclassified ones are in the `*_with_unclassified` totals). The CLI filters (`-y`, `--from`/`--to`, `-a`, `--event-kind`) narrow the events and the summary.
 
 Pool adjustments (demergers, rights issues, small capital distributions) are listed as events with `event_kind: "adjustment"` and `event_type` naming the reorganisation. They are never disposals, acquisitions or income in any total, with one exception: when a small capital distribution exceeds its pool's cost, its row carries the excess as a gain (`cgt`) with a `CapitalDistributionExceedsCost` warning, and that gain counts in the totals like a disposal's. It follows its row under `--event-kind`: `adjustment` keeps it, `disposal` leaves it out.
 

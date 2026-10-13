@@ -9,7 +9,7 @@ use schemars::schema_for;
 pub enum SchemaType {
     /// Input transaction format
     Input,
-    /// Output report format (JSON mode)
+    /// Output report format (`taxc report`)
     Output,
 }
 

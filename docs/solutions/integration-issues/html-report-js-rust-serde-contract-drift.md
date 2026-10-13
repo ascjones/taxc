@@ -30,6 +30,8 @@ tags:
 
 # HTML report JS drifted from Rust serde JSON contract: warning badges and matched-acquisition links silently broken
 
+> **Status (2026-10-13):** the HTML report was removed; `taxc report` now outputs only JSON. The lesson still applies to any UI built on that JSON: it must consume the serde contract (`taxc schema output`), not a guess at it.
+
 ## Problem
 
 The HTML report's JavaScript (`src/cmd/report/html/report.js`) silently drifted from the serde JSON contract produced by Rust (`src/cmd/report/mod.rs`): warning objects were parsed with the wrong serde enum shape, and matched-acquisition links used array indices instead of event ids. Users saw warning badges rendering the literal word "type", warning counts/highlights missing entirely, and every matched-acquisition navigation link (~3,608 of them in realistic data) dead.

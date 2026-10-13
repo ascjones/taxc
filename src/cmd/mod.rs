@@ -14,15 +14,6 @@ use std::path::Path;
 
 /// Read transactions (JSON) and convert to events (or stdin with "-")
 pub fn read_events(path: &Path, exclude_unlinked: bool) -> anyhow::Result<Vec<TaxableEvent>> {
-    let (_, events) = read_transactions_and_events(path, exclude_unlinked)?;
-    Ok(events)
-}
-
-/// Read transactions and convert to events, returning both
-pub fn read_transactions_and_events(
-    path: &Path,
-    exclude_unlinked: bool,
-) -> anyhow::Result<(Vec<Transaction>, Vec<TaxableEvent>)> {
     let options = ConversionOptions { exclude_unlinked };
     let (transactions, registry) = if path.as_os_str() == "-" {
         read_json_from_stdin()?
@@ -31,8 +22,11 @@ pub fn read_transactions_and_events(
         let reader = BufReader::new(file);
         core::read_transactions_json(reader)?
     };
-    let events = core::transactions_to_events(&transactions, &registry, options)?;
-    Ok((transactions, events))
+    Ok(core::transactions_to_events(
+        &transactions,
+        &registry,
+        options,
+    )?)
 }
 
 fn read_json_from_stdin() -> anyhow::Result<(Vec<Transaction>, core::transactions::AssetRegistry)> {
